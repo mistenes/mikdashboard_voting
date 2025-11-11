@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="hu">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MikDashboard – Pénzügyi áttekintés</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body class="simple-bg" data-member-page="penzugyek">
+    <main class="member-container">
+      <header class="member-header">
+        <div>
+          <h1 id="member-organization-name">Szervezet</h1>
+          <p id="member-access-status" class="muted"></p>
+        </div>
+        <button id="member-sign-out" type="button" class="ghost-btn">Kijelentkezés</button>
+      </header>
+      <p id="member-status" class="status" role="status"></p>
+      <nav class="member-nav" aria-label="Tag menü">
+        <a href="#" data-member-link="tagok" class="member-nav-link">Tagi menü</a>
+        <a href="#" data-member-link="szavazas" class="member-nav-link">Szavazás</a>
+        <a href="#" data-member-link="penzugyek" class="member-nav-link active">Pénzügyek</a>
+      </nav>
+
+      <section class="auth-card" aria-labelledby="financials-title">
+        <h2 id="financials-title">Pénzügyi lehetőségek</h2>
+        <p>
+          A pénzügyi modul fejlesztés alatt áll. Itt fogod megtalálni a kimutatásokat, a befizetések listáját és a letölthető bizonylatokat.
+        </p>
+        <p class="muted">
+          Addig is kérjük, keresd a szervezet adminisztrátorát, ha pénzügyi információra van szükséged.
+        </p>
+      </section>
+    </main>
+    <script type="module" src="/static/member.js"></script>
+  </body>
+</html>

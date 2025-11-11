@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="hu">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MikDashboard – Admin áttekintés</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body class="simple-bg" data-admin-page="overview">
+    <div class="admin-shell">
+      <aside class="admin-sidebar">
+        <div class="sidebar-brand">
+          <h1>MikDashboard</h1>
+          <p>Admin vezérlőpult</p>
+        </div>
+        <nav class="sidebar-nav" aria-label="Admin menü">
+          <a href="/admin" class="sidebar-link active">Áttekintés</a>
+          <a href="/admin/szervezetek" class="sidebar-link">Szervezetek</a>
+          <a href="/admin/jelentkezok" class="sidebar-link">Függő regisztrációk</a>
+          <span class="sidebar-divider" aria-hidden="true"></span>
+          <span class="sidebar-link placeholder" aria-disabled="true">Riportok (hamarosan)</span>
+          <span class="sidebar-link placeholder" aria-disabled="true">Beállítások (hamarosan)</span>
+        </nav>
+        <div class="sidebar-footer">
+          <button id="admin-sign-out" type="button" class="ghost-btn sidebar-logout">
+            Kijelentkezés
+          </button>
+        </div>
+      </aside>
+      <main class="admin-container">
+        <header class="admin-header">
+          <div>
+            <h1>Áttekintés</h1>
+            <p class="lead">
+              Tekintsd át gyorsan a szervezetek állapotát, a taglétszámot és az új regisztrációkat.
+            </p>
+          </div>
+          <div class="admin-actions">
+            <button type="button" class="primary-btn" data-admin-refresh>Frissítés</button>
+          </div>
+        </header>
+        <p id="admin-status" class="status" role="status"></p>
+
+        <section class="overview-grid" aria-label="Statisztikák">
+          <article class="stat-card">
+            <h2>Aktív szervezetek</h2>
+            <p id="overview-org-count" class="stat-value">0</p>
+          </article>
+          <article class="stat-card">
+            <h2>Összes tag</h2>
+            <p id="overview-member-count" class="stat-value">0</p>
+          </article>
+          <article class="stat-card">
+            <h2>Függő regisztrációk</h2>
+            <p id="overview-pending-count" class="stat-value">0</p>
+          </article>
+        </section>
+
+        <p id="overview-unpaid-banner" class="alert-banner" hidden>
+          Több szervezet tagsági díja rendezetlen.
+        </p>
+
+        <section class="auth-card" aria-labelledby="next-steps-title">
+          <h2 id="next-steps-title">Következő lépések</h2>
+          <ul class="checklist">
+            <li>Nézd át a <a href="/admin/szervezetek">szervezetek listáját</a> és frissítsd a díj státuszokat.</li>
+            <li>Vizsgáld meg a <a href="/admin/jelentkezok">függő regisztrációkat</a> és dönts róluk.</li>
+            <li>Készíts elő banki adatokat, hogy a tagok gyorsan rendezni tudják a díjakat.</li>
+          </ul>
+        </section>
+      </main>
+    </div>
+    <script type="module" src="/static/admin.js"></script>
+  </body>
+</html>
