@@ -72,9 +72,10 @@ provided blueprint or the manual setup steps below.
 1. Make sure the repository is available in your Git provider (GitHub, GitLab,
    or Bitbucket).
 2. From the Render dashboard, choose **New ➝ Blueprint** and select this
-   repository. Render will detect the `render.yaml` file.
+   repository. Render will detect the root-level `render.yaml` file.
 3. Accept the defaults or adjust the service/database names as desired, then
-   click **Apply** to provision the PostgreSQL database and web service.
+   click **Apply** to provision the PostgreSQL database, the dashboard web
+   service, and the separate voting web service.
 4. Render currently defaults Python services to version 3.13, which is
    incompatible with Pydantic 1.x on this project. The blueprint pins the
    `PYTHON_VERSION` environment variable to `3.11.9` so the app runs on a
