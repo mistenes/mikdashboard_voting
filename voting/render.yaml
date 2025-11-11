@@ -1,0 +1,35 @@
+services:
+  - type: web
+    name: mikdashboard-web
+    env: python
+    plan: starter
+    region: frankfurt
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: DATABASE_URL
+        fromDatabase:
+          name: mikdashboard-db
+          property: connectionString
+      - key: ADMIN_EMAILS
+        value: admin@example.com
+      - key: ADMIN_EMAIL
+        value: admin@example.com
+      - key: ADMIN_PASSWORD
+        value: change-me
+      - key: ADMIN_FIRST_NAME
+        value: Rendszer
+      - key: ADMIN_LAST_NAME
+        value: Adminisztrátor
+      - key: RECAPTCHA_SITE_KEY
+        value: ""
+      - key: RECAPTCHA_SECRET_KEY
+        value: ""
+    autoDeploy: true
+
+databases:
+  - name: mikdashboard-db
+    plan: free
+    region: frankfurt
