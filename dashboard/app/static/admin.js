@@ -742,8 +742,9 @@ function renderEventsList(events) {
 
     const badge = document.createElement("span");
     badge.classList.add("badge");
-    badge.classList.add(event.is_active ? "badge-success" : "badge-muted");
-    badge.textContent = event.is_active ? "Aktív" : "Inaktív";
+    const votingEnabled = Boolean(event.is_voting_enabled);
+    badge.classList.add(votingEnabled ? "badge-success" : "badge-muted");
+    badge.textContent = votingEnabled ? "Aktív" : "Inaktív";
     header.appendChild(badge);
 
     const description = document.createElement("p");
