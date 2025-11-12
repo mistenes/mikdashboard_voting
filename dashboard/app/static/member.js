@@ -248,6 +248,10 @@ async function fetchSessionUser() {
     }, 1200);
     throw new Error("Nincs bejelentkezett felhasználó");
   }
+  if (sessionStorage.getItem("mustChangePassword") === "1") {
+    window.location.href = "/jelszo-frissites";
+    throw new Error("Jelszócsere szükséges");
+  }
   return requestJSON("/api/me");
 }
 

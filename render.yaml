@@ -25,6 +25,14 @@ services:
         value: Rendszer
       - key: ADMIN_LAST_NAME
         value: Adminisztrátor
+      - key: PUBLIC_BASE_URL
+        value: https://mikdashboard-dashboard.onrender.com
+      - key: BREVO_API_KEY
+        value: ""
+      - key: BREVO_SENDER_EMAIL
+        value: noreply@mikdashboard.hu
+      - key: BREVO_SENDER_NAME
+        value: MikDashboard
       - key: RECAPTCHA_SITE_KEY
         value: ""
       - key: RECAPTCHA_SECRET_KEY
@@ -51,6 +59,10 @@ services:
         value: "300"
       - key: VOTING_SESSION_TTL_SECONDS
         value: "3600"
+      - key: ADMIN_EMAIL
+        value: admin@example.com
+      - key: ADMIN_PASSWORD
+        value: change-me
 
 databases:
   - name: mikdashboard-db

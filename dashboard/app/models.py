@@ -52,6 +52,7 @@ class User(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     is_voting_delegate = Column(Boolean, default=False, nullable=False)
+    must_change_password = Column(Boolean, default=False, nullable=False)
 
     organization = relationship("Organization", back_populates="users")
     verification_tokens = relationship("EmailVerificationToken", back_populates="user")

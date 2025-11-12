@@ -85,11 +85,66 @@ def register_user(
     return token
 
 
-def queue_verification_email(token: EmailVerificationToken) -> str:
-    """Simulate enqueueing a verification e-mail for asynchronous delivery."""
+def queue_verification_email(
+    token: EmailVerificationToken,
+    *,
+    base_url: str = "",
+    api_key: str | None = None,
+    sender_email: str | None = None,
+    sender_name: str | None = None,
+) -> str:
     if token.status == VerificationStatus.pending:
         token.status = VerificationStatus.sent
-    verification_link = f"/verify-email?token={token.token}"
+
+    base = base_url.rstrip("/") if base_url else ""
+    verification_path = f"/api/verify-email?token={token.token}"
+    verification_link = f"{base}{verification_path}" if base else verification_path
+
+    if not api_key or not sender_email:
+        return verification_link
+
+    recipient_name_parts = [token.user.first_name or "", token.user.last_name or ""]
+    recipient_name = " ".join(part for part in recipient_name_parts if part).strip()
+    if not recipient_name:
+        recipient_name = token.user.email
+
+    payload = {
+        "sender": {"email": sender_email, "name": sender_name or sender_email},
+        "to": [{"email": token.user.email, "name": recipient_name}],
+        "subject": "Erősítsd meg az e-mail címedet",
+        "htmlContent": (
+            "<p>Köszönjük a regisztrációt a MikDashboard rendszerben.</p>"
+            "<p>A regisztráció befejezéséhez kattints az alábbi gombra:</p>"
+            f"<p><a href=\"{verification_link}\">E-mail cím megerősítése</a></p>"
+            "<p>Ha nem te kezdeményezted a regisztrációt, kérjük, hagyd figyelmen kívül ezt az üzenetet.</p>"
+        ),
+        "textContent": (
+            "Köszönjük a regisztrációt a MikDashboard rendszerben.\n"
+            "A regisztráció befejezéséhez másold a böngésződbe az alábbi linket:\n"
+            f"{verification_link}\n"
+            "Ha nem te kezdeményezted a regisztrációt, kérjük, hagyd figyelmen kívül ezt az üzenetet."
+        ),
+    }
+
+    headers = {
+        "accept": "application/json",
+        "api-key": api_key,
+        "content-type": "application/json",
+    }
+
+    try:
+        response = httpx.post(
+            "https://api.brevo.com/v3/smtp/email",
+            json=payload,
+            headers=headers,
+            timeout=15.0,
+        )
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise RegistrationError(
+            "Nem sikerült elküldeni az e-mail megerősítést. Kérjük, próbáld újra később."
+        ) from exc
+
     return verification_link
 
 
@@ -141,6 +196,27 @@ def authenticate_user(session: Session, *, email: str, password: str) -> User:
     if user.admin_decision != ApprovalDecision.approved:
         raise AuthenticationError("A fiókod adminisztrátori jóváhagyásra vár")
     return user
+
+
+def change_user_password(
+    session: Session,
+    *,
+    user: User,
+    current_password: str,
+    new_password: str,
+) -> SessionToken:
+    if not verify_password(current_password, user.password_salt, user.password_hash):
+        raise AuthenticationError("A jelenlegi jelszó nem megfelelő")
+
+    validate_password_strength(new_password)
+    salt, password_hash = hash_password(new_password)
+    user.password_salt = salt
+    user.password_hash = password_hash
+    user.must_change_password = False
+
+    session.query(SessionToken).where(SessionToken.user_id == user.id).delete()
+    session.flush()
+    return create_session_token(session, user=user)
 
 
 def pending_registrations(session: Session) -> Iterable[User]:

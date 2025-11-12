@@ -9,7 +9,8 @@ separate adminisztrációs felület.
 ## Features
 
 - Searchable organization directory surfaced on the registration form.
-- User registration API that queues a verification email and stores a token.
+- User registration API that stores a verification token and delivers the confirmation e-mail
+  through Brevo once the message sender is configured.
 - Email verification endpoint that flags the account as verified while waiting
   on administrator approval.
 - Admin review API with dedicated `/admin`, `/admin/szervezetek`, and `/admin/jelentkezok`
@@ -29,6 +30,8 @@ separate adminisztrációs felület.
 - Kötelező keresztnév és vezetéknév megadása, amely az admin felületen is látható.
 - Jelszó-erősségi ellenőrzés (legalább 8 karakter, nagybetű és speciális karakter) és Google
   reCAPTCHA védelem a regisztrációs űrlapon.
+- A seedelt adminisztrátor első bejelentkezéskor kötelezően új jelszót állít be a webes
+  jelszócsere felületen, mielőtt bármely funkciót használhatna.
 
 ## Getting started
 
@@ -87,11 +90,13 @@ provided blueprint or the manual setup steps below.
    and start the FastAPI server with `uvicorn app.main:app --host 0.0.0.0 --port
    $PORT`. The blueprint also wires the `DATABASE_URL` environment variable to
    the managed database and surfaces placeholders for `ADMIN_EMAILS`, `ADMIN_EMAIL`,
-   `ADMIN_PASSWORD`, `ADMIN_FIRST_NAME`, `ADMIN_LAST_NAME`, `RECAPTCHA_SITE_KEY`,
+   `ADMIN_PASSWORD`, `ADMIN_FIRST_NAME`, `ADMIN_LAST_NAME`, `PUBLIC_BASE_URL`,
+   `BREVO_API_KEY`, `BREVO_SENDER_EMAIL`, `BREVO_SENDER_NAME`, `RECAPTCHA_SITE_KEY`,
    `RECAPTCHA_SECRET_KEY`, `VOTING_SSO_SECRET`, `VOTING_APP_BASE_URL`, and
    `VOTING_SSO_TTL_SECONDS` so you can pre-authorize administrator accounts,
-   label the seeded admin, enable the Google reCAPTCHA integration, és beállíthatod
-   a szavazási webalkalmazás felé használt SSO titkot és átirányítási URL-t.
+   label the seeded admin, configure outbound e-mail delivery, enable the Google
+   reCAPTCHA integration, és beállíthatod a szavazási webalkalmazás felé használt
+   SSO titkot és átirányítási URL-t.
 
 ### Option B: Manual setup via the Render dashboard
 
@@ -113,16 +118,20 @@ provided blueprint or the manual setup steps below.
 6. (Optional) Provide `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_FIRST_NAME`, and
    `ADMIN_LAST_NAME` to seed or refresh a dedicated adminisztrátor account
    automatically.
-7. (Optional) Configure Google reCAPTCHA by setting `RECAPTCHA_SITE_KEY` and
+7. Állítsd be a `PUBLIC_BASE_URL` értékét a dashboard publikus URL-jére, majd
+   add meg a Brevo küldő adatait (`BREVO_API_KEY`, `BREVO_SENDER_EMAIL`,
+   `BREVO_SENDER_NAME`), hogy a regisztrációs visszaigazoló e-mailek ténylegesen
+   kiküldésre kerüljenek.
+8. (Optional) Configure Google reCAPTCHA by setting `RECAPTCHA_SITE_KEY` and
    `RECAPTCHA_SECRET_KEY`. When omitted, the regisztrációs űrlap captcha
    automatikusan letiltva marad.
-8. Állítsd be a `VOTING_SSO_SECRET`, `VOTING_APP_BASE_URL` és `VOTING_SSO_TTL_SECONDS`
+9. Állítsd be a `VOTING_SSO_SECRET`, `VOTING_APP_BASE_URL` és `VOTING_SSO_TTL_SECONDS`
    változókat ugyanazzal az értékkel, amit a szavazási webszolgáltatásnál használsz.
    Ezek biztosítják, hogy a tagi felület által generált SSO tokeneket a voting
    alkalmazás érvényesnek fogadja el.
 
-On the first startup the application will create the required tables and seed a
-set of demo organizations.
+On the first startup the application only creates the required tables; all
+organizations must now be added manually via the admin felület.
 
 ## Szavazási SSO és delegálás
 
@@ -141,5 +150,6 @@ set of demo organizations.
   változóval lehet módosítani.
 - A szavazási webszolgáltatás ugyanazzal a titokkal validálja a tokent, és
   `SameSite=Lax` HTTP-only sütiben tárolja a munkamenetet. Manuális bejelentkezés
-  továbbra is elérhető az admin (`admin/admin`), publikus (`public/public`)
-  és a demo `voter1`–`voter10` felhasználóknak.
+  kizárólag az adminisztrátor számára marad elérhető az `ADMIN_PASSWORD`
+  környezeti változóval megadott jelszóval; minden résztvevői hozzáférés
+  egyszeri bejelentkezéssel történik.

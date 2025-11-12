@@ -15,11 +15,9 @@ The dev server proxies `/api` requests to the local API server, so keep both pro
 
 Set the `VOTING_SSO_SECRET` environment variable before starting `npm run api`
 so the Express server can validate the dashboard által generált SSO tokeneket.
-Fejlesztés közben használhatók a beépített felhasználók is:
-
-- Adminisztrátor: `admin / admin`
-- Publikus megfigyelő: `public / public`
-- Szavazók: `voter1`–`voter10` a hozzájuk tartozó `p1`–`p10` jelszóval
+Fejlesztéshez add meg az `ADMIN_PASSWORD` (és opcionálisan az `ADMIN_EMAIL` vagy
+`ADMIN_USERNAME`) változókat is; manuális bejelentkezés csak az admin számára
+engedélyezett, minden más felhasználó az SSO átadáson keresztül éri el a rendszert.
 
 ## Deploy on Render
 
@@ -36,3 +34,7 @@ real-time voting API from the same Express server.
 - `VOTING_SSO_TTL_SECONDS`: A dashboard által jelzett token lejárati idő másodpercben.
 - `VOTING_SESSION_TTL_SECONDS`: Mennyi ideig marad érvényes egy bejelentkezett
   session (alapértelmezés szerint 3600 másodperc).
+- `ADMIN_PASSWORD`: Az adminisztrátori bejelentkezéshez használt jelszó. A
+  felhasználónév alapértelmezetten `admin`, de az `ADMIN_USERNAME` változóval
+  felülírható. Az `ADMIN_EMAIL` megadásával az admin munkamenet metaadataiban
+  is látszódni fog a cím.

@@ -59,6 +59,7 @@ async function requestJSON(url, options = {}) {
 function ensureAdminSession(silent = false) {
   const token = sessionStorage.getItem("authToken");
   const isAdmin = sessionStorage.getItem("isAdmin") === "1";
+  const mustChange = sessionStorage.getItem("mustChangePassword") === "1";
   if (!token || !isAdmin) {
     if (!silent) {
       setStatus(
@@ -69,6 +70,10 @@ function ensureAdminSession(silent = false) {
         window.location.href = "/";
       }, 1200);
     }
+    return false;
+  }
+  if (mustChange) {
+    window.location.href = "/jelszo-frissites";
     return false;
   }
   return true;

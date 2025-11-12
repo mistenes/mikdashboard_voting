@@ -242,7 +242,7 @@ input[type="text"]:focus, input[type="password"]:focus, input[type="number"]:foc
 
 
 /* Results Display */
-.admin-results, .public-view .results-container {
+.admin-results, .results-container {
     margin-top: 2rem;
     width: 100%;
 }

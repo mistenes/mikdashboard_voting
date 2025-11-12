@@ -22,8 +22,13 @@ following commands:
 - Voting build: `npm install && npm run build`
 - Voting start: `npm run start`
 
-Customize the admin credentials and optional Google reCAPTCHA keys by editing the environment
-variables under the dashboard service definition in the blueprint.
+Update the environment variables in the blueprint before the first deploy:
+
+- Set unique `ADMIN_EMAIL`/`ADMIN_PASSWORD` pairs for both services (the default username is
+  always `admin`). The dashboard forces a password change on first login.
+- Provide `BREVO_API_KEY`, `BREVO_SENDER_EMAIL`, and `PUBLIC_BASE_URL` so the registration
+  service can deliver verification emails through Brevo.
+- Optionally configure Google reCAPTCHA keys if you want captcha protection on sign-up forms.
 
 ## Local development
 

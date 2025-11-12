@@ -49,6 +49,7 @@ class LoginResponse(BaseModel):
     token: str
     organization_id: Optional[int] = None
     organization_fee_paid: Optional[bool] = None
+    must_change_password: bool = False
 
 
 class PendingUser(BaseModel):
@@ -154,3 +155,14 @@ class SimpleMessageResponse(BaseModel):
 class VotingSSOResponse(BaseModel):
     redirect: AnyHttpUrl
     expires_in: int
+
+
+class PasswordChangeRequest(BaseModel):
+    current_password: constr(min_length=1)
+    new_password: constr(min_length=8)
+
+
+class PasswordChangeResponse(BaseModel):
+    message: str
+    token: str
+    must_change_password: bool

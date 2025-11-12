@@ -18,7 +18,7 @@ interface SessionResponse {
     voteStartTime?: string | null;
 }
 
-type UserRole = 'admin' | 'voter' | 'public';
+type UserRole = 'admin' | 'voter';
 
 interface AuthUser {
     role: UserRole;
@@ -42,7 +42,7 @@ const toSessionData = (response: SessionResponse | null | undefined): SessionDat
         nem: Number(response?.results?.nem ?? DEFAULT_RESULTS.nem),
         tartozkodott: Number(response?.results?.tartozkodott ?? DEFAULT_RESULTS.tartozkodott),
     },
-    totalVoters: Number(response?.totalVoters ?? voterCredentials.length),
+    totalVoters: Number(response?.totalVoters ?? 0),
     voteStartTime: response?.voteStartTime ?? null,
 });
 
@@ -93,20 +93,6 @@ async function fetchAuthSession(): Promise<AuthUser | null> {
     const payload = (await response.json()) as AuthSessionResponse;
     return payload.user;
 }
-
-// --- Registered Voters ---
-const voterCredentials = [
-    { username: "voter1", password: "p1" },
-    { username: "voter2", password: "p2" },
-    { username: "voter3", password: "p3" },
-    { username: "voter4", password: "p4" },
-    { username: "voter5", password: "p5" },
-    { username: "voter6", password: "p6" },
-    { username: "voter7", password: "p7" },
-    { username: "voter8", password: "p8" },
-    { username: "voter9", password: "p9" },
-    { username: "voter10", password: "p10" },
-];
 
 // --- Helper Components ---
 
@@ -407,34 +393,6 @@ const VoterView = ({ sessionData, onLogout }: { sessionData: SessionData, onLogo
     );
 };
 
-const PublicView = ({ sessionData, onLogout }: { sessionData: SessionData, onLogout: () => void }) => {
-     const renderContent = () => {
-        switch (sessionData.status) {
-            case 'WAITING':
-                return <h2>Várakozás a szavazásra</h2>;
-            case 'IN_PROGRESS':
-                return <h2>Szavazás folyamatban...</h2>;
-            case 'FINISHED':
-                return (
-                    <>
-                        <h2>Eredmények</h2>
-                        <ResultsDisplay results={sessionData.results} totalVoters={sessionData.totalVoters} />
-                    </>
-                );
-            default:
-                return <p>Betöltés...</p>;
-        }
-    }
-    
-    return (
-        <div className="container view-container public-view">
-            <h1>Publikus nézet</h1>
-            {renderContent()}
-            <button onClick={onLogout} className="btn btn-secondary logout-button">Kijelentkezés</button>
-        </div>
-    );
-};
-
 const LoginScreen = ({ onLogin, error }: { onLogin: (u: string, p: string) => Promise<void> | void, error: string }) => {
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
@@ -583,8 +541,6 @@ const App = () => {
                 return <AdminView sessionData={sessionData} onLogout={handleLogout} onSessionUpdate={handleSessionUpdate} />;
             case 'voter':
                 return <VoterView sessionData={sessionData} onLogout={handleLogout} />;
-            case 'public':
-                return <PublicView sessionData={sessionData} onLogout={handleLogout} />;
             default:
                 return <LoginScreen onLogin={handleLogin} error={error} />;
         }

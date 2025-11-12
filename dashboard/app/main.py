@@ -23,6 +23,8 @@ from .schemas import (
     ErrorResponse,
     LoginRequest,
     LoginResponse,
+    PasswordChangeRequest,
+    PasswordChangeResponse,
     OrganizationBillingUpdate,
     OrganizationDetail,
     OrganizationFeeUpdate,
@@ -43,6 +45,7 @@ from .services import (
     AuthenticationError,
     RegistrationError,
     authenticate_user,
+    change_user_password,
     create_organization,
     create_session_token,
     decide_registration,
@@ -85,6 +88,10 @@ VOTING_SSO_TTL_SECONDS = int(os.getenv("VOTING_SSO_TTL_SECONDS", "300"))
 VOTING_APP_BASE_URL = (
     os.getenv("VOTING_APP_BASE_URL", "http://localhost:3001").strip() or "http://localhost:3001"
 )
+BREVO_API_KEY = os.getenv("BREVO_API_KEY", "").strip()
+BREVO_SENDER_EMAIL = os.getenv("BREVO_SENDER_EMAIL", "").strip()
+BREVO_SENDER_NAME = os.getenv("BREVO_SENDER_NAME", "MikDashboard").strip() or "MikDashboard"
+PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").strip()
 _VOTING_SSO_SECRET_BYTES = VOTING_SSO_SECRET.encode("utf-8")
 
 app = FastAPI(title="MikDashboard Registration Service")
@@ -97,9 +104,9 @@ def startup() -> None:
     ensure_billing_columns()
     ensure_is_admin_column()
     ensure_voting_delegate_column()
+    ensure_must_change_password_column()
     ensure_nullable_organization_column()
     ensure_name_columns()
-    seed_organizations()
     seed_admin_user()
     app.state.email_queue = []
 
@@ -158,6 +165,18 @@ def ensure_voting_delegate_column() -> None:
             )
 
 
+def ensure_must_change_password_column() -> None:
+    with engine.begin() as connection:
+        inspector = inspect(connection)
+        columns = {column["name"] for column in inspector.get_columns("users")}
+        if "must_change_password" not in columns:
+            connection.execute(
+                text(
+                    "ALTER TABLE users ADD COLUMN must_change_password BOOLEAN NOT NULL DEFAULT FALSE"
+                )
+            )
+
+
 def ensure_nullable_organization_column() -> None:
     with engine.begin() as connection:
         inspector = inspect(connection)
@@ -208,27 +227,6 @@ def build_voting_redirect_url(token: str) -> str:
     return f"{base}/sso?token={token}"
 
 
-def seed_organizations() -> None:
-    default_orgs = [
-        "Acme Industries",
-        "Globex Corporation",
-        "Initech",
-        "Stark Industries",
-        "Wayne Enterprises",
-        "Wonka Industries",
-        "Umbrella Corp",
-        "Soylent Corp",
-        "Gekko & Co.",
-    ]
-    with SessionLocal() as session:
-        existing = session.query(Organization).count()
-        if existing:
-            return
-        for name in default_orgs:
-            session.add(Organization(name=name))
-        session.commit()
-
-
 def seed_admin_user() -> None:
     if not ADMIN_EMAIL or not ADMIN_PASSWORD:
         return
@@ -250,6 +248,7 @@ def seed_admin_user() -> None:
             existing.first_name = ADMIN_FIRST_NAME
             existing.last_name = ADMIN_LAST_NAME
             existing.is_voting_delegate = True
+            existing.must_change_password = True
         else:
             user = User(
                 email=ADMIN_EMAIL,
@@ -262,6 +261,7 @@ def seed_admin_user() -> None:
                 is_email_verified=True,
                 admin_decision=ApprovalDecision.approved,
                 is_voting_delegate=True,
+                must_change_password=True,
             )
             session.add(user)
 
@@ -342,6 +342,11 @@ def login_page() -> FileResponse:
 @app.get("/register", response_class=FileResponse)
 def register_page() -> FileResponse:
     return FileResponse("app/static/register.html")
+
+
+@app.get("/jelszo-frissites", response_class=FileResponse)
+def password_change_page() -> FileResponse:
+    return FileResponse("app/static/password-change.html")
 
 
 @app.get("/admin", response_class=FileResponse)
@@ -470,7 +475,13 @@ def register(
             organization_id=payload.organization_id,
             is_admin=payload.email.lower() in ADMIN_EMAILS,
         )
-        link = queue_verification_email(token)
+        link = queue_verification_email(
+            token,
+            base_url=PUBLIC_BASE_URL,
+            api_key=BREVO_API_KEY or None,
+            sender_email=BREVO_SENDER_EMAIL or None,
+            sender_name=BREVO_SENDER_NAME,
+        )
         db.commit()
     except RegistrationError as exc:
         db.rollback()
@@ -479,7 +490,8 @@ def register(
         {
             "email": payload.email,
             "token": token.token,
-            "verification_path": link,
+            "verification_link": link,
+            "sent_via": "brevo" if BREVO_API_KEY and BREVO_SENDER_EMAIL else "noop",
         }
     )
     message = "Sikeres regisztráció. Kérjük, erősítsd meg az e-mail címedet."
@@ -555,6 +567,39 @@ def login(request: LoginRequest, db: DatabaseDependency) -> LoginResponse:
         token=session_token.token,
         organization_id=organization_id,
         organization_fee_paid=organization_fee_paid,
+        must_change_password=user.must_change_password,
+    )
+
+
+@app.post(
+    "/api/change-password",
+    response_model=PasswordChangeResponse,
+    responses={401: {"model": ErrorResponse}, 400: {"model": ErrorResponse}},
+)
+def change_password(
+    payload: PasswordChangeRequest,
+    db: DatabaseDependency,
+    user: Annotated[User, Depends(get_session_user)],
+) -> PasswordChangeResponse:
+    try:
+        session_token = change_user_password(
+            db,
+            user=user,
+            current_password=payload.current_password,
+            new_password=payload.new_password,
+        )
+        db.commit()
+    except (AuthenticationError, RegistrationError) as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    return PasswordChangeResponse(
+        message="A jelszavad sikeresen frissült.",
+        token=session_token.token,
+        must_change_password=user.must_change_password,
     )
 
 

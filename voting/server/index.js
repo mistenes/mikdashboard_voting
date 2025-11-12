@@ -15,6 +15,9 @@ const SESSION_TTL_SECONDS = Number.parseInt(
   process.env.VOTING_SESSION_TTL_SECONDS || '3600',
   10,
 ) || 3600;
+const ADMIN_USERNAME = (process.env.ADMIN_USERNAME || 'admin').trim() || 'admin';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
+const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || '').trim();
 
 const defaultResults = () => ({ igen: 0, nem: 0, tartozkodott: 0 });
 
@@ -27,18 +30,6 @@ let sessionState = {
 
 const clients = new Set();
 const sessions = new Map();
-
-const fallbackVoters = Array.from({ length: TOTAL_VOTERS }, (_, index) => ({
-  username: `voter${index + 1}`,
-  password: `p${index + 1}`,
-  role: 'voter',
-}));
-
-const localAccounts = [
-  { username: 'admin', password: 'admin', role: 'admin' },
-  { username: 'public', password: 'public', role: 'public' },
-  ...fallbackVoters,
-];
 
 const broadcast = () => {
   const payload = `data: ${JSON.stringify(sessionState)}\n\n`;
@@ -207,14 +198,15 @@ app.post('/api/auth/login', (req, res) => {
     res.status(400).json({ detail: 'A felhasználónév és jelszó megadása kötelező.' });
     return;
   }
-  const account = localAccounts.find(
-    (item) => item.username.toLowerCase() === String(username).toLowerCase() && item.password === password,
-  );
-  if (!account) {
+  if (!ADMIN_PASSWORD) {
+    res.status(503).json({ detail: 'Az adminisztrátori bejelentkezés nincs konfigurálva.' });
+    return;
+  }
+  if (username.toLowerCase() !== ADMIN_USERNAME.toLowerCase() || password !== ADMIN_PASSWORD) {
     res.status(401).json({ detail: 'Hibás felhasználónév vagy jelszó.' });
     return;
   }
-  const session = createSession({ role: account.role, username: account.username });
+  const session = createSession({ role: 'admin', username: ADMIN_USERNAME, email: ADMIN_EMAIL || undefined });
   setSessionCookie(res, session.id);
   res.json({ user: session.user });
 });
