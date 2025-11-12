@@ -1195,6 +1195,50 @@ async function initEventsPage() {
   });
 }
 
+async function initSettingsPage() {
+  if (!ensureAdminSession()) {
+    return;
+  }
+
+  const resetButton = document.querySelector("[data-reset-events]");
+  if (!resetButton) {
+    return;
+  }
+
+  resetButton.addEventListener("click", async () => {
+    if (!ensureAdminSession(true)) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "Biztosan törölni szeretnéd az összes szavazási eseményt? Ez a művelet végleges.",
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    const keyword = window.prompt(
+      "A folytatáshoz írd be a következő kulcsszót: TÖRLÉS",
+    );
+    if (!keyword || keyword.trim().toUpperCase() !== "TÖRLÉS") {
+      setStatus("A művelet megszakítva. A megerősítő kulcsszó nem egyezett.", "error");
+      return;
+    }
+
+    resetButton.disabled = true;
+    try {
+      setStatus("Szavazási események törlése folyamatban...");
+      const response = await requestJSON("/api/admin/events/reset", { method: "POST" });
+      const message = response?.message || "Az események törlése megtörtént.";
+      setStatus(message, "success");
+    } catch (error) {
+      handleAuthError(error);
+    } finally {
+      resetButton.disabled = false;
+    }
+  });
+}
+
 attachSignOut();
 
 switch (pageType) {
@@ -1206,6 +1250,9 @@ switch (pageType) {
     break;
   case "events":
     initEventsPage();
+    break;
+  case "settings":
+    initSettingsPage();
     break;
   default:
     initOverviewPage();

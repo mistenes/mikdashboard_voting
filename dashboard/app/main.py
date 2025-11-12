@@ -71,6 +71,7 @@ from .services import (
     queue_verification_email,
     register_user,
     remove_event_delegate,
+    reset_voting_events,
     resolve_session_user,
     search_organizations,
     set_active_voting_event,
@@ -549,6 +550,11 @@ def admin_pending_page() -> FileResponse:
 @app.get("/admin/esemenyek", response_class=FileResponse)
 def admin_events_page() -> FileResponse:
     return FileResponse("app/static/admin-events.html")
+
+
+@app.get("/admin/beallitasok", response_class=FileResponse)
+def admin_settings_page() -> FileResponse:
+    return FileResponse("app/static/admin-settings.html")
 
 
 @app.get("/szervezetek/{organization_id}/dij", response_class=FileResponse)
@@ -1256,6 +1262,28 @@ def delete_event_endpoint(
         raise HTTPException(status_code=status_code, detail=detail) from exc
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.post(
+    "/api/admin/events/reset",
+    response_model=SimpleMessageResponse,
+    responses={401: {"model": ErrorResponse}},
+)
+def reset_events_endpoint(
+    db: DatabaseDependency,
+    _: Annotated[User, Depends(require_admin)],
+) -> SimpleMessageResponse:
+    removed = reset_voting_events(db)
+    db.commit()
+
+    if removed == 0:
+        message = "Nem volt törölhető esemény."
+    elif removed == 1:
+        message = "1 esemény és a kapcsolódó delegáltak törölve."
+    else:
+        message = f"{removed} esemény és a kapcsolódó delegáltak törölve."
+
+    return SimpleMessageResponse(message=message)
 
 
 @app.delete(

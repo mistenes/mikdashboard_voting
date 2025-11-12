@@ -5,7 +5,7 @@ from typing import Iterable, List, Optional
 
 import httpx
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -495,6 +495,22 @@ def delete_voting_event(session: Session, *, event_id: int) -> None:
 
     session.delete(event)
     session.flush()
+
+
+def reset_voting_events(session: Session) -> int:
+    event_ids = list(session.scalars(select(VotingEvent.id)))
+    if not event_ids:
+        return 0
+
+    session.execute(delete(EventDelegate))
+    session.execute(delete(VotingEvent))
+
+    user_stmt = select(User).where(User.is_voting_delegate.is_(True))
+    for user in session.scalars(user_stmt):
+        user.is_voting_delegate = False
+
+    session.flush()
+    return len(event_ids)
 
 
 def synchronize_delegate_flags(session: Session, active_event: Optional[VotingEvent]) -> None:

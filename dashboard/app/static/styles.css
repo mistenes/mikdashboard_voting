@@ -700,6 +700,16 @@ button:disabled {
   background: rgba(220, 38, 38, 0.2);
 }
 
+.danger-zone {
+  background: rgba(248, 113, 113, 0.08);
+  border: 1px solid rgba(220, 38, 38, 0.2);
+  border-radius: 16px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
 .organization-bank-form {
   display: grid;
   gap: 12px;

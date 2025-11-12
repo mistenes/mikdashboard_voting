@@ -3,10 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>MikDashboard – Függő regisztrációk</title>
+    <title>MikDashboard – Beállítások</title>
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
-  <body class="simple-bg" data-admin-page="pending">
+  <body class="simple-bg" data-admin-page="settings">
     <div class="admin-shell">
       <aside class="admin-sidebar">
         <div class="sidebar-brand">
@@ -16,11 +16,11 @@
         <nav class="sidebar-nav" aria-label="Admin menü">
           <a href="/admin" class="sidebar-link">Áttekintés</a>
           <a href="/admin/szervezetek" class="sidebar-link">Szervezetek</a>
-          <a href="/admin/jelentkezok" class="sidebar-link active">Függő regisztrációk</a>
+          <a href="/admin/jelentkezok" class="sidebar-link">Függő regisztrációk</a>
           <a href="/admin/esemenyek" class="sidebar-link">Szavazási események</a>
           <span class="sidebar-divider" aria-hidden="true"></span>
           <span class="sidebar-link placeholder" aria-disabled="true">Riportok (hamarosan)</span>
-          <a href="/admin/beallitasok" class="sidebar-link">Beállítások</a>
+          <a href="/admin/beallitasok" class="sidebar-link active">Beállítások</a>
         </nav>
         <div class="sidebar-footer">
           <button id="admin-sign-out" type="button" class="ghost-btn sidebar-logout">
@@ -31,35 +31,30 @@
       <main class="admin-container">
         <header class="admin-header">
           <div>
-            <h1>Függő regisztrációk</h1>
+            <h1>Beállítások</h1>
             <p class="lead">
-              Hagyd jóvá vagy utasítsd el a beérkezett kérelmeket. A jóváhagyás automatikusan megerősíti az e-mail címet is.
+              Rendszerszintű műveletek és karbantartási eszközök adminisztrátorok számára.
             </p>
-          </div>
-          <div class="admin-actions">
-            <button type="button" class="primary-btn" data-admin-refresh>Frissítés</button>
           </div>
         </header>
         <p id="admin-status" class="status" role="status"></p>
 
-        <section class="auth-card" aria-labelledby="pending-table-title">
+        <section class="auth-card" aria-labelledby="event-reset-title">
           <div class="section-header">
-            <h2 id="pending-table-title">Jelentkezők listája</h2>
-            <p class="muted">A jóváhagyás azonnal hozzáférést ad a szervezethez, ha a tagsági díj is rendezett.</p>
+            <h2 id="event-reset-title">Szavazási események alaphelyzetbe állítása</h2>
+            <p class="muted">
+              A gomb az összes létező szavazási eseményt és delegáltat végleg törli. A művelet
+              nem visszavonható, és a későbbiekben új eseményeket kell létrehozni.
+            </p>
           </div>
-          <div class="table-wrapper">
-            <table id="pending-table">
-              <thead>
-                <tr>
-                  <th>Név</th>
-                  <th>E-mail</th>
-                  <th>E-mail státusz</th>
-                  <th>Szervezet</th>
-                  <th>Műveletek</th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
+          <div class="danger-zone">
+            <p class="muted">
+              A törlés megerősítéséhez előbb jóvá kell hagynod a felugró ablakot, majd be kell
+              írnod a <strong>TÖRLÉS</strong> kulcsszót. Csak ezután történik meg a művelet.
+            </p>
+            <button type="button" class="danger-btn" data-reset-events>
+              Összes esemény törlése
+            </button>
           </div>
         </section>
       </main>
