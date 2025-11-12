@@ -2,12 +2,18 @@ import express from 'express';
 import cors from 'cors';
 import path from 'path';
 import crypto from 'crypto';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 const TOTAL_VOTERS = Number.parseInt(process.env.TOTAL_VOTERS || '', 10) || 10;
 const isProduction = process.env.NODE_ENV === 'production' || process.env.RENDER === 'true';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const distPath = path.resolve(__dirname, '../dist');
+const hasBuiltAssets = fs.existsSync(distPath);
 
 const SSO_SECRET = process.env.VOTING_SSO_SECRET || 'development-secret';
 const SSO_TTL_SECONDS = Number.parseInt(process.env.VOTING_SSO_TTL_SECONDS || '300', 10) || 300;
@@ -323,15 +329,15 @@ app.get('/api/session/stream', (req, res) => {
   });
 });
 
-if (isProduction) {
-  const __filename = fileURLToPath(import.meta.url);
-  const __dirname = path.dirname(__filename);
-  const distPath = path.resolve(__dirname, '../dist');
-
+if (hasBuiltAssets) {
   app.use(express.static(distPath));
 
   app.get('*', (_req, res) => {
     res.sendFile(path.join(distPath, 'index.html'));
+  });
+} else {
+  app.get('/', (_req, res) => {
+    res.status(200).send('Voting service ready. Build the client bundle to enable the UI.');
   });
 }
 
