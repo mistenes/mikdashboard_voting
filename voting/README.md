@@ -34,10 +34,12 @@ real-time voting API from the same Express server.
 - `VOTING_SSO_TTL_SECONDS`: A dashboard által jelzett token lejárati idő másodpercben.
 - `VOTING_SESSION_TTL_SECONDS`: Mennyi ideig marad érvényes egy bejelentkezett
   session (alapértelmezés szerint 3600 másodperc).
-- `DASHBOARD_API_BASE_URL`: A dashboard szolgáltatás publikus URL-je. A
-  szavazási szolgáltatás először ezen keresztül próbálja hitelesíteni a
-  bejelentkező felhasználót, így ugyanazokat az e-mail/jelszó párokat fogadja
-  el, mint a dashboard.
+- `DASHBOARD_API_BASE_URL`: A dashboard szolgáltatás publikus, `https://`-sel
+  kezdődő alap URL-je. A szavazási szolgáltatás a megosztott
+  `VOTING_SSO_SECRET` segítségével aláírt kérést küld a
+  `/api/voting/authenticate` végpontra, majd szükség esetén visszavált a
+  nyilvános `/api/login` hívásra, így ugyanazokat az e-mail/jelszó párokat
+  fogadja el, mint a dashboard.
 - `ADMIN_PASSWORD`: Az adminisztrátori bejelentkezéshez használt jelszó. A
   felhasználónév alapértelmezetten `admin`, de az `ADMIN_USERNAME` változóval
   felülírható. Az `ADMIN_EMAIL` megadásával az admin munkamenet metaadataiban

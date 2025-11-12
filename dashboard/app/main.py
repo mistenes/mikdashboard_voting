@@ -41,6 +41,8 @@ from .schemas import (
     SessionUser,
     SimpleMessageResponse,
     VerificationResponse,
+    VotingAuthRequest,
+    VotingAuthResponse,
     VotingEventCreateRequest,
     VotingEventRead,
     VotingSSOResponse,
@@ -98,6 +100,7 @@ VOTING_SSO_TTL_SECONDS = int(os.getenv("VOTING_SSO_TTL_SECONDS", "300"))
 VOTING_APP_BASE_URL = (
     os.getenv("VOTING_APP_BASE_URL", "http://localhost:3001").strip() or "http://localhost:3001"
 )
+VOTING_AUTH_TTL_SECONDS = int(os.getenv("VOTING_AUTH_TTL_SECONDS", "60"))
 BREVO_API_KEY = os.getenv("BREVO_API_KEY", "").strip()
 BREVO_SENDER_EMAIL = os.getenv("BREVO_SENDER_EMAIL", "").strip()
 BREVO_SENDER_NAME = os.getenv("BREVO_SENDER_NAME", "MikDashboard").strip() or "MikDashboard"
@@ -214,6 +217,27 @@ def _base64url_encode(data: bytes) -> str:
 
 def _effective_sso_ttl() -> int:
     return VOTING_SSO_TTL_SECONDS if VOTING_SSO_TTL_SECONDS > 0 else 300
+
+
+def _validate_voting_auth_request(payload: VotingAuthRequest) -> None:
+    now = int(time.time())
+    if abs(now - payload.timestamp) > max(VOTING_AUTH_TTL_SECONDS, 1):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A hitelesítési kérelem lejárt.",
+        )
+
+    canonical_email = payload.email.lower()
+    message = f"{payload.timestamp}:{canonical_email}:{payload.password}".encode("utf-8")
+    expected_signature = hmac.new(
+        _VOTING_SSO_SECRET_BYTES, message, hashlib.sha256
+    ).hexdigest()
+    provided_signature = payload.signature.strip().lower()
+    if not hmac.compare_digest(expected_signature, provided_signature):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Érvénytelen hitelesítési aláírás.",
+        )
 
 
 def generate_voting_sso_token(
@@ -522,6 +546,50 @@ def create_voting_sso_session(
     token = generate_voting_sso_token(user, organization, active_event)
     redirect = build_voting_redirect_url(token)
     return VotingSSOResponse(redirect=redirect, expires_in=_effective_sso_ttl())
+
+
+@app.post(
+    "/api/voting/authenticate",
+    response_model=VotingAuthResponse,
+    responses={
+        400: {"model": ErrorResponse},
+        401: {"model": ErrorResponse},
+        403: {"model": ErrorResponse},
+    },
+)
+def authenticate_for_voting(
+    payload: VotingAuthRequest, db: DatabaseDependency
+) -> VotingAuthResponse:
+    _validate_voting_auth_request(payload)
+    try:
+        user = authenticate_user(db, email=payload.email, password=payload.password)
+    except AuthenticationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)
+        ) from exc
+
+    organization = user.organization
+    organization_id = organization.id if organization else None
+    organization_fee_paid = organization.fee_paid if organization else None
+
+    active_event = get_active_voting_event(db)
+    is_delegate = False
+    if active_event and organization_id is not None:
+        delegate_map = delegates_for_event(db, event_id=active_event.id)
+        delegate = delegate_map.get(organization_id)
+        is_delegate = bool(delegate and delegate.user_id == user.id)
+
+    return VotingAuthResponse(
+        email=user.email,
+        is_admin=user.is_admin,
+        first_name=user.first_name,
+        last_name=user.last_name,
+        organization_id=organization_id,
+        organization_fee_paid=organization_fee_paid,
+        must_change_password=user.must_change_password,
+        active_event=active_event_info(active_event),
+        is_event_delegate=is_delegate or user.is_admin,
+    )
 
 
 @app.get("/szervezetek/{organization_id}/penzugyek", response_class=FileResponse)

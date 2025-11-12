@@ -27,6 +27,19 @@ const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || '').trim();
 const DASHBOARD_API_BASE_URL = (process.env.DASHBOARD_API_BASE_URL || '').trim();
 const DASHBOARD_API_TIMEOUT_MS =
   Number.parseInt(process.env.DASHBOARD_API_TIMEOUT_MS || '5000', 10) || 5000;
+const normalizedDashboardBaseUrl = (() => {
+  if (!DASHBOARD_API_BASE_URL) {
+    return null;
+  }
+  const trimmed = DASHBOARD_API_BASE_URL.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const withScheme = /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(trimmed)
+    ? trimmed
+    : `https://${trimmed}`;
+  return withScheme.replace(/\/$/, '');
+})();
 
 const defaultResults = () => ({ igen: 0, nem: 0, tartozkodott: 0 });
 
@@ -113,6 +126,79 @@ function parseCookies(header = '') {
   }, {});
 }
 
+function dashboardUrl(path) {
+  if (!normalizedDashboardBaseUrl) {
+    return null;
+  }
+  try {
+    return new URL(path, normalizedDashboardBaseUrl).toString();
+  } catch (_error) {
+    const prefix = normalizedDashboardBaseUrl.replace(/\/$/, '');
+    const suffix = path.startsWith('/') ? path : `/${path}`;
+    return `${prefix}${suffix}`;
+  }
+}
+
+function createSignedVotingAuthPayload(email, password) {
+  const timestamp = Math.floor(Date.now() / 1000);
+  const canonicalEmail = email.trim().toLowerCase();
+  const signaturePayload = `${timestamp}:${canonicalEmail}:${password}`;
+  const signature = crypto
+    .createHmac('sha256', SSO_SECRET)
+    .update(signaturePayload)
+    .digest('hex');
+  return {
+    email: canonicalEmail,
+    password,
+    timestamp,
+    signature,
+  };
+}
+
+async function sendDashboardRequest(path, body) {
+  const url = dashboardUrl(path);
+  if (!url) {
+    return {
+      ok: false,
+      status: 503,
+      detail: 'A dashboard szolgáltatás nincs konfigurálva.',
+    };
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), DASHBOARD_API_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+
+    const data = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      const detail =
+        data?.detail ||
+        (response.status === 404
+          ? 'Nem található végpont a dashboard szolgáltatáson.'
+          : 'Hibás bejelentkezési adatok.');
+      return { ok: false, status: response.status, detail };
+    }
+
+    return { ok: true, status: response.status, data };
+  } catch (error) {
+    const detail =
+      error?.name === 'AbortError'
+        ? 'A dashboard bejelentkezés túl sokáig tartott.'
+        : 'Nem sikerült elérni a dashboard szolgáltatást.';
+    return { ok: false, status: 503, detail };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function setSessionCookie(res, sessionId) {
   const cookieParts = [
     `voting_session=${sessionId}`,
@@ -166,38 +252,85 @@ function refreshSession(res, sessionId, user) {
 }
 
 async function authenticateAgainstDashboard(email, password) {
-  if (!DASHBOARD_API_BASE_URL) {
-    return { ok: false, status: 503, detail: 'A dashboard szolgáltatás nincs konfigurálva.' };
+  if (!normalizedDashboardBaseUrl) {
+    return {
+      ok: false,
+      status: 503,
+      detail: 'A dashboard szolgáltatás nincs konfigurálva.',
+    };
   }
 
-  const base = DASHBOARD_API_BASE_URL.replace(/\/$/, '');
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), DASHBOARD_API_TIMEOUT_MS);
+  const signedPayload = createSignedVotingAuthPayload(email, password);
+  let lastError = null;
 
-  try {
-    const response = await fetch(`${base}/api/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
-      signal: controller.signal,
-    });
+  const signedResult = await sendDashboardRequest(
+    '/api/voting/authenticate',
+    signedPayload,
+  );
 
-    const data = await response.json().catch(() => null);
-    if (!response.ok) {
-      const detail = data?.detail || 'Hibás bejelentkezési adatok.';
-      return { ok: false, status: response.status, detail };
-    }
-
-    return { ok: true, data };
-  } catch (error) {
-    const detail =
-      error?.name === 'AbortError'
-        ? 'A dashboard bejelentkezés túl sokáig tartott.'
-        : 'Nem sikerült elérni a dashboard szolgáltatást.';
-    return { ok: false, status: 503, detail };
-  } finally {
-    clearTimeout(timeout);
+  if (signedResult.ok) {
+    const info = signedResult.data || {};
+    return {
+      ok: true,
+      data: {
+        isAdmin: Boolean(info.is_admin),
+        email: info.email || signedPayload.email,
+        firstName: info.first_name ?? null,
+        lastName: info.last_name ?? null,
+        organizationId: info.organization_id ?? null,
+        organizationFeePaid: info.organization_fee_paid ?? null,
+        mustChangePassword: info.must_change_password ?? false,
+        eventId: info.active_event?.id ?? null,
+        eventTitle: info.active_event?.title ?? null,
+        isEventDelegate: info.is_event_delegate ?? Boolean(info.is_admin),
+        source: 'voting-auth',
+      },
+    };
   }
+
+  if (signedResult.status && signedResult.status !== 404 && signedResult.status !== 503) {
+    return signedResult;
+  }
+
+  if (signedResult.status) {
+    lastError = signedResult;
+  }
+
+  const canonicalEmail = email.trim().toLowerCase();
+  const loginResult = await sendDashboardRequest('/api/login', {
+    email: canonicalEmail,
+    password,
+  });
+
+  if (loginResult.ok) {
+    const payload = loginResult.data || {};
+    return {
+      ok: true,
+      data: {
+        isAdmin: Boolean(payload.is_admin),
+        email: canonicalEmail,
+        firstName: null,
+        lastName: null,
+        organizationId: payload.organization_id ?? null,
+        organizationFeePaid: payload.organization_fee_paid ?? null,
+        mustChangePassword: payload.must_change_password ?? false,
+        eventId: null,
+        eventTitle: null,
+        isEventDelegate: Boolean(payload.is_admin),
+        source: 'login',
+      },
+    };
+  }
+
+  if (loginResult.status && loginResult.status !== 503) {
+    return loginResult;
+  }
+
+  if (loginResult.status === 503 && lastError && lastError.status && lastError.status !== 404) {
+    return lastError;
+  }
+
+  return loginResult.status ? loginResult : lastError || loginResult;
 }
 
 function ensureSession(req, res) {
@@ -259,13 +392,19 @@ app.post('/api/auth/login', async (req, res) => {
     dashboardResult = await authenticateAgainstDashboard(dashboardEmail, password);
     if (dashboardResult.ok) {
       const { data } = dashboardResult;
+      const sessionEmail = (data.email || dashboardEmail).trim() || dashboardEmail;
       const session = createSession({
-        role: data.is_admin ? 'admin' : 'voter',
-        email: dashboardEmail,
-        username: data.is_admin ? ADMIN_USERNAME : dashboardEmail,
-        organizationId: data.organization_id ?? null,
-        organizationFeePaid: data.organization_fee_paid ?? null,
-        mustChangePassword: data.must_change_password ?? false,
+        role: data.isAdmin ? 'admin' : 'voter',
+        email: sessionEmail,
+        username: data.isAdmin ? ADMIN_USERNAME : sessionEmail,
+        firstName: data.firstName ?? null,
+        lastName: data.lastName ?? null,
+        organizationId: data.organizationId ?? null,
+        organizationFeePaid: data.organizationFeePaid ?? null,
+        mustChangePassword: data.mustChangePassword ?? false,
+        eventId: data.eventId ?? null,
+        eventTitle: data.eventTitle ?? null,
+        isEventDelegate: data.isEventDelegate ?? (data.isAdmin ? true : false),
       });
       setSessionCookie(res, session.id);
       res.json({ user: session.user });
@@ -331,6 +470,14 @@ app.post('/api/auth/login', async (req, res) => {
     role: 'admin',
     username: ADMIN_USERNAME,
     email: ADMIN_EMAIL || identifier,
+    firstName: null,
+    lastName: null,
+    organizationId: null,
+    organizationFeePaid: null,
+    mustChangePassword: false,
+    eventId: null,
+    eventTitle: null,
+    isEventDelegate: true,
   });
   setSessionCookie(res, session.id);
   res.json({ user: session.user });

@@ -194,6 +194,25 @@ class VotingSSOResponse(BaseModel):
     expires_in: int
 
 
+class VotingAuthRequest(BaseModel):
+    email: EmailStr
+    password: str
+    timestamp: int
+    signature: constr(strip_whitespace=True, min_length=1)
+
+
+class VotingAuthResponse(BaseModel):
+    email: EmailStr
+    is_admin: bool
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    organization_id: Optional[int] = None
+    organization_fee_paid: Optional[bool] = None
+    must_change_password: bool = False
+    active_event: Optional[ActiveEventInfo] = None
+    is_event_delegate: bool = False
+
+
 class PasswordChangeRequest(BaseModel):
     current_password: constr(min_length=1)
     new_password: constr(min_length=8)

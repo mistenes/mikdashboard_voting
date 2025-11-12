@@ -92,8 +92,9 @@ provided blueprint or the manual setup steps below.
    the managed database and surfaces placeholders for `ADMIN_EMAILS`, `ADMIN_EMAIL`,
    `ADMIN_PASSWORD`, `ADMIN_FIRST_NAME`, `ADMIN_LAST_NAME`, `PUBLIC_BASE_URL`,
    `BREVO_API_KEY`, `BREVO_SENDER_EMAIL`, `BREVO_SENDER_NAME`, `RECAPTCHA_SITE_KEY`,
-   `RECAPTCHA_SECRET_KEY`, `VOTING_SSO_SECRET`, `VOTING_APP_BASE_URL`, and
-   `VOTING_SSO_TTL_SECONDS` so you can pre-authorize administrator accounts,
+   `RECAPTCHA_SECRET_KEY`, `VOTING_SSO_SECRET`, `VOTING_APP_BASE_URL`,
+   `VOTING_SSO_TTL_SECONDS`, and `VOTING_AUTH_TTL_SECONDS` so you can
+   pre-authorize administrator accounts,
    label the seeded admin, configure outbound e-mail delivery, enable the Google
    reCAPTCHA integration, és beállíthatod a szavazási webalkalmazás felé használt
    SSO titkot és átirányítási URL-t.
@@ -125,10 +126,12 @@ provided blueprint or the manual setup steps below.
 8. (Optional) Configure Google reCAPTCHA by setting `RECAPTCHA_SITE_KEY` and
    `RECAPTCHA_SECRET_KEY`. When omitted, the regisztrációs űrlap captcha
    automatikusan letiltva marad.
-9. Állítsd be a `VOTING_SSO_SECRET`, `VOTING_APP_BASE_URL` és `VOTING_SSO_TTL_SECONDS`
-   változókat ugyanazzal az értékkel, amit a szavazási webszolgáltatásnál használsz.
-   Ezek biztosítják, hogy a tagi felület által generált SSO tokeneket a voting
-   alkalmazás érvényesnek fogadja el.
+9. Állítsd be a `VOTING_SSO_SECRET`, `VOTING_APP_BASE_URL`, `VOTING_SSO_TTL_SECONDS`
+   (és opcionálisan a `VOTING_AUTH_TTL_SECONDS`) változókat ugyanazzal az
+   értékkel, amit a szavazási webszolgáltatásnál használsz. Ezek biztosítják,
+   hogy a tagi felület által generált SSO tokeneket a voting alkalmazás
+   érvényesnek fogadja el, és hogy az új `/api/voting/authenticate` végpont
+   kizárólag a megosztott titokkal aláírt hitelesítési kéréseket fogadja el.
 
 On the first startup the application only creates the required tables; all
 organizations must now be added manually via the admin felület.

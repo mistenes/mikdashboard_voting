@@ -26,8 +26,10 @@ Update the environment variables in the blueprint before the first deploy:
 
 - Set unique `ADMIN_EMAIL`/`ADMIN_PASSWORD` pairs for both services (the default username is
   always `admin`). The dashboard forces a password change on first login.
-- Point the voting service `DASHBOARD_API_BASE_URL` at the dashboard deployment so manual
-  logins validate credentials through the same FastAPI backend.
+- Point the voting service `DASHBOARD_API_BASE_URL` at the publicly reachable dashboard base
+  URL (including the `https://` scheme). The voting API signs login checks with the shared
+  `VOTING_SSO_SECRET` and first calls the dashboard’s `/api/voting/authenticate` endpoint before
+  falling back to `/api/login`, so both apps accept the exact same credentials.
 - Provide `BREVO_API_KEY`, `BREVO_SENDER_EMAIL`, and `PUBLIC_BASE_URL` so the registration
   service can deliver verification emails through Brevo.
 - Optionally configure Google reCAPTCHA keys if you want captcha protection on sign-up forms.

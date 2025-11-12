@@ -27,8 +27,11 @@ interface AuthUser {
     firstName?: string | null;
     lastName?: string | null;
     organizationId?: number | null;
+    organizationFeePaid?: boolean | null;
     eventId?: number | null;
     eventTitle?: string | null;
+    mustChangePassword?: boolean;
+    isEventDelegate?: boolean | null;
 }
 
 interface AuthSessionResponse {
