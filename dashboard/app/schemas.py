@@ -84,6 +84,7 @@ class ActiveEventInfo(BaseModel):
     id: int
     title: str
     description: Optional[str] = None
+    delegate_count: int = 0
 
 
 class OrganizationMember(BaseModel):

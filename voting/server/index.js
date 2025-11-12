@@ -7,7 +7,11 @@ import { fileURLToPath } from 'url';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
-const TOTAL_VOTERS = Number.parseInt(process.env.TOTAL_VOTERS || '', 10) || 10;
+const configuredTotalVoters = Number.parseInt(process.env.TOTAL_VOTERS || '', 10);
+const INITIAL_TOTAL_VOTERS =
+  Number.isFinite(configuredTotalVoters) && configuredTotalVoters >= 0
+    ? configuredTotalVoters
+    : 0;
 const isProduction = process.env.NODE_ENV === 'production' || process.env.RENDER === 'true';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -47,7 +51,7 @@ const defaultResults = () => ({ igen: 0, nem: 0, tartozkodott: 0 });
 let sessionState = {
   status: 'WAITING',
   results: defaultResults(),
-  totalVoters: TOTAL_VOTERS,
+  totalVoters: INITIAL_TOTAL_VOTERS,
   voteStartTime: null,
 };
 
@@ -64,6 +68,28 @@ const broadcast = () => {
 const setState = (nextState) => {
   sessionState = { ...sessionState, ...nextState };
   broadcast();
+};
+
+const normalizeTotalVoters = (value) => {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return null;
+  }
+  return parsed;
+};
+
+const applyTotalVoters = (value) => {
+  const normalized = normalizeTotalVoters(value);
+  if (normalized === null) {
+    return;
+  }
+  if (sessionState.totalVoters === normalized) {
+    return;
+  }
+  setState({ totalVoters: normalized });
 };
 
 app.use(express.json());
@@ -279,6 +305,7 @@ async function authenticateAgainstDashboard(email, password) {
 
   if (signedResult.ok) {
     const info = signedResult.data || {};
+    const delegateCount = normalizeTotalVoters(info.active_event?.delegate_count);
     return {
       ok: true,
       data: {
@@ -292,6 +319,7 @@ async function authenticateAgainstDashboard(email, password) {
         eventId: info.active_event?.id ?? null,
         eventTitle: info.active_event?.title ?? null,
         isEventDelegate: info.is_event_delegate ?? Boolean(info.is_admin),
+        delegateCount,
         source: 'voting-auth',
       },
     };
@@ -326,6 +354,7 @@ async function authenticateAgainstDashboard(email, password) {
         eventId: null,
         eventTitle: null,
         isEventDelegate: Boolean(payload.is_admin),
+        delegateCount: null,
         source: 'login',
       },
     };
@@ -415,6 +444,7 @@ app.post('/api/auth/login', async (req, res) => {
         eventTitle: data.eventTitle ?? null,
         isEventDelegate: data.isEventDelegate ?? (data.isAdmin ? true : false),
       });
+      applyTotalVoters(data.delegateCount);
       setSessionCookie(res, session.id);
       res.json({ user: session.user });
       return;
@@ -620,6 +650,7 @@ function handleO2AuthRequest(req, res) {
     isEventDelegate: payload.is_delegate ?? (role === 'admin'),
     source: 'o2auth',
   });
+  applyTotalVoters(payload.delegate_count ?? payload.total_voters ?? payload.totalVoters);
   setSessionCookie(res, session.id);
 
   const prefersJson = req.headers.accept && req.headers.accept.includes('application/json');

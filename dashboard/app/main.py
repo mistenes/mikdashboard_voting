@@ -261,6 +261,7 @@ def generate_voting_o2auth_token(
         "last_name": user.last_name,
         "event": event.id,
         "event_title": event.title,
+        "delegate_count": event_delegate_count(event),
     }
     if view and view != "default":
         payload["view"] = view
@@ -384,10 +385,28 @@ def ensure_organization_membership(user: User, organization_id: int) -> None:
         )
 
 
+def event_delegate_count(event: VotingEvent | None) -> int:
+    if event is None:
+        return 0
+    delegates = getattr(event, "delegates", None)
+    if not delegates:
+        return 0
+    count = 0
+    for delegate in delegates:
+        if getattr(delegate, "user_id", None):
+            count += 1
+    return count
+
+
 def active_event_info(event: VotingEvent | None) -> ActiveEventInfo | None:
     if event is None:
         return None
-    return ActiveEventInfo(id=event.id, title=event.title, description=event.description)
+    return ActiveEventInfo(
+        id=event.id,
+        title=event.title,
+        description=event.description,
+        delegate_count=event_delegate_count(event),
+    )
 
 
 def build_member_payload(member: User, organization: Organization) -> dict:
@@ -437,7 +456,7 @@ def build_organization_detail(
 
 
 def build_event_read(event: VotingEvent) -> VotingEventRead:
-    delegate_count = len(event.delegates) if hasattr(event, "delegates") else 0
+    delegate_count = event_delegate_count(event)
     return VotingEventRead(
         id=event.id,
         title=event.title,
