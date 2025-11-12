@@ -24,6 +24,9 @@ const SESSION_TTL_SECONDS = Number.parseInt(
 const ADMIN_USERNAME = (process.env.ADMIN_USERNAME || 'admin').trim() || 'admin';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
 const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || '').trim();
+const DASHBOARD_API_BASE_URL = (process.env.DASHBOARD_API_BASE_URL || '').trim();
+const DASHBOARD_API_TIMEOUT_MS =
+  Number.parseInt(process.env.DASHBOARD_API_TIMEOUT_MS || '5000', 10) || 5000;
 
 const defaultResults = () => ({ igen: 0, nem: 0, tartozkodott: 0 });
 
@@ -162,6 +165,41 @@ function refreshSession(res, sessionId, user) {
   setSessionCookie(res, sessionId);
 }
 
+async function authenticateAgainstDashboard(email, password) {
+  if (!DASHBOARD_API_BASE_URL) {
+    return { ok: false, status: 503, detail: 'A dashboard szolgáltatás nincs konfigurálva.' };
+  }
+
+  const base = DASHBOARD_API_BASE_URL.replace(/\/$/, '');
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), DASHBOARD_API_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(`${base}/api/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+      signal: controller.signal,
+    });
+
+    const data = await response.json().catch(() => null);
+    if (!response.ok) {
+      const detail = data?.detail || 'Hibás bejelentkezési adatok.';
+      return { ok: false, status: response.status, detail };
+    }
+
+    return { ok: true, data };
+  } catch (error) {
+    const detail =
+      error?.name === 'AbortError'
+        ? 'A dashboard bejelentkezés túl sokáig tartott.'
+        : 'Nem sikerült elérni a dashboard szolgáltatást.';
+    return { ok: false, status: 503, detail };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function ensureSession(req, res) {
   const session = getSessionFromRequest(req);
   if (!session) {
@@ -198,26 +236,69 @@ app.get('/api/auth/session', (req, res) => {
   res.json({ user: session.user });
 });
 
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', async (req, res) => {
   const { email, username, password } = req.body || {};
   const identifier = (email || username || '').trim();
   if (!identifier || !password) {
     res.status(400).json({ detail: 'Az email cím és jelszó megadása kötelező.' });
     return;
   }
+
+  let dashboardEmail = null;
+  if (identifier.includes('@')) {
+    dashboardEmail = identifier;
+  } else if (
+    ADMIN_EMAIL &&
+    identifier.toLowerCase() === ADMIN_USERNAME.toLowerCase()
+  ) {
+    dashboardEmail = ADMIN_EMAIL;
+  }
+
+  if (dashboardEmail) {
+    const result = await authenticateAgainstDashboard(dashboardEmail, password);
+    if (result.ok) {
+      const { data } = result;
+      const session = createSession({
+        role: data.is_admin ? 'admin' : 'voter',
+        email: dashboardEmail,
+        username: data.is_admin ? ADMIN_USERNAME : dashboardEmail,
+        organizationId: data.organization_id ?? null,
+        organizationFeePaid: data.organization_fee_paid ?? null,
+        mustChangePassword: data.must_change_password ?? false,
+      });
+      setSessionCookie(res, session.id);
+      res.json({ user: session.user });
+      return;
+    }
+
+    if (result.status !== 503) {
+      res.status(result.status).json({ detail: result.detail });
+      return;
+    }
+  }
+
   if (!ADMIN_PASSWORD) {
-    res.status(503).json({ detail: 'Az adminisztrátori bejelentkezés nincs konfigurálva.' });
+    const detail =
+      dashboardEmail || DASHBOARD_API_BASE_URL
+        ? 'A dashboard elérése nem sikerült, és nincs megadva helyi admin jelszó.'
+        : 'Az adminisztrátori bejelentkezés nincs konfigurálva.';
+    res.status(503).json({ detail });
     return;
   }
+
   const normalizedIdentifier = identifier.toLowerCase();
   const normalizedUsername = ADMIN_USERNAME.toLowerCase();
   const normalizedEmail = ADMIN_EMAIL ? ADMIN_EMAIL.toLowerCase() : null;
   const matchesUsername = normalizedIdentifier === normalizedUsername;
   const matchesEmail = normalizedEmail ? normalizedIdentifier === normalizedEmail : false;
   if ((!matchesUsername && !matchesEmail) || password !== ADMIN_PASSWORD) {
-    res.status(401).json({ detail: 'Hibás email cím vagy jelszó.' });
+    const detail = dashboardEmail
+      ? 'Hibás email cím vagy jelszó.'
+      : 'Kérjük, használj e-mail címet a bejelentkezéshez.';
+    res.status(401).json({ detail });
     return;
   }
+
   const session = createSession({
     role: 'admin',
     username: ADMIN_USERNAME,

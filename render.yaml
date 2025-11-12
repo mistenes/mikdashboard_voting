@@ -63,6 +63,8 @@ services:
         value: admin@example.com
       - key: ADMIN_PASSWORD
         value: change-me
+      - key: DASHBOARD_API_BASE_URL
+        value: https://mikdashboard-dashboard.onrender.com
 
 databases:
   - name: mikdashboard-db
