@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
+import json
 import os
+import time
 from typing import Annotated, List
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
@@ -11,42 +16,62 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import inspect, text
 
 from .database import Base, SessionLocal, engine
-from .models import ApprovalDecision, Organization, User
+from .models import ApprovalDecision, EventDelegate, Organization, User, VotingEvent
 from .schemas import (
+    ActiveEventInfo,
     AdminDecisionRequest,
     AdminDecisionResponse,
     ErrorResponse,
+    EventDelegateAssignmentRequest,
+    EventDelegateInfo,
     LoginRequest,
     LoginResponse,
     OrganizationBillingUpdate,
+    OrganizationCreateRequest,
     OrganizationDetail,
     OrganizationFeeUpdate,
+    OrganizationMembershipInfo,
     OrganizationRead,
+    PasswordChangeRequest,
+    PasswordChangeResponse,
     PendingUser,
     PublicConfigResponse,
     RegistrationRequest,
     RegistrationResponse,
-    OrganizationCreateRequest,
-    OrganizationMembershipInfo,
     SessionUser,
+    SimpleMessageResponse,
     VerificationResponse,
+    VotingAuthRequest,
+    VotingAuthResponse,
+    VotingEventCreateRequest,
+    VotingEventRead,
+    VotingO2AuthLaunchRequest,
+    VotingO2AuthResponse,
 )
 from .services import (
     AuthenticationError,
     RegistrationError,
+    assign_event_delegate,
     authenticate_user,
+    change_user_password,
     create_organization,
     create_session_token,
+    create_voting_event,
     decide_registration,
+    delegates_for_event,
     delete_organization,
     delete_user_account,
+    get_active_voting_event,
+    list_voting_events,
     organization_with_members,
     organizations_with_members,
     pending_registrations,
     queue_verification_email,
     register_user,
+    remove_event_delegate,
     resolve_session_user,
     search_organizations,
+    set_active_voting_event,
     set_organization_billing_details,
     set_organization_fee_status,
     verify_email,
@@ -71,6 +96,19 @@ ADMIN_REDIRECT_PATH = os.getenv("ADMIN_REDIRECT_PATH", "/admin")
 RECAPTCHA_SITE_KEY = os.getenv("RECAPTCHA_SITE_KEY", "").strip()
 RECAPTCHA_SECRET_KEY = os.getenv("RECAPTCHA_SECRET_KEY", "").strip()
 RECAPTCHA_ENABLED = bool(RECAPTCHA_SITE_KEY and RECAPTCHA_SECRET_KEY)
+VOTING_O2AUTH_SECRET = (
+    os.getenv("VOTING_O2AUTH_SECRET", "development-secret") or "development-secret"
+)
+VOTING_O2AUTH_TTL_SECONDS = int(os.getenv("VOTING_O2AUTH_TTL_SECONDS", "300"))
+VOTING_APP_BASE_URL = (
+    os.getenv("VOTING_APP_BASE_URL", "http://localhost:3001").strip() or "http://localhost:3001"
+)
+VOTING_AUTH_TTL_SECONDS = int(os.getenv("VOTING_AUTH_TTL_SECONDS", "60"))
+BREVO_API_KEY = os.getenv("BREVO_API_KEY", "").strip()
+BREVO_SENDER_EMAIL = os.getenv("BREVO_SENDER_EMAIL", "").strip()
+BREVO_SENDER_NAME = os.getenv("BREVO_SENDER_NAME", "MikDashboard").strip() or "MikDashboard"
+PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").strip()
+_VOTING_O2AUTH_SECRET_BYTES = VOTING_O2AUTH_SECRET.encode("utf-8")
 
 app = FastAPI(title="MikDashboard Registration Service")
 
@@ -81,9 +119,10 @@ def startup() -> None:
     ensure_fee_paid_column()
     ensure_billing_columns()
     ensure_is_admin_column()
+    ensure_voting_delegate_column()
+    ensure_must_change_password_column()
     ensure_nullable_organization_column()
     ensure_name_columns()
-    seed_organizations()
     seed_admin_user()
     app.state.email_queue = []
 
@@ -130,6 +169,30 @@ def ensure_is_admin_column() -> None:
             )
 
 
+def ensure_voting_delegate_column() -> None:
+    with engine.begin() as connection:
+        inspector = inspect(connection)
+        columns = {column["name"] for column in inspector.get_columns("users")}
+        if "is_voting_delegate" not in columns:
+            connection.execute(
+                text(
+                    "ALTER TABLE users ADD COLUMN is_voting_delegate BOOLEAN NOT NULL DEFAULT FALSE"
+                )
+            )
+
+
+def ensure_must_change_password_column() -> None:
+    with engine.begin() as connection:
+        inspector = inspect(connection)
+        columns = {column["name"] for column in inspector.get_columns("users")}
+        if "must_change_password" not in columns:
+            connection.execute(
+                text(
+                    "ALTER TABLE users ADD COLUMN must_change_password BOOLEAN NOT NULL DEFAULT FALSE"
+                )
+            )
+
+
 def ensure_nullable_organization_column() -> None:
     with engine.begin() as connection:
         inspector = inspect(connection)
@@ -151,25 +214,68 @@ def ensure_name_columns() -> None:
             connection.execute(text("ALTER TABLE users ADD COLUMN last_name VARCHAR"))
 
 
-def seed_organizations() -> None:
-    default_orgs = [
-        "Acme Industries",
-        "Globex Corporation",
-        "Initech",
-        "Stark Industries",
-        "Wayne Enterprises",
-        "Wonka Industries",
-        "Umbrella Corp",
-        "Soylent Corp",
-        "Gekko & Co.",
-    ]
-    with SessionLocal() as session:
-        existing = session.query(Organization).count()
-        if existing:
-            return
-        for name in default_orgs:
-            session.add(Organization(name=name))
-        session.commit()
+def _base64url_encode(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).decode("ascii").rstrip("=")
+
+
+def _effective_o2auth_ttl() -> int:
+    return VOTING_O2AUTH_TTL_SECONDS if VOTING_O2AUTH_TTL_SECONDS > 0 else 300
+
+
+def _validate_voting_auth_request(payload: VotingAuthRequest) -> None:
+    now = int(time.time())
+    if abs(now - payload.timestamp) > max(VOTING_AUTH_TTL_SECONDS, 1):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A hitelesítési kérelem lejárt.",
+        )
+
+    canonical_email = payload.email.lower()
+    message = f"{payload.timestamp}:{canonical_email}:{payload.password}".encode("utf-8")
+    expected_signature = hmac.new(
+        _VOTING_O2AUTH_SECRET_BYTES, message, hashlib.sha256
+    ).hexdigest()
+    provided_signature = payload.signature.strip().lower()
+    if not hmac.compare_digest(expected_signature, provided_signature):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Érvénytelen hitelesítési aláírás.",
+        )
+
+
+def generate_voting_o2auth_token(
+    user: User,
+    organization: Organization,
+    event: VotingEvent,
+    *,
+    view: str = "default",
+) -> str:
+    ttl = _effective_o2auth_ttl()
+    payload = {
+        "uid": user.id,
+        "org": organization.id,
+        "email": user.email,
+        "role": "admin" if user.is_admin else "voter",
+        "exp": int(time.time()) + ttl,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "event": event.id,
+        "event_title": event.title,
+        "delegate_count": event_delegate_count(event),
+    }
+    if view and view != "default":
+        payload["view"] = view
+    body = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    signature = hmac.new(_VOTING_O2AUTH_SECRET_BYTES, body, hashlib.sha256).hexdigest()
+    return f"{_base64url_encode(body)}.{signature}"
+
+
+def build_voting_redirect_url(token: str, *, view: str = "default") -> str:
+    base = VOTING_APP_BASE_URL.rstrip("/")
+    query = f"token={token}"
+    if view and view != "default":
+        query = f"{query}&view={view}"
+    return f"{base}/o2auth?{query}"
 
 
 def seed_admin_user() -> None:
@@ -192,6 +298,8 @@ def seed_admin_user() -> None:
             existing.admin_decision = ApprovalDecision.approved
             existing.first_name = ADMIN_FIRST_NAME
             existing.last_name = ADMIN_LAST_NAME
+            existing.is_voting_delegate = True
+            existing.must_change_password = True
         else:
             user = User(
                 email=ADMIN_EMAIL,
@@ -203,6 +311,8 @@ def seed_admin_user() -> None:
                 is_admin=True,
                 is_email_verified=True,
                 admin_decision=ApprovalDecision.approved,
+                is_voting_delegate=True,
+                must_change_password=True,
             )
             session.add(user)
 
@@ -275,6 +385,103 @@ def ensure_organization_membership(user: User, organization_id: int) -> None:
         )
 
 
+def event_delegate_count(event: VotingEvent | None) -> int:
+    if event is None:
+        return 0
+    delegates = getattr(event, "delegates", None)
+    if not delegates:
+        return 0
+    count = 0
+    for delegate in delegates:
+        if getattr(delegate, "user_id", None):
+            count += 1
+    return count
+
+
+def active_event_info(event: VotingEvent | None) -> ActiveEventInfo | None:
+    if event is None:
+        return None
+    return ActiveEventInfo(
+        id=event.id,
+        title=event.title,
+        description=event.description,
+        delegate_count=event_delegate_count(event),
+    )
+
+
+def build_member_payload(member: User, organization: Organization) -> dict:
+    has_access = (
+        member.is_admin
+        or (
+            member.is_email_verified
+            and member.admin_decision == ApprovalDecision.approved
+            and organization.fee_paid
+        )
+    )
+    return {
+        "id": member.id,
+        "email": member.email,
+        "first_name": member.first_name,
+        "last_name": member.last_name,
+        "is_admin": member.is_admin,
+        "is_email_verified": member.is_email_verified,
+        "admin_decision": member.admin_decision,
+        "has_access": has_access,
+        "is_voting_delegate": member.is_voting_delegate,
+    }
+
+
+def build_organization_detail(
+    organization: Organization, *, active_event: VotingEvent | None
+) -> OrganizationDetail:
+    members = [build_member_payload(member, organization) for member in organization.users]
+    active_delegate_user_id = None
+    if active_event is not None:
+        for delegate in organization.event_delegates:
+            if delegate.event_id == active_event.id:
+                active_delegate_user_id = delegate.user_id
+                break
+    return OrganizationDetail(
+        id=organization.id,
+        name=organization.name,
+        fee_paid=organization.fee_paid,
+        member_count=len(members),
+        members=members,
+        bank_name=organization.bank_name,
+        bank_account_number=organization.bank_account_number,
+        payment_instructions=organization.payment_instructions,
+        active_event=active_event_info(active_event),
+        active_event_delegate_user_id=active_delegate_user_id,
+    )
+
+
+def build_event_read(event: VotingEvent) -> VotingEventRead:
+    delegate_count = event_delegate_count(event)
+    return VotingEventRead(
+        id=event.id,
+        title=event.title,
+        description=event.description,
+        is_active=event.is_active,
+        created_at=event.created_at,
+        delegate_count=delegate_count,
+    )
+
+
+def build_delegate_info(
+    organization: Organization, delegates: dict[int, EventDelegate]
+) -> EventDelegateInfo:
+    delegate = delegates.get(organization.id)
+    user = delegate.user if delegate else None
+    return EventDelegateInfo(
+        organization_id=organization.id,
+        organization_name=organization.name,
+        user_id=user.id if user else None,
+        user_email=user.email if user else None,
+        user_first_name=user.first_name if user else None,
+        user_last_name=user.last_name if user else None,
+    )
+
+
 @app.get("/", response_class=FileResponse)
 def login_page() -> FileResponse:
     return FileResponse("app/static/login.html")
@@ -283,6 +490,11 @@ def login_page() -> FileResponse:
 @app.get("/register", response_class=FileResponse)
 def register_page() -> FileResponse:
     return FileResponse("app/static/register.html")
+
+
+@app.get("/jelszo-frissites", response_class=FileResponse)
+def password_change_page() -> FileResponse:
+    return FileResponse("app/static/password-change.html")
 
 
 @app.get("/admin", response_class=FileResponse)
@@ -300,6 +512,11 @@ def admin_pending_page() -> FileResponse:
     return FileResponse("app/static/admin-pending.html")
 
 
+@app.get("/admin/esemenyek", response_class=FileResponse)
+def admin_events_page() -> FileResponse:
+    return FileResponse("app/static/admin-events.html")
+
+
 @app.get("/szervezetek/{organization_id}/dij", response_class=FileResponse)
 def organization_unpaid_page(organization_id: int) -> FileResponse:
     return FileResponse("app/static/member-unpaid.html")
@@ -313,6 +530,113 @@ def organization_member_page(organization_id: int) -> FileResponse:
 @app.get("/szervezetek/{organization_id}/szavazas", response_class=FileResponse)
 def organization_voting_page(organization_id: int) -> FileResponse:
     return FileResponse("app/static/member-voting.html")
+
+
+@app.post(
+    "/api/organizations/{organization_id}/voting/o2auth",
+    response_model=VotingO2AuthResponse,
+    responses={
+        401: {"model": ErrorResponse},
+        403: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+    },
+)
+def create_voting_o2auth_session(
+    organization_id: int,
+    user: Annotated[User, Depends(get_session_user)],
+    db: DatabaseDependency,
+    launch: VotingO2AuthLaunchRequest | None = None,
+) -> VotingO2AuthResponse:
+    ensure_organization_membership(user, organization_id)
+    organization = db.get(Organization, organization_id)
+    if organization is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Nem található szervezet",
+        )
+    if not organization.fee_paid:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="A szervezet tagsági díja rendezetlen, ezért nem nyitható meg a szavazási felület.",
+        )
+    active_event = get_active_voting_event(db)
+    if active_event is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Jelenleg nincs aktív szavazási esemény.",
+        )
+
+    requested_view = (launch.view if launch else "default") or "default"
+
+    if requested_view == "admin" and not user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Az admin nézet eléréséhez adminisztrátori jogosultság szükséges.",
+        )
+
+    if not user.is_admin and requested_view != "public":
+        delegate_map = delegates_for_event(db, event_id=active_event.id)
+        delegate = delegate_map.get(organization.id)
+        if not delegate or delegate.user_id != user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Nem vagy kijelölve a szavazási eseményre ennél a szervezetnél.",
+            )
+
+    token = generate_voting_o2auth_token(
+        user,
+        organization,
+        active_event,
+        view=requested_view,
+    )
+    redirect = build_voting_redirect_url(token, view=requested_view)
+    return VotingO2AuthResponse(
+        redirect=redirect, expires_in=_effective_o2auth_ttl()
+    )
+
+
+@app.post(
+    "/api/voting/authenticate",
+    response_model=VotingAuthResponse,
+    responses={
+        400: {"model": ErrorResponse},
+        401: {"model": ErrorResponse},
+        403: {"model": ErrorResponse},
+    },
+)
+def authenticate_for_voting(
+    payload: VotingAuthRequest, db: DatabaseDependency
+) -> VotingAuthResponse:
+    _validate_voting_auth_request(payload)
+    try:
+        user = authenticate_user(db, email=payload.email, password=payload.password)
+    except AuthenticationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)
+        ) from exc
+
+    organization = user.organization
+    organization_id = organization.id if organization else None
+    organization_fee_paid = organization.fee_paid if organization else None
+
+    active_event = get_active_voting_event(db)
+    is_delegate = False
+    if active_event and organization_id is not None:
+        delegate_map = delegates_for_event(db, event_id=active_event.id)
+        delegate = delegate_map.get(organization_id)
+        is_delegate = bool(delegate and delegate.user_id == user.id)
+
+    return VotingAuthResponse(
+        email=user.email,
+        is_admin=user.is_admin,
+        first_name=user.first_name,
+        last_name=user.last_name,
+        organization_id=organization_id,
+        organization_fee_paid=organization_fee_paid,
+        must_change_password=user.must_change_password,
+        active_event=active_event_info(active_event),
+        is_event_delegate=is_delegate or user.is_admin,
+    )
 
 
 @app.get("/szervezetek/{organization_id}/penzugyek", response_class=FileResponse)
@@ -374,7 +698,13 @@ def register(
             organization_id=payload.organization_id,
             is_admin=payload.email.lower() in ADMIN_EMAILS,
         )
-        link = queue_verification_email(token)
+        link = queue_verification_email(
+            token,
+            base_url=PUBLIC_BASE_URL,
+            api_key=BREVO_API_KEY or None,
+            sender_email=BREVO_SENDER_EMAIL or None,
+            sender_name=BREVO_SENDER_NAME,
+        )
         db.commit()
     except RegistrationError as exc:
         db.rollback()
@@ -383,7 +713,8 @@ def register(
         {
             "email": payload.email,
             "token": token.token,
-            "verification_path": link,
+            "verification_link": link,
+            "sent_via": "brevo" if BREVO_API_KEY and BREVO_SENDER_EMAIL else "noop",
         }
     )
     message = "Sikeres regisztráció. Kérjük, erősítsd meg az e-mail címedet."
@@ -459,6 +790,39 @@ def login(request: LoginRequest, db: DatabaseDependency) -> LoginResponse:
         token=session_token.token,
         organization_id=organization_id,
         organization_fee_paid=organization_fee_paid,
+        must_change_password=user.must_change_password,
+    )
+
+
+@app.post(
+    "/api/change-password",
+    response_model=PasswordChangeResponse,
+    responses={401: {"model": ErrorResponse}, 400: {"model": ErrorResponse}},
+)
+def change_password(
+    payload: PasswordChangeRequest,
+    db: DatabaseDependency,
+    user: Annotated[User, Depends(get_session_user)],
+) -> PasswordChangeResponse:
+    try:
+        session_token = change_user_password(
+            db,
+            user=user,
+            current_password=payload.current_password,
+            new_password=payload.new_password,
+        )
+        db.commit()
+    except (AuthenticationError, RegistrationError) as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    return PasswordChangeResponse(
+        message="A jelszavad sikeresen frissült.",
+        token=session_token.token,
+        must_change_password=user.must_change_password,
     )
 
 
@@ -473,7 +837,10 @@ def public_config() -> PublicConfigResponse:
 
 
 @app.get("/api/me", response_model=SessionUser, responses={401: {"model": ErrorResponse}})
-def current_user(user: Annotated[User, Depends(get_session_user)]) -> SessionUser:
+def current_user(
+    user: Annotated[User, Depends(get_session_user)], db: DatabaseDependency
+) -> SessionUser:
+    active_event = get_active_voting_event(db)
     return SessionUser(
         id=user.id,
         email=user.email,
@@ -481,6 +848,8 @@ def current_user(user: Annotated[User, Depends(get_session_user)]) -> SessionUse
         last_name=user.last_name,
         is_admin=user.is_admin,
         organization=membership_info(user.organization),
+        is_voting_delegate=user.is_voting_delegate,
+        active_event=active_event_info(active_event),
     )
 
 
@@ -551,22 +920,14 @@ def create_organization_endpoint(
             bank_account_number=payload.bank_account_number,
             payment_instructions=payload.payment_instructions,
         )
+        db.flush()
+        active_event = get_active_voting_event(db)
+        detail = build_organization_detail(organization, active_event=active_event)
     except RegistrationError as exc:
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
         ) from exc
-
-    detail = OrganizationDetail(
-        id=organization.id,
-        name=organization.name,
-        fee_paid=organization.fee_paid,
-        member_count=0,
-        members=[],
-        bank_name=organization.bank_name,
-        bank_account_number=organization.bank_account_number,
-        payment_instructions=organization.payment_instructions,
-    )
     db.commit()
     return detail
 
@@ -584,43 +945,8 @@ def admin_organizations(
     _: Annotated[User, Depends(require_admin)],
 ) -> List[OrganizationDetail]:
     organizations = organizations_with_members(db)
-    items: List[OrganizationDetail] = []
-    for org in organizations:
-        members = []
-        for member in org.users:
-            has_access = (
-                member.is_admin
-                or (
-                    member.is_email_verified
-                    and member.admin_decision == ApprovalDecision.approved
-                    and org.fee_paid
-                )
-            )
-            members.append(
-                {
-                    "id": member.id,
-                    "email": member.email,
-                    "first_name": member.first_name,
-                    "last_name": member.last_name,
-                    "is_admin": member.is_admin,
-                    "is_email_verified": member.is_email_verified,
-                    "admin_decision": member.admin_decision,
-                    "has_access": has_access,
-                }
-            )
-        items.append(
-            OrganizationDetail(
-                id=org.id,
-                name=org.name,
-                fee_paid=org.fee_paid,
-                member_count=len(members),
-                members=members,
-                bank_name=org.bank_name,
-                bank_account_number=org.bank_account_number,
-                payment_instructions=org.payment_instructions,
-            )
-        )
-    return items
+    active_event = get_active_voting_event(db)
+    return [build_organization_detail(org, active_event=active_event) for org in organizations]
 
 
 @app.post(
@@ -639,49 +965,14 @@ def update_organization_fee(
             db, organization_id=organization_id, fee_paid=payload.fee_paid
         )
         db.flush()
+        active_event = get_active_voting_event(db)
+        detail = build_organization_detail(organization, active_event=active_event)
     except RegistrationError as exc:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
-    members = []
-    for member in organization.users:
-        has_access = (
-            member.is_admin
-            or (
-                member.is_email_verified
-                and member.admin_decision == ApprovalDecision.approved
-                and organization.fee_paid
-            )
-        )
-        members.append(
-            {
-                "id": member.id,
-                "email": member.email,
-                "first_name": member.first_name,
-                "last_name": member.last_name,
-                "is_admin": member.is_admin,
-                "is_email_verified": member.is_email_verified,
-                "admin_decision": member.admin_decision,
-                "has_access": has_access,
-            }
-        )
-
-    name = organization.name
-    org_id = organization.id
-    fee_paid = organization.fee_paid
-
     db.commit()
-
-    return OrganizationDetail(
-        id=org_id,
-        name=name,
-        fee_paid=fee_paid,
-        member_count=len(members),
-        members=members,
-        bank_name=organization.bank_name,
-        bank_account_number=organization.bank_account_number,
-        payment_instructions=organization.payment_instructions,
-    )
+    return detail
 
 
 @app.post(
@@ -704,45 +995,148 @@ def update_organization_billing(
             payment_instructions=payload.payment_instructions,
         )
         db.flush()
+        active_event = get_active_voting_event(db)
+        detail = build_organization_detail(organization, active_event=active_event)
     except RegistrationError as exc:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
-    members = []
-    for member in organization.users:
-        has_access = (
-            member.is_admin
-            or (
-                member.is_email_verified
-                and member.admin_decision == ApprovalDecision.approved
-                and organization.fee_paid
-            )
+    db.commit()
+    return detail
+
+
+@app.get(
+    "/api/admin/events",
+    response_model=List[VotingEventRead],
+    responses={401: {"model": ErrorResponse}},
+)
+def list_voting_events_endpoint(
+    db: DatabaseDependency,
+    _: Annotated[User, Depends(require_admin)],
+) -> List[VotingEventRead]:
+    events = list_voting_events(db)
+    return [build_event_read(event) for event in events]
+
+
+@app.post(
+    "/api/admin/events",
+    response_model=VotingEventRead,
+    status_code=status.HTTP_201_CREATED,
+    responses={401: {"model": ErrorResponse}, 400: {"model": ErrorResponse}},
+)
+def create_voting_event_endpoint(
+    payload: VotingEventCreateRequest,
+    db: DatabaseDependency,
+    _: Annotated[User, Depends(require_admin)],
+) -> VotingEventRead:
+    try:
+        event = create_voting_event(
+            db,
+            title=payload.title,
+            description=payload.description,
+            activate=payload.activate,
         )
-        members.append(
-            {
-                "id": member.id,
-                "email": member.email,
-                "first_name": member.first_name,
-                "last_name": member.last_name,
-                "is_admin": member.is_admin,
-                "is_email_verified": member.is_email_verified,
-                "admin_decision": member.admin_decision,
-                "has_access": has_access,
-            }
-        )
+        db.flush()
+        db.refresh(event, attribute_names=["delegates"])
+    except RegistrationError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     db.commit()
+    return build_event_read(event)
 
-    return OrganizationDetail(
-        id=organization.id,
-        name=organization.name,
-        fee_paid=organization.fee_paid,
-        member_count=len(members),
-        members=members,
-        bank_name=organization.bank_name,
-        bank_account_number=organization.bank_account_number,
-        payment_instructions=organization.payment_instructions,
-    )
+
+@app.post(
+    "/api/admin/events/{event_id}/activate",
+    response_model=VotingEventRead,
+    responses={401: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+)
+def activate_voting_event_endpoint(
+    event_id: int,
+    db: DatabaseDependency,
+    _: Annotated[User, Depends(require_admin)],
+) -> VotingEventRead:
+    try:
+        event = set_active_voting_event(db, event_id)
+        db.flush()
+        db.refresh(event, attribute_names=["delegates"])
+    except RegistrationError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    db.commit()
+    return build_event_read(event)
+
+
+@app.get(
+    "/api/admin/events/{event_id}/delegates",
+    response_model=List[EventDelegateInfo],
+    responses={401: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+)
+def list_event_delegates(
+    event_id: int,
+    db: DatabaseDependency,
+    _: Annotated[User, Depends(require_admin)],
+) -> List[EventDelegateInfo]:
+    event = db.get(VotingEvent, event_id)
+    if event is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Nem található szavazási esemény")
+
+    delegate_map = delegates_for_event(db, event_id=event_id)
+    organizations = organizations_with_members(db)
+    return [build_delegate_info(org, delegate_map) for org in organizations]
+
+
+@app.post(
+    "/api/admin/events/{event_id}/organizations/{organization_id}/delegate",
+    response_model=SimpleMessageResponse,
+    responses={
+        401: {"model": ErrorResponse},
+        400: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+    },
+)
+def update_event_delegate(
+    event_id: int,
+    organization_id: int,
+    payload: EventDelegateAssignmentRequest,
+    db: DatabaseDependency,
+    _: Annotated[User, Depends(require_admin)],
+) -> SimpleMessageResponse:
+    if payload.user_id is None:
+        try:
+            remove_event_delegate(
+                db, event_id=event_id, organization_id=organization_id
+            )
+            db.flush()
+        except RegistrationError as exc:
+            db.rollback()
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+        db.commit()
+        return SimpleMessageResponse(message="A szervezet delegáltja törölve.")
+
+    try:
+        assign_event_delegate(
+            db,
+            event_id=event_id,
+            organization_id=organization_id,
+            user_id=payload.user_id,
+        )
+        db.flush()
+    except RegistrationError as exc:
+        db.rollback()
+        detail = str(exc)
+        lowered = detail.lower()
+        status_code = (
+            status.HTTP_404_NOT_FOUND
+            if "nem található" in lowered
+            else status.HTTP_400_BAD_REQUEST
+        )
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+
+    db.commit()
+    return SimpleMessageResponse(message="A szervezet delegáltja frissítve.")
 
 
 @app.delete(
@@ -820,37 +1214,5 @@ def organization_detail_endpoint(
         organization = organization_with_members(db, organization_id)
     except RegistrationError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-
-    members = []
-    for member in organization.users:
-        has_access = (
-            member.is_admin
-            or (
-                member.is_email_verified
-                and member.admin_decision == ApprovalDecision.approved
-                and organization.fee_paid
-            )
-        )
-        members.append(
-            {
-                "id": member.id,
-                "email": member.email,
-                "first_name": member.first_name,
-                "last_name": member.last_name,
-                "is_admin": member.is_admin,
-                "is_email_verified": member.is_email_verified,
-                "admin_decision": member.admin_decision,
-                "has_access": has_access,
-            }
-        )
-
-    return OrganizationDetail(
-        id=organization.id,
-        name=organization.name,
-        fee_paid=organization.fee_paid,
-        member_count=len(members),
-        members=members,
-        bank_name=organization.bank_name,
-        bank_account_number=organization.bank_account_number,
-        payment_instructions=organization.payment_instructions,
-    )
+    active_event = get_active_voting_event(db)
+    return build_organization_detail(organization, active_event=active_event)

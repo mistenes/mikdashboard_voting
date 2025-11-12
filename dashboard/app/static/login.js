@@ -77,6 +77,15 @@ loginForm?.addEventListener("submit", async (event) => {
     if (payload.email) {
       sessionStorage.setItem("currentEmail", payload.email);
     }
+    sessionStorage.setItem(
+      "mustChangePassword",
+      response.must_change_password ? "1" : "0",
+    );
+
+    if (response.must_change_password) {
+      window.location.href = "/jelszo-frissites";
+      return;
+    }
 
     const fallbackRedirect = response.organization_id
       ? `/szervezetek/${response.organization_id}/${

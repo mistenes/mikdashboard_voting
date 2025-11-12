@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
-from pydantic import BaseModel, EmailStr, Field, constr
+from pydantic import AnyHttpUrl, BaseModel, EmailStr, Field, constr
 
 from .models import ApprovalDecision
 
@@ -49,6 +49,7 @@ class LoginResponse(BaseModel):
     token: str
     organization_id: Optional[int] = None
     organization_fee_paid: Optional[bool] = None
+    must_change_password: bool = False
 
 
 class PendingUser(BaseModel):
@@ -79,6 +80,13 @@ class ErrorResponse(BaseModel):
     detail: str
 
 
+class ActiveEventInfo(BaseModel):
+    id: int
+    title: str
+    description: Optional[str] = None
+    delegate_count: int = 0
+
+
 class OrganizationMember(BaseModel):
     id: int
     email: EmailStr
@@ -88,6 +96,7 @@ class OrganizationMember(BaseModel):
     is_email_verified: bool
     admin_decision: ApprovalDecision
     has_access: bool
+    is_voting_delegate: bool
 
 
 class OrganizationDetail(BaseModel):
@@ -99,6 +108,8 @@ class OrganizationDetail(BaseModel):
     bank_name: Optional[str] = None
     bank_account_number: Optional[str] = None
     payment_instructions: Optional[str] = None
+    active_event: Optional[ActiveEventInfo] = None
+    active_event_delegate_user_id: Optional[int] = None
 
 
 class OrganizationFeeUpdate(BaseModel):
@@ -139,3 +150,80 @@ class SessionUser(BaseModel):
     last_name: Optional[str]
     is_admin: bool
     organization: Optional[OrganizationMembershipInfo]
+    is_voting_delegate: Optional[bool] = None
+    active_event: Optional[ActiveEventInfo] = None
+
+
+class VotingDelegateUpdate(BaseModel):
+    is_delegate: bool
+
+
+class VotingEventCreateRequest(BaseModel):
+    title: constr(strip_whitespace=True, min_length=3, max_length=255)
+    description: Optional[constr(strip_whitespace=True, max_length=500)] = None
+    activate: bool = False
+
+
+class VotingEventRead(BaseModel):
+    id: int
+    title: str
+    description: Optional[str] = None
+    is_active: bool
+    created_at: datetime
+    delegate_count: int = 0
+
+
+class EventDelegateInfo(BaseModel):
+    organization_id: int
+    organization_name: str
+    user_id: Optional[int]
+    user_email: Optional[EmailStr]
+    user_first_name: Optional[str]
+    user_last_name: Optional[str]
+
+
+class EventDelegateAssignmentRequest(BaseModel):
+    user_id: Optional[int]
+
+
+class SimpleMessageResponse(BaseModel):
+    message: str
+
+
+class VotingO2AuthResponse(BaseModel):
+    redirect: AnyHttpUrl
+    expires_in: int
+
+
+class VotingO2AuthLaunchRequest(BaseModel):
+    view: Literal["default", "admin", "public"] = "default"
+
+
+class VotingAuthRequest(BaseModel):
+    email: EmailStr
+    password: str
+    timestamp: int
+    signature: constr(strip_whitespace=True, min_length=1)
+
+
+class VotingAuthResponse(BaseModel):
+    email: EmailStr
+    is_admin: bool
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    organization_id: Optional[int] = None
+    organization_fee_paid: Optional[bool] = None
+    must_change_password: bool = False
+    active_event: Optional[ActiveEventInfo] = None
+    is_event_delegate: bool = False
+
+
+class PasswordChangeRequest(BaseModel):
+    current_password: constr(min_length=1)
+    new_password: constr(min_length=8)
+
+
+class PasswordChangeResponse(BaseModel):
+    message: str
+    token: str
+    must_change_password: bool

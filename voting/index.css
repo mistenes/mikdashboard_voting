@@ -171,11 +171,54 @@ input[type="text"]:focus, input[type="password"]:focus, input[type="number"]:foc
     font-size: 1.1rem;
 }
 
+.event-banner {
+    margin-bottom: 1rem;
+    font-size: 1rem;
+    color: var(--text-secondary);
+}
+
 .logout-button {
     margin-top: 2rem;
     width: auto;
     padding: 0.5rem 1rem;
     font-size: 0.9rem;
+}
+
+.public-view {
+    max-width: 620px;
+}
+
+.public-caption {
+    font-size: 1rem;
+    margin-bottom: 1rem;
+}
+
+.public-status-badge {
+    display: inline-block;
+    padding: 0.5rem 1.5rem;
+    border-radius: 999px;
+    font-weight: 600;
+    margin-bottom: 1.5rem;
+}
+
+.public-status-waiting {
+    background: rgba(148, 163, 184, 0.25);
+    color: var(--text-primary);
+}
+
+.public-status-in_progress {
+    background: var(--accent-color);
+    color: #ffffff;
+}
+
+.public-status-finished {
+    background: var(--igen-color);
+    color: #ffffff;
+}
+
+.public-note {
+    margin-top: 1.5rem;
+    color: var(--text-secondary);
 }
 
 .btn-start-vote {
@@ -212,6 +255,14 @@ input[type="text"]:focus, input[type="password"]:focus, input[type="number"]:foc
     color: var(--accent-color);
     margin: 1rem 0;
 }
+.voting-interface .timer-expired {
+    margin: 1rem 0;
+    padding: 0.75rem 1rem;
+    border-radius: 8px;
+    background-color: rgba(220, 53, 69, 0.1);
+    color: #dc3545;
+    font-weight: 600;
+}
 .voting-interface p {
     margin-bottom: 0.5rem;
 }
@@ -242,7 +293,7 @@ input[type="text"]:focus, input[type="password"]:focus, input[type="number"]:foc
 
 
 /* Results Display */
-.admin-results, .public-view .results-container {
+.admin-results, .results-container {
     margin-top: 2rem;
     width: 100%;
 }
@@ -303,6 +354,14 @@ input[type="text"]:focus, input[type="password"]:focus, input[type="number"]:foc
     padding: 2px 6px;
     border-radius: 4px;
     z-index: 1000;
+}
+
+.connection-error {
+    background-color: #dc3545;
+    color: #fff;
+    padding: 0.75rem 1rem;
+    text-align: center;
+    font-weight: 600;
 }
 
 .admin-timer-container {

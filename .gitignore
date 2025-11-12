@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+*.sqlite3
+
+# Node
+node_modules/
+voting/node_modules/
+.vite/
+voting/dist/
+
+# Environments
+.env
+.env.*
+.venv/

@@ -1,50 +1,133 @@
-
-import React, { useState, FormEvent, useEffect, useMemo, useCallback } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-// Firebase imports
-import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js';
-import { getFirestore, doc, onSnapshot, setDoc, updateDoc, increment, serverTimestamp, Timestamp } from 'https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore.js';
 
-// --- Firebase Configuration ---
-const firebaseConfig = {
-  apiKey: "AIzaSyBRXKJ53SS-2zmuzPGRo7orfbCxvV_jYkc",
-  authDomain: "mikvoting.firebaseapp.com",
-  projectId: "mikvoting",
-  storageBucket: "mikvoting.appspot.com",
-  messagingSenderId: "1089430048079",
-  appId: "1:1089430048079:web:f4ab7500b7257b8deb093a",
-  measurementId: "G-M8TJ9LLGHQ"
+// --- API helpers ---
+type SessionStatus = 'WAITING' | 'IN_PROGRESS' | 'FINISHED';
+
+type AppMode = 'default' | 'admin' | 'public';
+
+const STATUS_MESSAGES: Record<SessionStatus, string> = {
+    WAITING: 'A szavazás még nem indult el.',
+    IN_PROGRESS: 'A szavazás jelenleg is tart.',
+    FINISHED: 'A szavazás lezárult.',
 };
 
-// Check if Firebase config is just a placeholder
-const isFirebaseConfigured = firebaseConfig.projectId && firebaseConfig.projectId !== "your-project";
+const detectAppMode = (): AppMode => {
+    const path = window.location.pathname.toLowerCase();
+    if (path.startsWith('/admin')) {
+        return 'admin';
+    }
+    if (path.startsWith('/public')) {
+        return 'public';
+    }
+    return 'default';
+};
 
-// Initialize Firebase only if configured
-const app = isFirebaseConfigured ? initializeApp(firebaseConfig) : null;
-const db = isFirebaseConfigured ? getFirestore(app!) : null;
-const sessionDocRef = isFirebaseConfigured ? doc(db!, "session", "current") : null;
-
-// --- Registered Voters ---
-const voterCredentials = [
-    { username: "voter1", password: "p1" },
-    { username: "voter2", password: "p2" },
-    { username: "voter3", password: "p3" },
-    { username: "voter4", password: "p4" },
-    { username: "voter5", password: "p5" },
-    { username: "voter6", password: "p6" },
-    { username: "voter7", password: "p7" },
-    { username: "voter8", password: "p8" },
-    { username: "voter9", password: "p9" },
-    { username: "voter10", password: "p10" },
-];
-
-
-// --- Interfaces ---
 interface SessionData {
-    status: 'WAITING' | 'IN_PROGRESS' | 'FINISHED';
+    status: SessionStatus;
     results: { igen: number; nem: number; tartozkodott: number; };
     totalVoters: number;
-    voteStartTime?: Timestamp;
+    voteStartTime: string | null;
+    voteEndTime: string | null;
+    voteDurationSeconds: number;
+    serverTimestamp: string | null;
+}
+
+interface SessionResponse {
+    status?: SessionStatus;
+    results?: Partial<Record<'igen' | 'nem' | 'tartozkodott', number>>;
+    totalVoters?: number;
+    voteStartTime?: string | null;
+    voteEndTime?: string | null;
+    voteDurationSeconds?: number;
+    serverTimestamp?: string | null;
+}
+
+type UserRole = 'admin' | 'voter';
+
+interface AuthUser {
+    role: UserRole;
+    username?: string;
+    email?: string;
+    firstName?: string | null;
+    lastName?: string | null;
+    organizationId?: number | null;
+    organizationFeePaid?: boolean | null;
+    eventId?: number | null;
+    eventTitle?: string | null;
+    mustChangePassword?: boolean;
+    isEventDelegate?: boolean | null;
+    source?: string;
+}
+
+interface AuthSessionResponse {
+    user: AuthUser | null;
+}
+
+const DEFAULT_RESULTS: SessionData['results'] = { igen: 0, nem: 0, tartozkodott: 0 };
+
+const DEFAULT_VOTE_DURATION = 10;
+
+const toSessionData = (response: SessionResponse | null | undefined): SessionData => ({
+    status: response?.status ?? 'WAITING',
+    results: {
+        igen: Number(response?.results?.igen ?? DEFAULT_RESULTS.igen),
+        nem: Number(response?.results?.nem ?? DEFAULT_RESULTS.nem),
+        tartozkodott: Number(response?.results?.tartozkodott ?? DEFAULT_RESULTS.tartozkodott),
+    },
+    totalVoters: Number(response?.totalVoters ?? 0),
+    voteStartTime: response?.voteStartTime ?? null,
+    voteEndTime: response?.voteEndTime ?? null,
+    voteDurationSeconds: Number(response?.voteDurationSeconds ?? DEFAULT_VOTE_DURATION),
+    serverTimestamp: response?.serverTimestamp ?? null,
+});
+
+async function jsonRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
+    const headers: HeadersInit = {
+        'Content-Type': 'application/json',
+        ...(init.headers || {}),
+    };
+    const response = await fetch(path, {
+        ...init,
+        headers,
+        credentials: 'include',
+    });
+
+    if (!response.ok) {
+        let message = '';
+        try {
+            const payload = await response.json();
+            message = (payload?.detail as string) || (payload?.message as string) || '';
+        } catch {
+            message = await response.text();
+        }
+        throw new Error(message || `Request to ${path} failed with status ${response.status}`);
+    }
+
+    if (response.status === 204) {
+        return undefined as T;
+    }
+
+    return (await response.json()) as T;
+}
+
+async function fetchAuthSession(): Promise<AuthUser | null> {
+    const response = await fetch('/api/auth/session', { credentials: 'include' });
+    if (response.status === 401) {
+        return null;
+    }
+    if (!response.ok) {
+        let message = '';
+        try {
+            const payload = await response.json();
+            message = (payload?.detail as string) || '';
+        } catch {
+            message = await response.text();
+        }
+        throw new Error(message || 'Nem sikerült betölteni a bejelentkezési állapotot.');
+    }
+    const payload = (await response.json()) as AuthSessionResponse;
+    return payload.user;
 }
 
 // --- Helper Components ---
@@ -110,61 +193,99 @@ const ResultsDisplay = ({ results, totalVoters }: { results: SessionData['result
 };
 
 
+const PublicView = ({ sessionData, lastUpdate }: { sessionData: SessionData, lastUpdate: Date | null }) => {
+    const statusLabel = STATUS_MESSAGES[sessionData.status];
+    return (
+        <div className="container public-view">
+            <h1>Nyilvános szavazás</h1>
+            <p className="public-caption">Eredmények valós időben frissítve</p>
+            <div className={`public-status-badge public-status-${sessionData.status.toLowerCase()}`}>
+                {statusLabel}
+            </div>
+            <ResultsDisplay results={sessionData.results} totalVoters={sessionData.totalVoters} />
+            <p className="public-note">
+                {lastUpdate
+                    ? `Utolsó frissítés: ${lastUpdate.toLocaleTimeString()}`
+                    : 'A kijelző automatikusan frissül.'}
+            </p>
+        </div>
+    );
+};
+
+
+const UnauthorizedAdminView = ({ onLogout }: { onLogout: () => void }) => (
+    <div className="container">
+        <h1>Nincs jogosultság</h1>
+        <p>Az admin nézet eléréséhez adminisztrátori jogosultság szükséges.</p>
+        <button onClick={onLogout} className="btn btn-secondary logout-button">Kijelentkezés</button>
+    </div>
+);
+
+
 // --- View Components ---
 
-const AdminView = ({ sessionData, onLogout }: { sessionData: SessionData, onLogout: () => void }) => {
-    const VOTE_DURATION_S = 10;
+const AdminView = ({ sessionData, onLogout, onSessionUpdate, clockOffsetMs }: {
+    sessionData: SessionData,
+    onLogout: () => void,
+    onSessionUpdate: (session: SessionData) => void,
+    clockOffsetMs: number,
+}) => {
     const [isLoading, setIsLoading] = useState(false);
     const [adminTimeLeft, setAdminTimeLeft] = useState<number | null>(null);
+
+    const voteEndMs = useMemo(() => (
+        sessionData.voteEndTime ? new Date(sessionData.voteEndTime).getTime() : null
+    ), [sessionData.voteEndTime]);
 
     const handleFinish = useCallback(async () => {
         setIsLoading(true);
         try {
-            await updateDoc(sessionDocRef!, {
-                status: 'FINISHED'
+            const updated = await jsonRequest<SessionResponse>('/api/session/finish', {
+                method: 'POST',
             });
+            onSessionUpdate(toSessionData(updated));
         } catch (error) {
             console.error("Error finishing vote:", error);
             alert("Hiba a befejezés során.");
         } finally {
             setIsLoading(false);
         }
-    }, []);
+    }, [onSessionUpdate]);
 
     useEffect(() => {
-        if (sessionData.status !== 'IN_PROGRESS' || !sessionData.voteStartTime) {
+        if (sessionData.status !== 'IN_PROGRESS' || !voteEndMs) {
             setAdminTimeLeft(null);
             return;
         }
 
-        const voteStartTimeMs = sessionData.voteStartTime.toMillis();
+        const computeRemaining = () => {
+            const nowMs = Date.now() + clockOffsetMs;
+            const remainingSeconds = Math.ceil((voteEndMs - nowMs) / 1000);
+            return Math.max(0, remainingSeconds);
+        };
+
+        setAdminTimeLeft(computeRemaining());
 
         const interval = setInterval(() => {
-            const nowMs = Date.now();
-            const elapsedSeconds = Math.floor((nowMs - voteStartTimeMs) / 1000);
-            const newTimeLeft = Math.max(0, VOTE_DURATION_S - elapsedSeconds);
+            const newTimeLeft = computeRemaining();
             setAdminTimeLeft(newTimeLeft);
 
             if (newTimeLeft === 0) {
                 clearInterval(interval);
-                if (sessionData.status === 'IN_PROGRESS') {
-                    handleFinish();
-                }
             }
         }, 500);
 
         return () => clearInterval(interval);
-    }, [sessionData.status, sessionData.voteStartTime, handleFinish]);
+    }, [sessionData.status, voteEndMs, clockOffsetMs]);
 
     const handleStartVote = async () => {
         setIsLoading(true);
         try {
-            await setDoc(sessionDocRef!, {
-                status: 'IN_PROGRESS',
-                results: { igen: 0, nem: 0, tartozkodott: 0 },
-                totalVoters: voterCredentials.length,
-                voteStartTime: serverTimestamp(),
-            }, { merge: true });
+            const updated = await jsonRequest<SessionResponse>('/api/session/start', {
+                method: 'POST',
+                body: JSON.stringify({ totalVoters: sessionData.totalVoters }),
+            });
+            onSessionUpdate(toSessionData(updated));
         } catch (error) {
             console.error("Error starting vote:", error);
             alert("Hiba a szavazás indításakor.");
@@ -176,9 +297,10 @@ const AdminView = ({ sessionData, onLogout }: { sessionData: SessionData, onLogo
     const handleReset = async () => {
         setIsLoading(true);
         try {
-            await updateDoc(sessionDocRef!, {
-                status: 'WAITING'
+            const updated = await jsonRequest<SessionResponse>('/api/session/reset', {
+                method: 'POST',
             });
+            onSessionUpdate(toSessionData(updated));
         } catch (error) {
             console.error("Error resetting vote:", error);
             alert("Hiba a visszaállítás során.");
@@ -194,7 +316,7 @@ const AdminView = ({ sessionData, onLogout }: { sessionData: SessionData, onLogo
             
             <div className="admin-info">
                 <span>Regisztrált szavazók:</span>
-                <strong>{voterCredentials.length}</strong>
+                <strong>{sessionData.totalVoters}</strong>
             </div>
 
             {sessionData.status === 'WAITING' && (
@@ -205,7 +327,7 @@ const AdminView = ({ sessionData, onLogout }: { sessionData: SessionData, onLogo
             
             {sessionData.status === 'IN_PROGRESS' && (
                 <div className="admin-timer-container">
-                    <p>Hátralévő idő: <strong>{adminTimeLeft ?? VOTE_DURATION_S}s</strong></p>
+                    <p>Hátralévő idő: <strong>{adminTimeLeft ?? sessionData.voteDurationSeconds}s</strong></p>
                     <button onClick={handleFinish} className="btn btn-danger" disabled={isLoading}>
                         Szavazás Befejezése (most)
                     </button>
@@ -232,12 +354,24 @@ const AdminView = ({ sessionData, onLogout }: { sessionData: SessionData, onLogo
     );
 };
 
-const VoterView = ({ sessionData, onLogout }: { sessionData: SessionData, onLogout: () => void }) => {
-    const VOTE_DURATION_S = 10;
-    const [timeLeft, setTimeLeft] = useState(VOTE_DURATION_S);
+const VoterView = ({ sessionData, onLogout, eventTitle, clockOffsetMs }: { sessionData: SessionData, onLogout: () => void, eventTitle?: string | null, clockOffsetMs: number }) => {
+    const voteEndMs = useMemo(() => (
+        sessionData.voteEndTime ? new Date(sessionData.voteEndTime).getTime() : null
+    ), [sessionData.voteEndTime]);
+
+    const computeInitialTimeLeft = useCallback(() => {
+        if (sessionData.status === 'IN_PROGRESS' && voteEndMs) {
+            const nowMs = Date.now() + clockOffsetMs;
+            const remainingSeconds = Math.ceil((voteEndMs - nowMs) / 1000);
+            return Math.max(0, remainingSeconds);
+        }
+        return sessionData.voteDurationSeconds || DEFAULT_VOTE_DURATION;
+    }, [sessionData.status, sessionData.voteDurationSeconds, voteEndMs, clockOffsetMs]);
+
+    const [timeLeft, setTimeLeft] = useState<number>(() => computeInitialTimeLeft());
     const [hasVoted, setHasVoted] = useState(false);
-    
-    const voteSessionId = sessionData?.voteStartTime?.toMillis().toString();
+
+    const voteSessionId = sessionData?.voteStartTime ?? undefined;
 
     useEffect(() => {
         if (voteSessionId) {
@@ -251,16 +385,20 @@ const VoterView = ({ sessionData, onLogout }: { sessionData: SessionData, onLogo
     }, [voteSessionId, sessionData?.status]);
     
     useEffect(() => {
-        if (sessionData.status !== 'IN_PROGRESS' || !sessionData.voteStartTime || hasVoted) {
+        if (sessionData.status !== 'IN_PROGRESS' || !voteEndMs || hasVoted) {
             return;
         }
 
-        const voteStartTimeMs = sessionData.voteStartTime.toMillis();
-        
+        const computeRemaining = () => {
+            const nowMs = Date.now() + clockOffsetMs;
+            const remainingSeconds = Math.ceil((voteEndMs - nowMs) / 1000);
+            return Math.max(0, remainingSeconds);
+        };
+
+        setTimeLeft(computeRemaining());
+
         const interval = setInterval(() => {
-            const nowMs = Date.now();
-            const elapsedSeconds = Math.floor((nowMs - voteStartTimeMs) / 1000);
-            const newTimeLeft = Math.max(0, VOTE_DURATION_S - elapsedSeconds);
+            const newTimeLeft = computeRemaining();
             setTimeLeft(newTimeLeft);
 
             if (newTimeLeft === 0) {
@@ -269,23 +407,36 @@ const VoterView = ({ sessionData, onLogout }: { sessionData: SessionData, onLogo
         }, 500);
 
         return () => clearInterval(interval);
-    }, [sessionData.status, sessionData.voteStartTime, hasVoted]);
-    
-     const handleVote = async (voteType: 'igen' | 'nem' | 'tartozkodott') => {
+    }, [sessionData.status, voteEndMs, hasVoted, clockOffsetMs]);
+
+    useEffect(() => {
+        if (sessionData.status !== 'IN_PROGRESS') {
+            setTimeLeft(computeInitialTimeLeft());
+        }
+    }, [sessionData.status, sessionData.voteDurationSeconds, computeInitialTimeLeft]);
+
+    const canVoteNow = sessionData.status === 'IN_PROGRESS' && timeLeft > 0 && !hasVoted;
+
+    const handleVote = async (voteType: 'igen' | 'nem' | 'tartozkodott') => {
         if (hasVoted) return;
+        if (timeLeft <= 0) {
+            alert('A szavazási idő lejárt.');
+            return;
+        }
         setHasVoted(true);
         if(voteSessionId) {
            localStorage.setItem('votedInSession', voteSessionId);
         }
-        
+
         try {
-            await updateDoc(sessionDocRef!, {
-                [`results.${voteType}`]: increment(1)
+            await jsonRequest<SessionResponse>('/api/session/vote', {
+                method: 'POST',
+                body: JSON.stringify({ voteType }),
             });
         } catch (error) {
             console.error("Error casting vote:", error);
             alert("Hiba a szavazat leadásakor.");
-            // Rollback UI state if firestore fails
+            // Rollback UI state if the vote submission fails
             setHasVoted(false);
             localStorage.removeItem('votedInSession');
         }
@@ -301,17 +452,20 @@ const VoterView = ({ sessionData, onLogout }: { sessionData: SessionData, onLogo
                 if (hasVoted) {
                     return <div className="vote-cast-msg"><h2>Köszönjük, szavazatát rögzítettük!</h2></div>
                 }
-                if (timeLeft <= 0) {
-                    return <h2>A szavazási idő lejárt.</h2>
-                }
                 return (
                     <div className="voting-interface">
-                        <p>A szavazat leadására rendelkezésre álló idő:</p>
-                        <div className="timer">{timeLeft}s</div>
+                        {timeLeft > 0 ? (
+                            <>
+                                <p>A szavazat leadására rendelkezésre álló idő:</p>
+                                <div className="timer">{timeLeft}s</div>
+                            </>
+                        ) : (
+                            <p className="timer-expired">A szavazás időkorlátja lejárt.</p>
+                        )}
                         <div className="vote-buttons">
-                            <button onClick={() => handleVote('igen')} className="btn btn-igen">Igen</button>
-                            <button onClick={() => handleVote('nem')} className="btn btn-nem">Nem</button>
-                            <button onClick={() => handleVote('tartozkodott')} className="btn btn-tartozkodom">Tartózkodom</button>
+                            <button onClick={() => handleVote('igen')} className="btn btn-igen" disabled={!canVoteNow}>Igen</button>
+                            <button onClick={() => handleVote('nem')} className="btn btn-nem" disabled={!canVoteNow}>Nem</button>
+                            <button onClick={() => handleVote('tartozkodott')} className="btn btn-tartozkodom" disabled={!canVoteNow}>Tartózkodom</button>
                         </div>
                     </div>
                 );
@@ -320,10 +474,13 @@ const VoterView = ({ sessionData, onLogout }: { sessionData: SessionData, onLogo
         }
     }
 
+    const trimmedTitle = (eventTitle || '').trim();
+
     return (
-         <div className="container view-container">
+        <div className="container view-container">
             <h1>Szavazó</h1>
-             <div className="voter-status-box">
+            {trimmedTitle && <p className="event-banner">Aktív esemény: {trimmedTitle}</p>}
+            <div className="voter-status-box">
                 {renderContent()}
             </div>
             <button onClick={onLogout} className="btn btn-secondary logout-button">Kijelentkezés</button>
@@ -331,51 +488,23 @@ const VoterView = ({ sessionData, onLogout }: { sessionData: SessionData, onLogo
     );
 };
 
-const PublicView = ({ sessionData, onLogout }: { sessionData: SessionData, onLogout: () => void }) => {
-     const renderContent = () => {
-        switch (sessionData.status) {
-            case 'WAITING':
-                return <h2>Várakozás a szavazásra</h2>;
-            case 'IN_PROGRESS':
-                return <h2>Szavazás folyamatban...</h2>;
-            case 'FINISHED':
-                return (
-                    <>
-                        <h2>Eredmények</h2>
-                        <ResultsDisplay results={sessionData.results} totalVoters={sessionData.totalVoters} />
-                    </>
-                );
-            default:
-                return <p>Betöltés...</p>;
-        }
-    }
-    
-    return (
-        <div className="container view-container public-view">
-            <h1>Publikus nézet</h1>
-            {renderContent()}
-            <button onClick={onLogout} className="btn btn-secondary logout-button">Kijelentkezés</button>
-        </div>
-    );
-};
-
-const LoginScreen = ({ onLogin, error }: { onLogin: (u: string, p: string) => void, error: string }) => {
-    const [username, setUsername] = useState('');
+const LoginScreen = ({ onLogin, error }: { onLogin: (email: string, password: string) => Promise<void> | void, error: string }) => {
+    const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
 
-    const handleSubmit = (e: FormEvent) => {
+    const handleSubmit = async (e: FormEvent) => {
         e.preventDefault();
-        onLogin(username, password);
+        await onLogin(email, password);
     };
 
     return (
         <div className="container">
             <form onSubmit={handleSubmit}>
                 <h1>Szavazórendszer</h1>
-                <p>Kérjük, jelentkezzen be a folytatáshoz.</p>
+                <p>Kérjük, jelentkezzen be a folytatáshoz, vagy használja a MikDashboard felületéről érkező egyszeri bejelentkezést.</p>
                 <div className="form-group">
-                    <label htmlFor="username">Felhasználónév</label>
-                    <input type="text" id="username" value={username} onChange={(e) => setUsername(e.target.value)} required />
+                    <label htmlFor="email">Email cím</label>
+                    <input type="email" id="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
                 </div>
                 <div className="form-group">
                     <label htmlFor="password">Jelszó</label>
@@ -388,140 +517,158 @@ const LoginScreen = ({ onLogin, error }: { onLogin: (u: string, p: string) => vo
     );
 };
 
-const FirebaseConfigError = () => (
-    <div className="container">
-        <h1>Konfiguráció szükséges</h1>
-        <p style={{ textAlign: 'left', color: '#333' }}>
-            A Firebase kapcsolat nincs beállítva. Kérjük, cserélje ki a placeholder konfigurációt a saját Firebase projektjének adataira az <strong>index.tsx</strong> fájlban.
-        </p>
-        <pre style={{
-            backgroundColor: '#e9ecef',
-            padding: '1rem',
-            borderRadius: '6px',
-            textAlign: 'left',
-            whiteSpace: 'pre-wrap',
-            wordBreak: 'break-all',
-            fontSize: '0.8rem',
-            lineHeight: '1.4'
-        }}>
-            <code>
-{`// index.tsx
-
-const firebaseConfig = {
-  apiKey: "AIza...",
-  authDomain: "your-project.firebaseapp.com",
-  projectId: "your-project",
-  // ...
-};`}
-            </code>
-        </pre>
-    </div>
-);
-
-
 // --- Main App Component ---
 
 const App = () => {
     const [sessionData, setSessionData] = useState<SessionData | null>(null);
-    const [user, setUser] = useState<{ role: 'admin' | 'voter' | 'public' } | null>(null);
+    const [user, setUser] = useState<AuthUser | null>(null);
     const [error, setError] = useState('');
     const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
     const [authChecked, setAuthChecked] = useState(false);
+    const [connectionError, setConnectionError] = useState('');
+    const [clockOffsetMs, setClockOffsetMs] = useState(0);
+    const mode = useMemo<AppMode>(() => detectAppMode(), []);
 
-    // Effect for simulated SSO check
-    useEffect(() => {
-        try {
-            const wpUserRaw = localStorage.getItem('wordpress_user');
-            if (wpUserRaw) {
-                const wpUser = JSON.parse(wpUserRaw);
-                // Check for an active user from the simulated WordPress session
-                if (wpUser && wpUser.username && wpUser.status === 'active') {
-                    console.log(`SSO login for: ${wpUser.username}`);
-                    setUser({ role: 'voter' });
-                }
-            }
-        } catch (e) {
-            console.error("Failed to parse WordPress user session", e);
-        } finally {
-            // Mark the authentication check as complete
-            setAuthChecked(true);
-        }
-    }, []);
-
-    // Effect for Firebase connection
-    useEffect(() => {
-        if (!isFirebaseConfigured || !sessionDocRef) {
+    const updateClockOffset = useCallback((session: SessionData) => {
+        if (!session.serverTimestamp) {
             return;
         }
-        
-        const unsubscribe = onSnapshot(sessionDocRef, (doc) => {
-            if (doc.exists()) {
-                setSessionData(doc.data() as SessionData);
-                setLastUpdate(new Date());
-            } else {
-                // Initialize the document if it doesn't exist
-                setDoc(sessionDocRef, { 
-                    status: 'WAITING', 
-                    results: { igen: 0, nem: 0, tartozkodott: 0 },
-                    totalVoters: voterCredentials.length
-                });
-            }
-        }, (err) => {
-            console.error("Firebase listener error:", err);
-            setError("Hiba a kapcsolódás során. Kérjük, frissítse az oldalt.");
-        });
-
-        return () => unsubscribe();
+        const serverMs = new Date(session.serverTimestamp).getTime();
+        if (Number.isFinite(serverMs)) {
+            setClockOffsetMs(serverMs - Date.now());
+        }
     }, []);
 
-    const handleLogin = (username, password) => {
+    useEffect(() => {
+        if (mode === 'public') {
+            setAuthChecked(true);
+            return;
+        }
+
+        let isActive = true;
+        const loadSession = async () => {
+            try {
+                const currentUser = await fetchAuthSession();
+                if (isActive) {
+                    setUser(currentUser);
+                }
+            } catch (err) {
+                console.error('Failed to load authentication session', err);
+            } finally {
+                if (isActive) {
+                    setAuthChecked(true);
+                }
+            }
+        };
+        loadSession();
+        return () => {
+            isActive = false;
+        };
+    }, [mode]);
+
+    // Effect for Render API connection
+    useEffect(() => {
+        let isActive = true;
+
+        const loadInitialSession = async () => {
+            try {
+                const data = await jsonRequest<SessionResponse>('/api/session');
+                const session = toSessionData(data);
+                if (isActive) {
+                    updateClockOffset(session);
+                    setSessionData(session);
+                    setConnectionError('');
+                }
+            } catch (err) {
+                console.error('Failed to load session state', err);
+                if (isActive) {
+                    setConnectionError('Nem sikerült betölteni a szavazási állapotot.');
+                }
+            }
+        };
+
+        loadInitialSession();
+
+        const eventSource = new EventSource('/api/session/stream');
+        eventSource.onmessage = (event) => {
+            const payload = JSON.parse(event.data) as SessionResponse;
+            const session = toSessionData(payload);
+            updateClockOffset(session);
+            setSessionData(session);
+            setLastUpdate(new Date());
+            setConnectionError('');
+        };
+        eventSource.onerror = (event) => {
+            console.error('Session stream error', event);
+            setConnectionError('A valós idejű kapcsolat megszakadt. Próbálja meg frissíteni az oldalt.');
+        };
+
+        return () => {
+            isActive = false;
+            eventSource.close();
+        };
+    }, [updateClockOffset]);
+
+    const handleLogin = async (email: string, password: string): Promise<void> => {
         setError('');
-        const isVoter = voterCredentials.some(
-            cred => cred.username.toLowerCase() === username.toLowerCase() && cred.password === password
-        );
-
-        // NOTE: In a real application, use a secure authentication provider.
-        if (username.toLowerCase() === 'admin' && password === 'admin') {
-            setUser({ role: 'admin' });
-        } else if (isVoter) {
-            setUser({ role: 'voter' });
-        } else if (username.toLowerCase() === 'public' && password === 'public') {
-            setUser({ role: 'public' });
-        } else {
-            setError('Hibás felhasználónév vagy jelszó.');
+        try {
+            const payload = await jsonRequest<AuthSessionResponse>('/api/auth/login', {
+                method: 'POST',
+                body: JSON.stringify({ email, password }),
+            });
+            setUser(payload.user);
+            setAuthChecked(true);
+        } catch (err) {
+            const message = err instanceof Error ? err.message : '';
+            setError(message || 'Hibás email cím vagy jelszó.');
         }
     };
 
-    const handleLogout = () => {
-        // Also clear the simulated WordPress session on logout for consistency
-        localStorage.removeItem('wordpress_user');
-        setUser(null);
+    const handleLogout = async (): Promise<void> => {
+        try {
+            await jsonRequest('/api/auth/logout', { method: 'POST' });
+        } catch (err) {
+            console.error('Failed to log out', err);
+        } finally {
+            setUser(null);
+            setError('');
+        }
     };
 
-    if (!isFirebaseConfigured) {
-        return <FirebaseConfigError />;
-    }
-    
+    const handleSessionUpdate = (session: SessionData) => {
+        updateClockOffset(session);
+        setSessionData(session);
+    };
+
     const renderView = () => {
-        if (!authChecked) {
-            return <div className="container"><h2>Authenticating...</h2></div>;
+        if (mode === 'public') {
+            if (!sessionData) {
+                return <div className="container"><h2>Adatok betöltése...</h2></div>;
+            }
+            return <PublicView sessionData={sessionData} lastUpdate={lastUpdate} />;
         }
-        
+
+        if (!authChecked) {
+            return <div className="container"><h2>Hitelesítés folyamatban...</h2></div>;
+        }
+
         if (!user) {
             return <LoginScreen onLogin={handleLogin} error={error} />;
         }
-        
+
         if (!sessionData) {
             return <div className="container"><h2>Adatok betöltése...</h2></div>;
         }
 
+        if (mode === 'admin' && user.role !== 'admin') {
+            return <UnauthorizedAdminView onLogout={handleLogout} />;
+        }
+
         switch (user.role) {
             case 'admin':
-                return <AdminView sessionData={sessionData} onLogout={handleLogout} />;
+                return <AdminView sessionData={sessionData} onLogout={handleLogout} onSessionUpdate={handleSessionUpdate} clockOffsetMs={clockOffsetMs} />;
             case 'voter':
-                return <VoterView sessionData={sessionData} onLogout={handleLogout} />;
-            case 'public':
-                return <PublicView sessionData={sessionData} onLogout={handleLogout} />;
+                return <VoterView sessionData={sessionData} onLogout={handleLogout} eventTitle={user.eventTitle} clockOffsetMs={clockOffsetMs} />;
             default:
                 return <LoginScreen onLogin={handleLogin} error={error} />;
         }
@@ -529,8 +676,13 @@ const App = () => {
 
     return (
         <>
+            {connectionError && (
+                <div className="connection-error" role="alert">
+                    {connectionError}
+                </div>
+            )}
             {renderView()}
-            {user && <SyncStatus lastUpdate={lastUpdate} />}
+            {(user || mode === 'public') && <SyncStatus lastUpdate={lastUpdate} />}
         </>
     );
 };
