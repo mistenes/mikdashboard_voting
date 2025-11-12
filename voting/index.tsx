@@ -1,9 +1,17 @@
-
-import React, { useState, FormEvent, useEffect, useMemo, useCallback } from 'react';
+import { useCallback, useEffect, useState, FormEvent } from 'react';
 import { createRoot } from 'react-dom/client';
 // Firebase imports
-import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js';
-import { getFirestore, doc, onSnapshot, setDoc, updateDoc, increment, serverTimestamp, Timestamp } from 'https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore.js';
+import { initializeApp } from 'firebase/app';
+import {
+    Timestamp,
+    doc,
+    getFirestore,
+    increment,
+    onSnapshot,
+    serverTimestamp,
+    setDoc,
+    updateDoc,
+} from 'firebase/firestore';
 
 // --- Firebase Configuration ---
 const firebaseConfig = {
@@ -20,9 +28,9 @@ const firebaseConfig = {
 const isFirebaseConfigured = firebaseConfig.projectId && firebaseConfig.projectId !== "your-project";
 
 // Initialize Firebase only if configured
-const app = isFirebaseConfigured ? initializeApp(firebaseConfig) : null;
-const db = isFirebaseConfigured ? getFirestore(app!) : null;
-const sessionDocRef = isFirebaseConfigured ? doc(db!, "session", "current") : null;
+const app = isFirebaseConfigured ? initializeApp(firebaseConfig) : undefined;
+const db = app ? getFirestore(app) : undefined;
+const sessionDocRef = db ? doc(db, "session", "current") : undefined;
 
 // --- Registered Voters ---
 const voterCredentials = [
@@ -118,9 +126,13 @@ const AdminView = ({ sessionData, onLogout }: { sessionData: SessionData, onLogo
     const [adminTimeLeft, setAdminTimeLeft] = useState<number | null>(null);
 
     const handleFinish = useCallback(async () => {
+        if (!sessionDocRef) {
+            alert("A Firebase kapcsolat nincs konfigurálva.");
+            return;
+        }
         setIsLoading(true);
         try {
-            await updateDoc(sessionDocRef!, {
+            await updateDoc(sessionDocRef, {
                 status: 'FINISHED'
             });
         } catch (error) {
@@ -157,9 +169,13 @@ const AdminView = ({ sessionData, onLogout }: { sessionData: SessionData, onLogo
     }, [sessionData.status, sessionData.voteStartTime, handleFinish]);
 
     const handleStartVote = async () => {
+        if (!sessionDocRef) {
+            alert("A Firebase kapcsolat nincs konfigurálva.");
+            return;
+        }
         setIsLoading(true);
         try {
-            await setDoc(sessionDocRef!, {
+            await setDoc(sessionDocRef, {
                 status: 'IN_PROGRESS',
                 results: { igen: 0, nem: 0, tartozkodott: 0 },
                 totalVoters: voterCredentials.length,
@@ -174,9 +190,13 @@ const AdminView = ({ sessionData, onLogout }: { sessionData: SessionData, onLogo
     };
 
     const handleReset = async () => {
+        if (!sessionDocRef) {
+            alert("A Firebase kapcsolat nincs konfigurálva.");
+            return;
+        }
         setIsLoading(true);
         try {
-            await updateDoc(sessionDocRef!, {
+            await updateDoc(sessionDocRef, {
                 status: 'WAITING'
             });
         } catch (error) {
@@ -277,9 +297,18 @@ const VoterView = ({ sessionData, onLogout }: { sessionData: SessionData, onLogo
         if(voteSessionId) {
            localStorage.setItem('votedInSession', voteSessionId);
         }
-        
+
+        if (!sessionDocRef) {
+            alert("A Firebase kapcsolat nincs konfigurálva.");
+            setHasVoted(false);
+            if (voteSessionId) {
+                localStorage.removeItem('votedInSession');
+            }
+            return;
+        }
+
         try {
-            await updateDoc(sessionDocRef!, {
+            await updateDoc(sessionDocRef, {
                 [`results.${voteType}`]: increment(1)
             });
         } catch (error) {
