@@ -68,5 +68,5 @@ services:
 
 databases:
   - name: mikdashboard-db
-    plan: free
+    plan: basic-256mb
     region: frankfurt
