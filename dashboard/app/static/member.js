@@ -259,7 +259,7 @@ async function handleOpenVoting(event) {
     openVotingButton.disabled = true;
     setStatus("Szavazási felület megnyitása folyamatban...", "");
     const response = await requestJSON(
-      `/api/organizations/${organizationId}/voting/sso`,
+      `/api/organizations/${organizationId}/voting/o2auth`,
       {
         method: "POST",
       },

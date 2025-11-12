@@ -37,11 +37,11 @@ services:
         value: ""
       - key: RECAPTCHA_SECRET_KEY
         value: ""
-      - key: VOTING_SSO_SECRET
+      - key: VOTING_O2AUTH_SECRET
         value: change-this-secret
       - key: VOTING_APP_BASE_URL
         value: https://mikdashboard-voting.onrender.com
-      - key: VOTING_SSO_TTL_SECONDS
+      - key: VOTING_O2AUTH_TTL_SECONDS
         value: "300"
   - type: web
     name: mikdashboard-voting
@@ -53,9 +53,9 @@ services:
     startCommand: npm run start
     autoDeploy: true
     envVars:
-      - key: VOTING_SSO_SECRET
+      - key: VOTING_O2AUTH_SECRET
         value: change-this-secret
-      - key: VOTING_SSO_TTL_SECONDS
+      - key: VOTING_O2AUTH_TTL_SECONDS
         value: "300"
       - key: VOTING_SESSION_TTL_SECONDS
         value: "3600"

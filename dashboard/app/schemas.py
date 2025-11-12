@@ -189,7 +189,7 @@ class SimpleMessageResponse(BaseModel):
     message: str
 
 
-class VotingSSOResponse(BaseModel):
+class VotingO2AuthResponse(BaseModel):
     redirect: AnyHttpUrl
     expires_in: int
 

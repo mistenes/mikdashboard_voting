@@ -15,8 +15,9 @@ const __dirname = path.dirname(__filename);
 const distPath = path.resolve(__dirname, '../dist');
 const distIndexPath = path.join(distPath, 'index.html');
 
-const SSO_SECRET = process.env.VOTING_SSO_SECRET || 'development-secret';
-const SSO_TTL_SECONDS = Number.parseInt(process.env.VOTING_SSO_TTL_SECONDS || '300', 10) || 300;
+const O2AUTH_SECRET = process.env.VOTING_O2AUTH_SECRET || 'development-secret';
+const O2AUTH_TTL_SECONDS =
+  Number.parseInt(process.env.VOTING_O2AUTH_TTL_SECONDS || '300', 10) || 300;
 const SESSION_TTL_SECONDS = Number.parseInt(
   process.env.VOTING_SESSION_TTL_SECONDS || '3600',
   10,
@@ -79,7 +80,7 @@ function base64UrlDecode(value) {
   }
 }
 
-function verifySsoToken(token) {
+function verifyO2AuthToken(token) {
   if (!token || typeof token !== 'string') {
     return null;
   }
@@ -92,7 +93,7 @@ function verifySsoToken(token) {
     return null;
   }
   const expectedSignature = crypto
-    .createHmac('sha256', SSO_SECRET)
+    .createHmac('sha256', O2AUTH_SECRET)
     .update(payloadBuffer)
     .digest('hex');
   if (signature.length !== expectedSignature.length) {
@@ -144,7 +145,7 @@ function createSignedVotingAuthPayload(email, password) {
   const canonicalEmail = email.trim().toLowerCase();
   const signaturePayload = `${timestamp}:${canonicalEmail}:${password}`;
   const signature = crypto
-    .createHmac('sha256', SSO_SECRET)
+    .createHmac('sha256', O2AUTH_SECRET)
     .update(signaturePayload)
     .digest('hex');
   return {
@@ -504,7 +505,7 @@ function escapeHtml(value) {
     .replace(/'/g, '&#39;');
 }
 
-function renderSsoSuccessPage(payload) {
+function renderO2AuthSuccessPage(payload) {
   const eventTitle = escapeHtml(payload.event_title || '');
   const nameParts = [escapeHtml(payload.last_name || ''), escapeHtml(payload.first_name || '')].filter(Boolean);
   const displayName = nameParts.join(' ') || escapeHtml(payload.email || '');
@@ -515,7 +516,7 @@ function renderSsoSuccessPage(payload) {
 <html lang="hu">
   <head>
     <meta charset="utf-8" />
-    <title>SSO beléptetés folyamatban...</title>
+    <title>o2auth beléptetés folyamatban...</title>
     <meta http-equiv="refresh" content="0;url=/" />
     <style>
       body { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0f172a; color: #f8fafc; min-height: 100vh; display: flex; align-items: center; justify-content: center; margin: 0; }
@@ -528,7 +529,7 @@ function renderSsoSuccessPage(payload) {
   </head>
   <body>
     <main>
-      <h1>Sikeres SSO beléptetés</h1>
+      <h1>Sikeres o2auth beléptetés</h1>
       <p>${subtitle}</p>
       <p class="detail">Felhasználó: <strong>${displayName}</strong></p>
       <p class="detail">Ha nem történik automatikus átirányítás, <a href="/">kattints ide a folytatáshoz</a>.</p>
@@ -540,13 +541,13 @@ function renderSsoSuccessPage(payload) {
 </html>`;
 }
 
-function renderSsoErrorPage(message) {
-  const detail = escapeHtml(message || 'Érvénytelen vagy lejárt SSO token.');
+function renderO2AuthErrorPage(message) {
+  const detail = escapeHtml(message || 'Érvénytelen vagy lejárt o2auth token.');
   return `<!DOCTYPE html>
 <html lang="hu">
   <head>
     <meta charset="utf-8" />
-    <title>SSO hiba</title>
+    <title>o2auth hiba</title>
     <style>
       body { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0f172a; color: #f8fafc; min-height: 100vh; display: flex; align-items: center; justify-content: center; margin: 0; }
       main { text-align: center; padding: 32px; max-width: 520px; }
@@ -565,17 +566,17 @@ function renderSsoErrorPage(message) {
 </html>`;
 }
 
-app.get('/sso', (req, res) => {
+app.get('/o2auth', (req, res) => {
   const tokenParam = Array.isArray(req.query.token) ? req.query.token[0] : req.query.token;
   if (!tokenParam) {
-    const errorPage = renderSsoErrorPage('Hiányzó SSO token.');
+    const errorPage = renderO2AuthErrorPage('Hiányzó o2auth token.');
     res.status(400).send(errorPage);
     return;
   }
 
-  const payload = verifySsoToken(tokenParam);
+  const payload = verifyO2AuthToken(tokenParam);
   if (!payload) {
-    const errorPage = renderSsoErrorPage('Érvénytelen vagy lejárt SSO token.');
+    const errorPage = renderO2AuthErrorPage('Érvénytelen vagy lejárt o2auth token.');
     res.status(400).send(errorPage);
     return;
   }
@@ -593,7 +594,7 @@ app.get('/sso', (req, res) => {
     eventId: payload.event ?? null,
     eventTitle: payload.event_title ?? null,
     isEventDelegate: payload.is_delegate ?? (role === 'admin'),
-    source: 'sso',
+    source: 'o2auth',
   });
   setSessionCookie(res, session.id);
 
@@ -603,7 +604,7 @@ app.get('/sso', (req, res) => {
     return;
   }
 
-  res.status(200).send(renderSsoSuccessPage(payload));
+  res.status(200).send(renderO2AuthSuccessPage(payload));
 });
 
 app.get('/api/session', (_req, res) => {

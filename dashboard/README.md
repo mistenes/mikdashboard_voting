@@ -26,7 +26,7 @@ separate adminisztrációs felület.
   meg, rendezett díj esetén pedig a tagi felület (`/szervezetek/<id>/tagok`) nyílik meg.
 - Adminisztrátorok a taglistán külön jelölhetik ki a „szavazó delegáltakat”, akik
   rendezett tagsági díj mellett egy kattintással átirányíthatók a különálló szavazási
-  webalkalmazásba egy aláírt SSO tokennel.
+  webalkalmazásba egy aláírt o2auth tokennel.
 - Kötelező keresztnév és vezetéknév megadása, amely az admin felületen is látható.
 - Jelszó-erősségi ellenőrzés (legalább 8 karakter, nagybetű és speciális karakter) és Google
   reCAPTCHA védelem a regisztrációs űrlapon.
@@ -92,12 +92,12 @@ provided blueprint or the manual setup steps below.
    the managed database and surfaces placeholders for `ADMIN_EMAILS`, `ADMIN_EMAIL`,
    `ADMIN_PASSWORD`, `ADMIN_FIRST_NAME`, `ADMIN_LAST_NAME`, `PUBLIC_BASE_URL`,
    `BREVO_API_KEY`, `BREVO_SENDER_EMAIL`, `BREVO_SENDER_NAME`, `RECAPTCHA_SITE_KEY`,
-   `RECAPTCHA_SECRET_KEY`, `VOTING_SSO_SECRET`, `VOTING_APP_BASE_URL`,
-   `VOTING_SSO_TTL_SECONDS`, and `VOTING_AUTH_TTL_SECONDS` so you can
+   `RECAPTCHA_SECRET_KEY`, `VOTING_O2AUTH_SECRET`, `VOTING_APP_BASE_URL`,
+   `VOTING_O2AUTH_TTL_SECONDS`, and `VOTING_AUTH_TTL_SECONDS` so you can
    pre-authorize administrator accounts,
    label the seeded admin, configure outbound e-mail delivery, enable the Google
    reCAPTCHA integration, és beállíthatod a szavazási webalkalmazás felé használt
-   SSO titkot és átirányítási URL-t.
+   o2auth titkot és átirányítási URL-t.
 
 ### Option B: Manual setup via the Render dashboard
 
@@ -126,10 +126,10 @@ provided blueprint or the manual setup steps below.
 8. (Optional) Configure Google reCAPTCHA by setting `RECAPTCHA_SITE_KEY` and
    `RECAPTCHA_SECRET_KEY`. When omitted, the regisztrációs űrlap captcha
    automatikusan letiltva marad.
-9. Állítsd be a `VOTING_SSO_SECRET`, `VOTING_APP_BASE_URL`, `VOTING_SSO_TTL_SECONDS`
+9. Állítsd be a `VOTING_O2AUTH_SECRET`, `VOTING_APP_BASE_URL`, `VOTING_O2AUTH_TTL_SECONDS`
    (és opcionálisan a `VOTING_AUTH_TTL_SECONDS`) változókat ugyanazzal az
    értékkel, amit a szavazási webszolgáltatásnál használsz. Ezek biztosítják,
-   hogy a tagi felület által generált SSO tokeneket a voting alkalmazás
+   hogy a tagi felület által generált o2auth tokeneket a voting alkalmazás
    érvényesnek fogadja el, és hogy az új `/api/voting/authenticate` végpont
    kizárólag a megosztott titokkal aláírt hitelesítési kéréseket fogadja el.
 
@@ -149,10 +149,10 @@ organizations must now be added manually via the admin felület.
   láthatja engedélyezve a **Szavazás megnyitása** gombot a tagi felületen.
   A felület jelzi az aktuális esemény nevét, valamint azt, ha nincs aktív
   szavazás vagy nincs hozzárendelt delegált.
-- A gomb megnyomásakor a backend HMAC-aláírt SSO tokent készít, amely tartalmazza
+- A gomb megnyomásakor a backend HMAC-aláírt o2auth tokent készít, amely tartalmazza
   a felhasználó, a szervezet és az aktív esemény azonosítóját. A token az
-  `VOTING_APP_BASE_URL` szerinti `/sso` végpontra irányítja a felhasználót, és
-  alapértelmezetten 5 percig érvényes (`VOTING_SSO_TTL_SECONDS`).
-- A különálló szavazási szolgáltatás ugyanazzal a `VOTING_SSO_SECRET` titokkal
+  `VOTING_APP_BASE_URL` szerinti `/o2auth` végpontra irányítja a felhasználót, és
+  alapértelmezetten 5 percig érvényes (`VOTING_O2AUTH_TTL_SECONDS`).
+- A különálló szavazási szolgáltatás ugyanazzal a `VOTING_O2AUTH_SECRET` titokkal
   ellenőrzi a tokeneket. Sikeres hitelesítés után HTTP-only munkamenet sütit
   állít be, és a felhasználói felület megjeleníti az aktív esemény nevét is.

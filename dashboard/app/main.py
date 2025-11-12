@@ -45,7 +45,7 @@ from .schemas import (
     VotingAuthResponse,
     VotingEventCreateRequest,
     VotingEventRead,
-    VotingSSOResponse,
+    VotingO2AuthResponse,
 )
 from .services import (
     AuthenticationError,
@@ -95,8 +95,10 @@ ADMIN_REDIRECT_PATH = os.getenv("ADMIN_REDIRECT_PATH", "/admin")
 RECAPTCHA_SITE_KEY = os.getenv("RECAPTCHA_SITE_KEY", "").strip()
 RECAPTCHA_SECRET_KEY = os.getenv("RECAPTCHA_SECRET_KEY", "").strip()
 RECAPTCHA_ENABLED = bool(RECAPTCHA_SITE_KEY and RECAPTCHA_SECRET_KEY)
-VOTING_SSO_SECRET = os.getenv("VOTING_SSO_SECRET", "development-secret") or "development-secret"
-VOTING_SSO_TTL_SECONDS = int(os.getenv("VOTING_SSO_TTL_SECONDS", "300"))
+VOTING_O2AUTH_SECRET = (
+    os.getenv("VOTING_O2AUTH_SECRET", "development-secret") or "development-secret"
+)
+VOTING_O2AUTH_TTL_SECONDS = int(os.getenv("VOTING_O2AUTH_TTL_SECONDS", "300"))
 VOTING_APP_BASE_URL = (
     os.getenv("VOTING_APP_BASE_URL", "http://localhost:3001").strip() or "http://localhost:3001"
 )
@@ -105,7 +107,7 @@ BREVO_API_KEY = os.getenv("BREVO_API_KEY", "").strip()
 BREVO_SENDER_EMAIL = os.getenv("BREVO_SENDER_EMAIL", "").strip()
 BREVO_SENDER_NAME = os.getenv("BREVO_SENDER_NAME", "MikDashboard").strip() or "MikDashboard"
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").strip()
-_VOTING_SSO_SECRET_BYTES = VOTING_SSO_SECRET.encode("utf-8")
+_VOTING_O2AUTH_SECRET_BYTES = VOTING_O2AUTH_SECRET.encode("utf-8")
 
 app = FastAPI(title="MikDashboard Registration Service")
 
@@ -215,8 +217,8 @@ def _base64url_encode(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).decode("ascii").rstrip("=")
 
 
-def _effective_sso_ttl() -> int:
-    return VOTING_SSO_TTL_SECONDS if VOTING_SSO_TTL_SECONDS > 0 else 300
+def _effective_o2auth_ttl() -> int:
+    return VOTING_O2AUTH_TTL_SECONDS if VOTING_O2AUTH_TTL_SECONDS > 0 else 300
 
 
 def _validate_voting_auth_request(payload: VotingAuthRequest) -> None:
@@ -230,7 +232,7 @@ def _validate_voting_auth_request(payload: VotingAuthRequest) -> None:
     canonical_email = payload.email.lower()
     message = f"{payload.timestamp}:{canonical_email}:{payload.password}".encode("utf-8")
     expected_signature = hmac.new(
-        _VOTING_SSO_SECRET_BYTES, message, hashlib.sha256
+        _VOTING_O2AUTH_SECRET_BYTES, message, hashlib.sha256
     ).hexdigest()
     provided_signature = payload.signature.strip().lower()
     if not hmac.compare_digest(expected_signature, provided_signature):
@@ -240,10 +242,10 @@ def _validate_voting_auth_request(payload: VotingAuthRequest) -> None:
         )
 
 
-def generate_voting_sso_token(
+def generate_voting_o2auth_token(
     user: User, organization: Organization, event: VotingEvent
 ) -> str:
-    ttl = _effective_sso_ttl()
+    ttl = _effective_o2auth_ttl()
     payload = {
         "uid": user.id,
         "org": organization.id,
@@ -256,13 +258,13 @@ def generate_voting_sso_token(
         "event_title": event.title,
     }
     body = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
-    signature = hmac.new(_VOTING_SSO_SECRET_BYTES, body, hashlib.sha256).hexdigest()
+    signature = hmac.new(_VOTING_O2AUTH_SECRET_BYTES, body, hashlib.sha256).hexdigest()
     return f"{_base64url_encode(body)}.{signature}"
 
 
 def build_voting_redirect_url(token: str) -> str:
     base = VOTING_APP_BASE_URL.rstrip("/")
-    return f"{base}/sso?token={token}"
+    return f"{base}/o2auth?token={token}"
 
 
 def seed_admin_user() -> None:
@@ -502,19 +504,19 @@ def organization_voting_page(organization_id: int) -> FileResponse:
 
 
 @app.post(
-    "/api/organizations/{organization_id}/voting/sso",
-    response_model=VotingSSOResponse,
+    "/api/organizations/{organization_id}/voting/o2auth",
+    response_model=VotingO2AuthResponse,
     responses={
         401: {"model": ErrorResponse},
         403: {"model": ErrorResponse},
         404: {"model": ErrorResponse},
     },
 )
-def create_voting_sso_session(
+def create_voting_o2auth_session(
     organization_id: int,
     user: Annotated[User, Depends(get_session_user)],
     db: DatabaseDependency,
-) -> VotingSSOResponse:
+) -> VotingO2AuthResponse:
     ensure_organization_membership(user, organization_id)
     organization = db.get(Organization, organization_id)
     if organization is None:
@@ -543,9 +545,11 @@ def create_voting_sso_session(
                 detail="Nem vagy kijelölve a szavazási eseményre ennél a szervezetnél.",
             )
 
-    token = generate_voting_sso_token(user, organization, active_event)
+    token = generate_voting_o2auth_token(user, organization, active_event)
     redirect = build_voting_redirect_url(token)
-    return VotingSSOResponse(redirect=redirect, expires_in=_effective_sso_ttl())
+    return VotingO2AuthResponse(
+        redirect=redirect, expires_in=_effective_o2auth_ttl()
+    )
 
 
 @app.post(

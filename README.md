@@ -28,7 +28,7 @@ Update the environment variables in the blueprint before the first deploy:
   always `admin`). The dashboard forces a password change on first login.
 - Point the voting service `DASHBOARD_API_BASE_URL` at the publicly reachable dashboard base
   URL (including the `https://` scheme). The voting API signs login checks with the shared
-  `VOTING_SSO_SECRET` and first calls the dashboard’s `/api/voting/authenticate` endpoint before
+  `VOTING_O2AUTH_SECRET` and first calls the dashboard’s `/api/voting/authenticate` endpoint before
   falling back to `/api/login`, so both apps accept the exact same credentials.
 - Provide `BREVO_API_KEY`, `BREVO_SENDER_EMAIL`, and `PUBLIC_BASE_URL` so the registration
   service can deliver verification emails through Brevo.
@@ -37,7 +37,7 @@ Update the environment variables in the blueprint before the first deploy:
 The dashboard now exposes a dedicated **Szavazási események** admin page where you can create
 named voting events, choose the active session, and assign exactly one delegate per
 organization. Only the active-event delegate (or a system administrator) is allowed to launch
-the separate voting service through the signed SSO flow.
+the separate voting service through the signed o2auth flow.
 
 ## Local development
 

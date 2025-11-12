@@ -13,11 +13,11 @@
 
 The dev server proxies `/api` requests to the local API server, so keep both processes running during development.
 
-Set the `VOTING_SSO_SECRET` environment variable before starting `npm run api`
-so the Express server can validate the dashboard által generált SSO tokeneket.
+Set the `VOTING_O2AUTH_SECRET` environment variable before starting `npm run api`
+so the Express server can validate the dashboard által generált o2auth tokeneket.
 Fejlesztéshez add meg az `ADMIN_PASSWORD` (és opcionálisan az `ADMIN_EMAIL` vagy
 `ADMIN_USERNAME`) változókat is; manuális bejelentkezés csak az admin számára
-engedélyezett, minden más felhasználó az SSO átadáson keresztül éri el a rendszert.
+engedélyezett, minden más felhasználó az o2auth átadáson keresztül éri el a rendszert.
 
 ## Deploy on Render
 
@@ -29,14 +29,14 @@ real-time voting API from the same Express server.
 
 ### Required environment variables
 
-- `VOTING_SSO_SECRET`: Meg kell egyeznie a dashboard szolgáltatásban használt
+- `VOTING_O2AUTH_SECRET`: Meg kell egyeznie a dashboard szolgáltatásban használt
   titkos kulccsal, így a szavazási app ellenőrizni tudja a tokeneket.
-- `VOTING_SSO_TTL_SECONDS`: A dashboard által jelzett token lejárati idő másodpercben.
+- `VOTING_O2AUTH_TTL_SECONDS`: A dashboard által jelzett token lejárati idő másodpercben.
 - `VOTING_SESSION_TTL_SECONDS`: Mennyi ideig marad érvényes egy bejelentkezett
   session (alapértelmezés szerint 3600 másodperc).
 - `DASHBOARD_API_BASE_URL`: A dashboard szolgáltatás publikus, `https://`-sel
   kezdődő alap URL-je. A szavazási szolgáltatás a megosztott
-  `VOTING_SSO_SECRET` segítségével aláírt kérést küld a
+  `VOTING_O2AUTH_SECRET` segítségével aláírt kérést küld a
   `/api/voting/authenticate` végpontra, majd szükség esetén visszavált a
   nyilvános `/api/login` hívásra, így ugyanazokat az e-mail/jelszó párokat
   fogadja el, mint a dashboard.
