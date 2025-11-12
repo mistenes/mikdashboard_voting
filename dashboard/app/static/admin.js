@@ -837,7 +837,9 @@ function renderEventsList(events) {
     } else {
       const activeLabel = document.createElement("span");
       activeLabel.classList.add("muted");
-      activeLabel.textContent = "Ez az esemény jelenleg aktív.";
+      activeLabel.textContent = event.is_voting_enabled
+        ? "Ez az esemény jelenleg aktív."
+        : "Ez az esemény jelenleg inaktív a szavazási felületen.";
       actions.appendChild(activeLabel);
     }
 
