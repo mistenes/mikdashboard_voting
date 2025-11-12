@@ -32,6 +32,9 @@ from .schemas import (
     ActiveEventInfo,
     AdminDecisionRequest,
     AdminDecisionResponse,
+    AdminUserCreateRequest,
+    AdminUserCreateResponse,
+    AdminUserRead,
     ErrorResponse,
     EventDelegateAssignmentRequest,
     EventDelegateInfo,
@@ -71,6 +74,7 @@ from .services import (
     accept_invitation,
     authenticate_user,
     change_user_password,
+    create_admin_account,
     create_contact_invitation,
     create_member_invitation,
     create_organization,
@@ -84,6 +88,7 @@ from .services import (
     get_active_voting_event,
     get_invitation_by_token,
     list_voting_events,
+    list_admin_users,
     organization_with_members,
     organizations_with_members,
     pending_registrations,
@@ -745,6 +750,11 @@ def admin_pending_page() -> FileResponse:
 @app.get("/admin/esemenyek", response_class=FileResponse)
 def admin_events_page() -> FileResponse:
     return FileResponse("app/static/admin-events.html")
+
+
+@app.get("/admin/felhasznalok", response_class=FileResponse)
+def admin_users_page() -> FileResponse:
+    return FileResponse("app/static/admin-users.html")
 
 
 @app.get("/admin/beallitasok", response_class=FileResponse)
@@ -1648,6 +1658,53 @@ def reset_events_endpoint(
         message = f"{removed} esemény és a kapcsolódó delegáltak törölve."
 
     return SimpleMessageResponse(message=message)
+
+
+@app.get(
+    "/api/admin/admins",
+    response_model=List[AdminUserRead],
+    responses={401: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
+)
+def list_admin_accounts(
+    db: DatabaseDependency,
+    _: Annotated[User, Depends(require_admin)],
+) -> List[AdminUserRead]:
+    return list_admin_users(db)
+
+
+@app.post(
+    "/api/admin/admins",
+    response_model=AdminUserCreateResponse,
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        400: {"model": ErrorResponse},
+        401: {"model": ErrorResponse},
+        403: {"model": ErrorResponse},
+    },
+)
+def create_admin_account_endpoint(
+    payload: AdminUserCreateRequest,
+    db: DatabaseDependency,
+    _: Annotated[User, Depends(require_admin)],
+) -> AdminUserCreateResponse:
+    try:
+        admin_user = create_admin_account(
+            db,
+            email=payload.email,
+            first_name=payload.first_name,
+            last_name=payload.last_name,
+            password=payload.password,
+        )
+        db.commit()
+    except RegistrationError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    db.refresh(admin_user)
+    message = (
+        "Új adminisztrátor sikeresen létrehozva. Az első bejelentkezéskor jelszócsere szükséges."
+    )
+    return AdminUserCreateResponse(message=message, admin=admin_user)
 
 
 @app.delete(

@@ -95,6 +95,46 @@ def _normalize_email(value: str) -> str:
     return value.strip().lower()
 
 
+def list_admin_users(session: Session) -> List[User]:
+    stmt = (
+        select(User)
+        .where(User.is_admin.is_(True))
+        .order_by(User.created_at.asc())
+    )
+    return list(session.scalars(stmt))
+
+
+def create_admin_account(
+    session: Session,
+    *,
+    email: str,
+    first_name: str,
+    last_name: str,
+    password: str,
+) -> User:
+    normalized_email = _normalize_email(email)
+    validate_password_strength(password)
+    _ensure_email_available(session, normalized_email)
+
+    salt, password_hash = hash_password(password)
+    user = User(
+        email=normalized_email,
+        first_name=first_name.strip() if first_name else None,
+        last_name=last_name.strip() if last_name else None,
+        password_hash=password_hash,
+        password_salt=salt,
+        is_admin=True,
+        admin_decision=ApprovalDecision.approved,
+        is_email_verified=True,
+        must_change_password=True,
+        is_voting_delegate=False,
+        is_organization_contact=False,
+    )
+    session.add(user)
+    session.flush()
+    return user
+
+
 def queue_verification_email(
     token: EmailVerificationToken,
     *,

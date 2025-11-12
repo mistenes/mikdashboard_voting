@@ -67,6 +67,30 @@ class PendingUser(BaseModel):
         orm_mode = True
 
 
+class AdminUserRead(BaseModel):
+    id: int
+    email: EmailStr
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    created_at: datetime
+    must_change_password: bool = False
+
+    class Config:
+        orm_mode = True
+
+
+class AdminUserCreateRequest(BaseModel):
+    email: EmailStr
+    first_name: constr(strip_whitespace=True, min_length=1, max_length=100)
+    last_name: constr(strip_whitespace=True, min_length=1, max_length=100)
+    password: constr(min_length=8)
+
+
+class AdminUserCreateResponse(BaseModel):
+    message: str
+    admin: AdminUserRead
+
+
 class AdminDecisionRequest(BaseModel):
     approve: bool
     notes: Optional[str] = None

@@ -435,6 +435,25 @@ button.sidebar-link {
   background: rgba(59, 130, 246, 0.05);
 }
 
+.admin-user-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 540px;
+}
+
+.admin-user-table th,
+.admin-user-table td {
+  padding: 12px 14px;
+  text-align: left;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+}
+
+.admin-user-table thead th {
+  background: rgba(241, 245, 249, 0.7);
+  font-weight: 600;
+  color: #475569;
+}
+
 .delegate-selector {
   display: flex;
   flex-direction: column;
@@ -522,6 +541,21 @@ button.sidebar-link {
   display: grid;
   gap: 16px;
   margin-bottom: 16px;
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.admin-user-form {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  align-items: end;
+}
+
+.admin-user-form .form-actions {
+  grid-column: 1 / -1;
 }
 
 .event-form input,
@@ -660,6 +694,11 @@ button:disabled {
   color: #64748b;
   font-size: 0.9rem;
   margin: 0;
+}
+
+.muted-note {
+  margin-top: 6px;
+  font-size: 0.8rem;
 }
 
 .muted a {

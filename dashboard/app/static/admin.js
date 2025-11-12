@@ -1694,6 +1694,153 @@ async function initEventsPage() {
   });
 }
 
+async function initUsersPage() {
+  if (!ensureAdminSession()) {
+    return;
+  }
+
+  const form = document.querySelector("#create-admin-form");
+  const submitButton = form?.querySelector('button[type="submit"]');
+  const adminListBody = document.querySelector("[data-admin-list]");
+  const emptyState = document.querySelector("[data-admin-empty]");
+  const tableWrapper = document.querySelector("[data-admin-table]");
+  const countElement = document.querySelector("[data-admin-count]");
+  const firstNameInput = document.querySelector("#admin-first-name");
+
+  function updateCount(count) {
+    if (countElement) {
+      countElement.textContent = String(count);
+    }
+  }
+
+  function renderAdmins(admins) {
+    if (!adminListBody) {
+      return;
+    }
+
+    adminListBody.innerHTML = "";
+    const items = Array.isArray(admins) ? admins : [];
+    const hasAdmins = items.length > 0;
+
+    if (tableWrapper) {
+      tableWrapper.hidden = !hasAdmins;
+    }
+    if (emptyState) {
+      emptyState.hidden = hasAdmins;
+    }
+    updateCount(items.length);
+
+    items.forEach((admin) => {
+      const row = document.createElement("tr");
+
+      const nameCell = document.createElement("td");
+      nameCell.textContent = formatDisplayName(
+        admin.first_name,
+        admin.last_name,
+        admin.email || "–",
+      );
+      row.appendChild(nameCell);
+
+      const emailCell = document.createElement("td");
+      emailCell.textContent = admin.email || "–";
+      row.appendChild(emailCell);
+
+      const createdCell = document.createElement("td");
+      createdCell.textContent = formatDateTime(admin.created_at) || "–";
+      row.appendChild(createdCell);
+
+      const statusCell = document.createElement("td");
+      const statusBadge = document.createElement("span");
+      if (admin.must_change_password) {
+        statusBadge.className = "badge badge-warning";
+        statusBadge.textContent = "Jelszócsere szükséges";
+      } else {
+        statusBadge.className = "badge badge-success";
+        statusBadge.textContent = "Aktív";
+      }
+      statusCell.appendChild(statusBadge);
+      if (admin.must_change_password) {
+        const note = document.createElement("div");
+        note.className = "muted muted-note";
+        note.textContent = "Az első bejelentkezéskor új jelszó megadása kötelező.";
+        statusCell.appendChild(note);
+      }
+      row.appendChild(statusCell);
+
+      adminListBody.appendChild(row);
+    });
+  }
+
+  async function refreshAdmins() {
+    try {
+      const admins = await requestJSON("/api/admin/admins");
+      renderAdmins(admins);
+    } catch (error) {
+      handleAuthError(error);
+    }
+  }
+
+  if (form) {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (!ensureAdminSession(true)) {
+        return;
+      }
+
+      const formData = new FormData(form);
+      const firstName = String(formData.get("first_name") || "").trim();
+      const lastName = String(formData.get("last_name") || "").trim();
+      const email = String(formData.get("email") || "").trim();
+      const password = String(formData.get("password") || "");
+      const confirmPassword = String(formData.get("password_confirm") || "");
+
+      if (!firstName || !lastName || !email || !password) {
+        setStatus("Kérjük, tölts ki minden mezőt az admin létrehozásához.", "error");
+        return;
+      }
+      if (password !== confirmPassword) {
+        setStatus("A megadott jelszavak nem egyeznek.", "error");
+        return;
+      }
+
+      const payload = {
+        first_name: firstName,
+        last_name: lastName,
+        email: email.toLowerCase(),
+        password,
+      };
+
+      if (submitButton) {
+        submitButton.disabled = true;
+      }
+
+      try {
+        setStatus("Új adminisztrátor létrehozása folyamatban...");
+        const response = await requestJSON("/api/admin/admins", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+        const message =
+          response?.message || "Új adminisztrátor létrehozva. Első belépéskor jelszócsere szükséges.";
+        setStatus(message, "success");
+        form.reset();
+        await refreshAdmins();
+        if (firstNameInput instanceof HTMLElement) {
+          firstNameInput.focus();
+        }
+      } catch (error) {
+        handleAuthError(error);
+      } finally {
+        if (submitButton) {
+          submitButton.disabled = false;
+        }
+      }
+    });
+  }
+
+  await refreshAdmins();
+}
+
 async function initSettingsPage() {
   if (!ensureAdminSession()) {
     return;
@@ -1749,6 +1896,9 @@ switch (pageType) {
     break;
   case "events":
     initEventsPage();
+    break;
+  case "users":
+    initUsersPage();
     break;
   case "settings":
     initSettingsPage();
