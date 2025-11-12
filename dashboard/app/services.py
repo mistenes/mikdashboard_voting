@@ -485,6 +485,18 @@ def set_voting_event_accessibility(
     return event
 
 
+def delete_voting_event(session: Session, *, event_id: int) -> None:
+    event = session.get(VotingEvent, event_id)
+    if event is None:
+        raise RegistrationError("Nem található szavazási esemény")
+
+    if event.is_active:
+        raise RegistrationError("Az aktív esemény nem törölhető.")
+
+    session.delete(event)
+    session.flush()
+
+
 def synchronize_delegate_flags(session: Session, active_event: Optional[VotingEvent]) -> None:
     active_delegate_ids: set[int] = set()
     if active_event is not None:

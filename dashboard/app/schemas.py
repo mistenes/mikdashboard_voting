@@ -183,6 +183,7 @@ class VotingEventRead(BaseModel):
     is_voting_enabled: bool
     created_at: datetime
     delegate_count: int = 0
+    can_delete: bool = False
 
 
 class EventDelegateInfo(BaseModel):

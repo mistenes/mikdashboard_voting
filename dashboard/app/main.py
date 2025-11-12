@@ -61,6 +61,7 @@ from .services import (
     decide_registration,
     delegates_for_event,
     delete_organization,
+    delete_voting_event,
     delete_user_account,
     get_active_voting_event,
     list_voting_events,
@@ -496,6 +497,7 @@ def build_event_read(event: VotingEvent) -> VotingEventRead:
         is_voting_enabled=event.is_voting_enabled,
         created_at=event.created_at,
         delegate_count=delegate_count,
+        can_delete=not event.is_active,
     )
 
 
@@ -1223,6 +1225,37 @@ def update_event_delegate(
 
     db.commit()
     return SimpleMessageResponse(message="A szervezet delegáltja frissítve.")
+
+
+@app.delete(
+    "/api/admin/events/{event_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+    responses={
+        401: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+        400: {"model": ErrorResponse},
+    },
+)
+def delete_event_endpoint(
+    event_id: int,
+    db: DatabaseDependency,
+    _: Annotated[User, Depends(require_admin)],
+) -> Response:
+    try:
+        delete_voting_event(db, event_id=event_id)
+        db.commit()
+    except RegistrationError as exc:
+        db.rollback()
+        detail = str(exc)
+        status_code = (
+            status.HTTP_400_BAD_REQUEST
+            if "nem törölhető" in detail.lower()
+            else status.HTTP_404_NOT_FOUND
+        )
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @app.delete(

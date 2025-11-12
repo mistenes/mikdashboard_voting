@@ -539,6 +539,19 @@ async function confirmUserDeletion(email) {
   return third !== null && third.trim().toUpperCase() === "TÖRLÉS";
 }
 
+async function confirmEventDeletion(title) {
+  const first = window.confirm(
+    `${title} esemény törlésére készülsz. Biztosan folytatod?`,
+  );
+  if (!first) {
+    return false;
+  }
+  const second = window.prompt(
+    "A törlés végleges. A folytatáshoz írd be: ESEMÉNY TÖRLÉSE",
+  );
+  return second !== null && second.trim().toUpperCase() === "ESEMÉNY TÖRLÉSE";
+}
+
 async function initOrganizationsPage() {
   if (!ensureAdminSession()) {
     return;
@@ -801,6 +814,19 @@ function renderEventsList(events) {
       actions.appendChild(activeLabel);
     }
 
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.classList.add("danger-btn");
+    deleteButton.textContent = "Esemény törlése";
+    deleteButton.disabled = !event.can_delete;
+    if (!event.can_delete) {
+      deleteButton.title = "Az aktív esemény nem törölhető.";
+    }
+    deleteButton.addEventListener("click", async () => {
+      await handleEventDeletion(event);
+    });
+    actions.appendChild(deleteButton);
+
     card.appendChild(header);
     card.appendChild(description);
     card.appendChild(meta);
@@ -1035,6 +1061,27 @@ async function handleEventActivation(eventId) {
     });
     eventState.selectedEventId = eventId;
     setStatus("Az esemény aktívvá vált.", "success");
+    await refreshEventData();
+  } catch (error) {
+    handleAuthError(error);
+  }
+}
+
+async function handleEventDeletion(event) {
+  if (!ensureAdminSession(true)) {
+    return;
+  }
+  if (!(await confirmEventDeletion(event.title))) {
+    return;
+  }
+  try {
+    await requestJSON(`/api/admin/events/${event.id}`, {
+      method: "DELETE",
+    });
+    if (eventState.selectedEventId === event.id) {
+      eventState.selectedEventId = null;
+    }
+    setStatus("Szavazási esemény törölve.", "success");
     await refreshEventData();
   } catch (error) {
     handleAuthError(error);
