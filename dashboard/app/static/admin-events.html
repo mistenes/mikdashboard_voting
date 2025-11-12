@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="hu">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MikDashboard – Szavazási események</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body class="simple-bg" data-admin-page="events">
+    <div class="admin-shell">
+      <aside class="admin-sidebar">
+        <div class="sidebar-brand">
+          <h1>MikDashboard</h1>
+          <p>Admin vezérlőpult</p>
+        </div>
+        <nav class="sidebar-nav" aria-label="Admin menü">
+          <a href="/admin" class="sidebar-link">Áttekintés</a>
+          <a href="/admin/szervezetek" class="sidebar-link">Szervezetek</a>
+          <a href="/admin/jelentkezok" class="sidebar-link">Függő regisztrációk</a>
+          <a href="/admin/esemenyek" class="sidebar-link active">Szavazási események</a>
+          <span class="sidebar-divider" aria-hidden="true"></span>
+          <span class="sidebar-link placeholder" aria-disabled="true">Riportok (hamarosan)</span>
+          <span class="sidebar-link placeholder" aria-disabled="true">Beállítások (hamarosan)</span>
+        </nav>
+        <div class="sidebar-footer">
+          <button id="admin-sign-out" type="button" class="ghost-btn sidebar-logout">
+            Kijelentkezés
+          </button>
+        </div>
+      </aside>
+      <main class="admin-container">
+        <header class="admin-header">
+          <div>
+            <h1>Szavazási események</h1>
+            <p class="lead">
+              Hozz létre új eseményeket, jelöld ki az aktív szavazást és rendelj szervezeti delegáltakat.
+            </p>
+          </div>
+          <div class="admin-actions">
+            <button type="button" class="primary-btn" data-admin-refresh>Események frissítése</button>
+          </div>
+        </header>
+        <p id="admin-status" class="status" role="status"></p>
+
+        <section class="auth-card" aria-labelledby="create-event-title">
+          <div class="section-header">
+            <h2 id="create-event-title">Új esemény létrehozása</h2>
+            <p class="muted">
+              Adj nevet és opcionális leírást a szavazási eseményhez. Szükség esetén azonnal aktiválhatod.
+            </p>
+          </div>
+          <form id="create-event-form" class="event-form">
+            <div class="form-grid">
+              <label for="event-title">Esemény neve</label>
+              <input
+                type="text"
+                id="event-title"
+                name="title"
+                required
+                minlength="3"
+                maxlength="255"
+                placeholder="Pl. 2025. évi közgyűlés"
+              />
+              <label for="event-description">Leírás (opcionális)</label>
+              <textarea
+                id="event-description"
+                name="description"
+                rows="3"
+                maxlength="500"
+                placeholder="Foglalja össze röviden az esemény témáját vagy időpontját."
+              ></textarea>
+            </div>
+            <div class="form-row event-form-actions">
+              <label class="checkbox">
+                <input type="checkbox" name="activate" />
+                <span>Az esemény legyen azonnal aktív</span>
+              </label>
+              <button type="submit" class="primary-btn">Esemény létrehozása</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="events-wrapper" aria-labelledby="event-list-title">
+          <div class="section-header">
+            <h2 id="event-list-title">Eddigi események</h2>
+            <p class="muted">Aktiváld a következő szavazást vagy tekintsd át a korábbi eseményeket.</p>
+          </div>
+          <div id="event-list" class="events-list"></div>
+        </section>
+
+        <section class="delegates-wrapper" aria-labelledby="delegate-title">
+          <div class="section-header">
+            <h2 id="delegate-title">Delegáltak kezelése</h2>
+            <p class="muted">
+              Válaszd ki az eseményt, majd rendelj minden szervezethez egy szavazásra jogosult személyt.
+            </p>
+          </div>
+          <div class="delegate-controls">
+            <label for="event-selector" class="muted">Megjelenített esemény</label>
+            <select id="event-selector" class="event-selector"></select>
+          </div>
+          <div class="table-scroll">
+            <table class="delegate-table">
+              <thead>
+                <tr>
+                  <th>Szervezet</th>
+                  <th>Jelenlegi delegált</th>
+                  <th>Delegált kijelölése</th>
+                </tr>
+              </thead>
+              <tbody id="delegate-table-body"></tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </div>
+    <script type="module" src="/static/admin.js"></script>
+  </body>
+</html>

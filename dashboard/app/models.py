@@ -5,7 +5,16 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, Column, DateTime, Enum, ForeignKey, Integer, String
+from sqlalchemy import (
+    Boolean,
+    Column,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Integer,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import relationship
 
 from .database import Base
@@ -34,6 +43,9 @@ class Organization(Base):
     payment_instructions = Column(String, nullable=True)
 
     users = relationship("User", back_populates="organization")
+    event_delegates = relationship(
+        "EventDelegate", back_populates="organization", cascade="all, delete-orphan"
+    )
 
 
 class User(Base):
@@ -56,6 +68,9 @@ class User(Base):
 
     organization = relationship("Organization", back_populates="users")
     verification_tokens = relationship("EmailVerificationToken", back_populates="user")
+    event_delegations = relationship(
+        "EventDelegate", back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 class EmailVerificationToken(Base):
@@ -84,3 +99,40 @@ class SessionToken(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     user = relationship("User")
+
+
+class VotingEvent(Base):
+    __tablename__ = "voting_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String, nullable=False)
+    description = Column(String, nullable=True)
+    is_active = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+    delegates = relationship(
+        "EventDelegate", back_populates="event", cascade="all, delete-orphan"
+    )
+
+
+class EventDelegate(Base):
+    __tablename__ = "event_delegates"
+    __table_args__ = (
+        UniqueConstraint("event_id", "organization_id", name="uq_event_org"),
+        UniqueConstraint("event_id", "user_id", name="uq_event_user"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    event_id = Column(Integer, ForeignKey("voting_events.id"), nullable=False, index=True)
+    organization_id = Column(
+        Integer, ForeignKey("organizations.id"), nullable=False, index=True
+    )
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    event = relationship("VotingEvent", back_populates="delegates")
+    organization = relationship("Organization", back_populates="event_delegates")
+    user = relationship("User", back_populates="event_delegations")

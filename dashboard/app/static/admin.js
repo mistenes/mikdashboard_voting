@@ -2,6 +2,22 @@ const body = document.body;
 const pageType = body?.dataset?.adminPage || "overview";
 const adminStatus = document.querySelector("#admin-status");
 const signOutButton = document.querySelector("#admin-sign-out");
+const eventListContainer = document.querySelector("#event-list");
+const eventSelector = document.querySelector("#event-selector");
+const delegateTableBody = document.querySelector("#delegate-table-body");
+const createEventForm = document.querySelector("#create-event-form");
+
+const eventState = {
+  organizations: [],
+  events: [],
+  delegates: [],
+  selectedEventId: null,
+};
+
+const eventDateFormatter = new Intl.DateTimeFormat("hu-HU", {
+  dateStyle: "medium",
+  timeStyle: "short",
+});
 
 function setStatus(message, type = "") {
   if (!adminStatus) {
@@ -661,6 +677,359 @@ async function initPendingPage() {
   });
 }
 
+function eligibleDelegatesForOrganization(organization) {
+  return (organization.members || []).filter(
+    (member) =>
+      !member.is_admin &&
+      member.has_access &&
+      member.is_email_verified &&
+      member.admin_decision === "approved"
+  );
+}
+
+function renderEventsList(events) {
+  if (!eventListContainer) {
+    return;
+  }
+  eventListContainer.innerHTML = "";
+
+  if (!events.length) {
+    const emptyState = document.createElement("p");
+    emptyState.classList.add("muted");
+    emptyState.textContent = "Még nincs létrehozott esemény.";
+    eventListContainer.appendChild(emptyState);
+    return;
+  }
+
+  events.forEach((event) => {
+    const card = document.createElement("article");
+    card.classList.add("event-card");
+    if (event.is_active) {
+      card.classList.add("event-card-active");
+    }
+
+    const header = document.createElement("header");
+    header.classList.add("event-head");
+
+    const title = document.createElement("h3");
+    title.textContent = event.title;
+    header.appendChild(title);
+
+    const badge = document.createElement("span");
+    badge.classList.add("badge");
+    badge.classList.add(event.is_active ? "badge-success" : "badge-muted");
+    badge.textContent = event.is_active ? "Aktív" : "Inaktív";
+    header.appendChild(badge);
+
+    const description = document.createElement("p");
+    description.classList.add("muted");
+    description.textContent = event.description || "Nincs megadott leírás.";
+
+    const meta = document.createElement("p");
+    meta.classList.add("event-meta");
+    const createdLabel = event.created_at
+      ? eventDateFormatter.format(new Date(event.created_at))
+      : "Ismeretlen időpont";
+    meta.textContent = `Létrehozva: ${createdLabel} • Delegáltak: ${event.delegate_count}`;
+
+    const actions = document.createElement("div");
+    actions.classList.add("event-actions");
+
+    if (!event.is_active) {
+      const activateButton = document.createElement("button");
+      activateButton.type = "button";
+      activateButton.classList.add("primary-btn");
+      activateButton.textContent = "Aktiválás";
+      activateButton.addEventListener("click", async () => {
+        await handleEventActivation(event.id);
+      });
+      actions.appendChild(activateButton);
+    } else {
+      const activeLabel = document.createElement("span");
+      activeLabel.classList.add("muted");
+      activeLabel.textContent = "Ez az esemény jelenleg aktív.";
+      actions.appendChild(activeLabel);
+    }
+
+    card.appendChild(header);
+    card.appendChild(description);
+    card.appendChild(meta);
+    card.appendChild(actions);
+
+    eventListContainer.appendChild(card);
+  });
+}
+
+function renderEventSelectorControl(events) {
+  if (!eventSelector) {
+    return;
+  }
+  eventSelector.innerHTML = "";
+
+  if (!events.length) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "Nincs elérhető esemény";
+    eventSelector.appendChild(option);
+    eventSelector.disabled = true;
+    return;
+  }
+
+  eventSelector.disabled = false;
+  events.forEach((event) => {
+    const option = document.createElement("option");
+    option.value = String(event.id);
+    option.textContent = event.is_active
+      ? `${event.title} (aktív)`
+      : event.title;
+    eventSelector.appendChild(option);
+  });
+
+  const desiredValue =
+    eventState.selectedEventId && events.some((event) => event.id === eventState.selectedEventId)
+      ? String(eventState.selectedEventId)
+      : String(events[0].id);
+  eventSelector.value = desiredValue;
+}
+
+function currentDelegateInfo(organizationId) {
+  return eventState.delegates.find((item) => item.organization_id === organizationId) || null;
+}
+
+function renderDelegateTable() {
+  if (!delegateTableBody) {
+    return;
+  }
+  delegateTableBody.innerHTML = "";
+
+  if (!eventState.selectedEventId) {
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+    cell.colSpan = 3;
+    cell.classList.add("muted");
+    cell.textContent = "Válassz ki egy eseményt a delegáltak kezeléséhez.";
+    row.appendChild(cell);
+    delegateTableBody.appendChild(row);
+    return;
+  }
+
+  if (!eventState.organizations.length) {
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+    cell.colSpan = 3;
+    cell.classList.add("muted");
+    cell.textContent = "Még nincs felvett szervezet.";
+    row.appendChild(cell);
+    delegateTableBody.appendChild(row);
+    return;
+  }
+
+  eventState.organizations.forEach((organization) => {
+    const info = currentDelegateInfo(organization.id);
+    const row = document.createElement("tr");
+
+    const nameCell = document.createElement("td");
+    nameCell.textContent = organization.name;
+
+    const delegateCell = document.createElement("td");
+    if (info && info.user_id) {
+      delegateCell.textContent = formatDisplayName(
+        info.user_first_name,
+        info.user_last_name,
+        info.user_email,
+      );
+    } else {
+      delegateCell.classList.add("muted");
+      delegateCell.textContent = "Nincs kijelölt delegált";
+    }
+
+    const selectCell = document.createElement("td");
+    const select = document.createElement("select");
+    select.dataset.organizationId = String(organization.id);
+
+    const emptyOption = document.createElement("option");
+    emptyOption.value = "";
+    emptyOption.textContent = "Nincs delegált";
+    select.appendChild(emptyOption);
+
+    const eligibleMembers = eligibleDelegatesForOrganization(organization);
+    eligibleMembers.forEach((member) => {
+      const option = document.createElement("option");
+      option.value = String(member.id);
+      option.textContent = formatDisplayName(
+        member.first_name,
+        member.last_name,
+        member.email,
+      );
+      if (info && info.user_id === member.id) {
+        option.selected = true;
+      }
+      select.appendChild(option);
+    });
+
+    select.value = info && info.user_id ? String(info.user_id) : "";
+    select.addEventListener("change", async () => {
+      await handleDelegateChange(organization.id, select);
+    });
+
+    selectCell.appendChild(select);
+
+    row.appendChild(nameCell);
+    row.appendChild(delegateCell);
+    row.appendChild(selectCell);
+
+    delegateTableBody.appendChild(row);
+  });
+}
+
+async function refreshEventDelegates() {
+  if (!ensureAdminSession(true)) {
+    return;
+  }
+  if (!eventState.selectedEventId) {
+    eventState.delegates = [];
+    return;
+  }
+  try {
+    const data = await requestJSON(
+      `/api/admin/events/${eventState.selectedEventId}/delegates`,
+    );
+    eventState.delegates = Array.isArray(data) ? data : [];
+  } catch (error) {
+    eventState.delegates = [];
+    handleAuthError(error);
+  }
+}
+
+async function refreshEventData(refreshOrganizations = false) {
+  if (!ensureAdminSession(true)) {
+    return;
+  }
+  clearStatus();
+  try {
+    if (refreshOrganizations || !eventState.organizations.length) {
+      const organizations = await requestJSON("/api/admin/organizations");
+      eventState.organizations = Array.isArray(organizations) ? organizations : [];
+    }
+    const events = await requestJSON("/api/admin/events");
+    eventState.events = Array.isArray(events) ? events : [];
+
+    if (!eventState.events.length) {
+      eventState.selectedEventId = null;
+      eventState.delegates = [];
+      renderEventsList(eventState.events);
+      renderEventSelectorControl(eventState.events);
+      renderDelegateTable();
+      return;
+    }
+
+    if (
+      !eventState.selectedEventId ||
+      !eventState.events.some((event) => event.id === eventState.selectedEventId)
+    ) {
+      const activeEvent = eventState.events.find((event) => event.is_active);
+      eventState.selectedEventId = activeEvent ? activeEvent.id : eventState.events[0].id;
+    }
+
+    await refreshEventDelegates();
+
+    renderEventsList(eventState.events);
+    renderEventSelectorControl(eventState.events);
+    renderDelegateTable();
+  } catch (error) {
+    handleAuthError(error);
+  }
+}
+
+async function handleEventActivation(eventId) {
+  if (!ensureAdminSession(true)) {
+    return;
+  }
+  try {
+    await requestJSON(`/api/admin/events/${eventId}/activate`, {
+      method: "POST",
+    });
+    eventState.selectedEventId = eventId;
+    setStatus("Az esemény aktívvá vált.", "success");
+    await refreshEventData();
+  } catch (error) {
+    handleAuthError(error);
+  }
+}
+
+async function handleDelegateChange(organizationId, selectElement) {
+  if (!ensureAdminSession(true)) {
+    return;
+  }
+  const value = selectElement.value;
+  const userId = value ? Number.parseInt(value, 10) : null;
+  const previous = currentDelegateInfo(organizationId);
+  try {
+    await requestJSON(
+      `/api/admin/events/${eventState.selectedEventId}/organizations/${organizationId}/delegate`,
+      {
+        method: "POST",
+        body: JSON.stringify({ user_id: userId }),
+      },
+    );
+    setStatus("A delegált sikeresen frissítve.", "success");
+    await refreshEventDelegates();
+    renderDelegateTable();
+  } catch (error) {
+    handleAuthError(error);
+    const fallback = previous && previous.user_id ? String(previous.user_id) : "";
+    selectElement.value = fallback;
+    await refreshEventDelegates();
+    renderDelegateTable();
+  }
+}
+
+async function initEventsPage() {
+  if (!ensureAdminSession()) {
+    return;
+  }
+  await refreshEventData(true);
+
+  const refreshButton = document.querySelector("[data-admin-refresh]");
+  refreshButton?.addEventListener("click", async () => {
+    await refreshEventData(true);
+  });
+
+  eventSelector?.addEventListener("change", async (event) => {
+    const selected = Number.parseInt(event.target.value, 10);
+    eventState.selectedEventId = Number.isFinite(selected) ? selected : null;
+    await refreshEventDelegates();
+    renderDelegateTable();
+  });
+
+  createEventForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!ensureAdminSession(true)) {
+      return;
+    }
+    const formData = new FormData(createEventForm);
+    const payload = {
+      title: formData.get("title"),
+      description: formData.get("description") || null,
+      activate: formData.get("activate") === "on",
+    };
+    try {
+      const created = await requestJSON("/api/admin/events", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      setStatus("Új szavazási esemény létrehozva.", "success");
+      createEventForm.reset();
+      if (created?.id) {
+        eventState.selectedEventId = created.id;
+      }
+      await refreshEventData();
+    } catch (error) {
+      handleAuthError(error);
+    }
+  });
+}
+
 attachSignOut();
 
 switch (pageType) {
@@ -669,6 +1038,9 @@ switch (pageType) {
     break;
   case "pending":
     initPendingPage();
+    break;
+  case "events":
+    initEventsPage();
     break;
   default:
     initOverviewPage();

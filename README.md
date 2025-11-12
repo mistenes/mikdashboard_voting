@@ -30,6 +30,11 @@ Update the environment variables in the blueprint before the first deploy:
   service can deliver verification emails through Brevo.
 - Optionally configure Google reCAPTCHA keys if you want captcha protection on sign-up forms.
 
+The dashboard now exposes a dedicated **Szavazási események** admin page where you can create
+named voting events, choose the active session, and assign exactly one delegate per
+organization. Only the active-event delegate (or a system administrator) is allowed to launch
+the separate voting service through the signed SSO flow.
+
 ## Local development
 
 Each app keeps its local setup instructions in its respective folder (`dashboard/README.md` and

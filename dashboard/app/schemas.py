@@ -80,6 +80,12 @@ class ErrorResponse(BaseModel):
     detail: str
 
 
+class ActiveEventInfo(BaseModel):
+    id: int
+    title: str
+    description: Optional[str] = None
+
+
 class OrganizationMember(BaseModel):
     id: int
     email: EmailStr
@@ -101,6 +107,7 @@ class OrganizationDetail(BaseModel):
     bank_name: Optional[str] = None
     bank_account_number: Optional[str] = None
     payment_instructions: Optional[str] = None
+    active_event: Optional[ActiveEventInfo] = None
 
 
 class OrganizationFeeUpdate(BaseModel):
@@ -142,10 +149,39 @@ class SessionUser(BaseModel):
     is_admin: bool
     organization: Optional[OrganizationMembershipInfo]
     is_voting_delegate: Optional[bool] = None
+    active_event: Optional[ActiveEventInfo] = None
 
 
 class VotingDelegateUpdate(BaseModel):
     is_delegate: bool
+
+
+class VotingEventCreateRequest(BaseModel):
+    title: constr(strip_whitespace=True, min_length=3, max_length=255)
+    description: Optional[constr(strip_whitespace=True, max_length=500)] = None
+    activate: bool = False
+
+
+class VotingEventRead(BaseModel):
+    id: int
+    title: str
+    description: Optional[str] = None
+    is_active: bool
+    created_at: datetime
+    delegate_count: int = 0
+
+
+class EventDelegateInfo(BaseModel):
+    organization_id: int
+    organization_name: str
+    user_id: Optional[int]
+    user_email: Optional[EmailStr]
+    user_first_name: Optional[str]
+    user_last_name: Optional[str]
+
+
+class EventDelegateAssignmentRequest(BaseModel):
+    user_id: Optional[int]
 
 
 class SimpleMessageResponse(BaseModel):

@@ -23,14 +23,12 @@
       </nav>
 
       <section class="auth-card" aria-labelledby="voting-title">
-        <h2 id="voting-title">Szavazási lehetőségek</h2>
-        <p>
-          Itt érhetők el a szervezet aktuális szavazásai. Ha új szavazás indul, az adminisztrátor értesítőt küld az időzítésről és a témáról.
-        </p>
-        <ul class="checklist">
-          <li>Jelenleg nincs aktív szavazás.</li>
-          <li>Kérdésed van? Fordulj a szervezet adminisztrátorához.</li>
-        </ul>
+        <div class="section-header">
+          <h2 id="voting-title">Szavazási esemény</h2>
+          <p id="current-event-summary" class="muted">
+            A delegált belépéshez válaszd a lenti gombot. Ha nincs aktív esemény, az adminisztrátor értesítést küld a következő szavazásról.
+          </p>
+        </div>
         <div class="voting-actions">
           <button id="open-voting" type="button" class="primary-btn">Szavazás megnyitása</button>
           <p id="voting-helper" class="muted"></p>

@@ -235,6 +235,8 @@ app.get('/sso', (req, res) => {
     firstName: payload.first_name,
     lastName: payload.last_name,
     organizationId: payload.org,
+    eventId: payload.event,
+    eventTitle: payload.event_title,
   });
   setSessionCookie(res, session.id);
   res.redirect('/');

@@ -27,6 +27,8 @@ interface AuthUser {
     firstName?: string | null;
     lastName?: string | null;
     organizationId?: number | null;
+    eventId?: number | null;
+    eventTitle?: string | null;
 }
 
 interface AuthSessionResponse {
@@ -286,7 +288,7 @@ const AdminView = ({ sessionData, onLogout, onSessionUpdate }: {
     );
 };
 
-const VoterView = ({ sessionData, onLogout }: { sessionData: SessionData, onLogout: () => void }) => {
+const VoterView = ({ sessionData, onLogout, eventTitle }: { sessionData: SessionData, onLogout: () => void, eventTitle?: string | null }) => {
     const VOTE_DURATION_S = 10;
     const [timeLeft, setTimeLeft] = useState(VOTE_DURATION_S);
     const [hasVoted, setHasVoted] = useState(false);
@@ -382,10 +384,13 @@ const VoterView = ({ sessionData, onLogout }: { sessionData: SessionData, onLogo
         }
     }
 
+    const trimmedTitle = (eventTitle || '').trim();
+
     return (
-         <div className="container view-container">
+        <div className="container view-container">
             <h1>Szavazó</h1>
-             <div className="voter-status-box">
+            {trimmedTitle && <p className="event-banner">Aktív esemény: {trimmedTitle}</p>}
+            <div className="voter-status-box">
                 {renderContent()}
             </div>
             <button onClick={onLogout} className="btn btn-secondary logout-button">Kijelentkezés</button>
@@ -540,7 +545,7 @@ const App = () => {
             case 'admin':
                 return <AdminView sessionData={sessionData} onLogout={handleLogout} onSessionUpdate={handleSessionUpdate} />;
             case 'voter':
-                return <VoterView sessionData={sessionData} onLogout={handleLogout} />;
+                return <VoterView sessionData={sessionData} onLogout={handleLogout} eventTitle={user.eventTitle} />;
             default:
                 return <LoginScreen onLogin={handleLogin} error={error} />;
         }

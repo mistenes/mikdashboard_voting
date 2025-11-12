@@ -133,23 +133,23 @@ provided blueprint or the manual setup steps below.
 On the first startup the application only creates the required tables; all
 organizations must now be added manually via the admin felület.
 
-## Szavazási SSO és delegálás
+## Szavazási események és delegáltak
 
-- Az admin felületen minden nem admin tag mellett megjelenik egy
-  „Szavazóként kijelölöm” gomb, amellyel be- és kikapcsolható a
-  `szavazó delegált` státusz. A beállítás a tagi felület taglistáján is
-  látszik.
-- A tagi „Szavazás” oldal akkor engedi a **Szavazás megnyitása** gombot,
-  ha a szervezet `fee_paid` mezője igaz és a felhasználó admin vagy kijelölt
-  delegált. Máskülönben információs üzenet tájékoztat a rendezendő tagsági
-  díjról vagy arról, hogy a felhasználó nincs delegálva.
-- A gomb megnyomásakor a backend egy HMAC-aláírt SSO tokent generál a
-  `VOTING_SSO_SECRET` segítségével, majd a konfigurált `VOTING_APP_BASE_URL`
-  szerinti `/sso?token=...` végpontra irányítja a felhasználót. A token
-  alapértelmezetten 5 percig érvényes, amit a `VOTING_SSO_TTL_SECONDS`
-  változóval lehet módosítani.
-- A szavazási webszolgáltatás ugyanazzal a titokkal validálja a tokent, és
-  `SameSite=Lax` HTTP-only sütiben tárolja a munkamenetet. Manuális bejelentkezés
-  kizárólag az adminisztrátor számára marad elérhető az `ADMIN_PASSWORD`
-  környezeti változóval megadott jelszóval; minden résztvevői hozzáférés
-  egyszeri bejelentkezéssel történik.
+- Az adminisztrátorok a bal oldali menüben elérhető **Szavazási események**
+  oldalon hozhatnak létre új eseményt, válthatják aktívvá a következő
+  szavazást, valamint szervezetenként kijelölhetik az egyetlen résztvevő
+  delegáltat.
+- Delegált csak olyan tag lehet, aki jóváhagyott, megerősített és a szervezet
+  tagsági díja rendezett. A kiválasztás minden eseménynél külön történik,
+  a korábbi hozzárendelések megőrződnek.
+- Csak az aktív eseményhez kijelölt delegált (illetve a rendszerszintű admin)
+  láthatja engedélyezve a **Szavazás megnyitása** gombot a tagi felületen.
+  A felület jelzi az aktuális esemény nevét, valamint azt, ha nincs aktív
+  szavazás vagy nincs hozzárendelt delegált.
+- A gomb megnyomásakor a backend HMAC-aláírt SSO tokent készít, amely tartalmazza
+  a felhasználó, a szervezet és az aktív esemény azonosítóját. A token az
+  `VOTING_APP_BASE_URL` szerinti `/sso` végpontra irányítja a felhasználót, és
+  alapértelmezetten 5 percig érvényes (`VOTING_SSO_TTL_SECONDS`).
+- A különálló szavazási szolgáltatás ugyanazzal a `VOTING_SSO_SECRET` titokkal
+  ellenőrzi a tokeneket. Sikeres hitelesítés után HTTP-only munkamenet sütit
+  állít be, és a felhasználói felület megjeleníti az aktív esemény nevét is.

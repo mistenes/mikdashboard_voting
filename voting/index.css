@@ -171,6 +171,12 @@ input[type="text"]:focus, input[type="password"]:focus, input[type="number"]:foc
     font-size: 1.1rem;
 }
 
+.event-banner {
+    margin-bottom: 1rem;
+    font-size: 1rem;
+    color: var(--text-secondary);
+}
+
 .logout-button {
     margin-top: 2rem;
     width: auto;

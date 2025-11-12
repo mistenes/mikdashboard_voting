@@ -6,6 +6,7 @@ const navLinks = document.querySelectorAll("[data-member-link]");
 const signOutButton = document.querySelector("#member-sign-out");
 const openVotingButton = document.querySelector("#open-voting");
 const votingHelper = document.querySelector("#voting-helper");
+const eventSummary = document.querySelector("#current-event-summary");
 
 let cachedSessionUser = null;
 let cachedOrganizationDetail = null;
@@ -183,9 +184,30 @@ function renderVoting(detail, sessionUser) {
 
   setVotingHelper("");
 
+  const activeEvent = detail.active_event || sessionUser.active_event || null;
+  const eventName = activeEvent?.title || "szavazási esemény";
+  if (eventSummary) {
+    if (activeEvent) {
+      const description = (activeEvent.description || "").trim();
+      eventSummary.textContent = description
+        ? `${activeEvent.title} – ${description}`
+        : `${activeEvent.title}`;
+    } else {
+      eventSummary.textContent = "Jelenleg nincs aktív szavazási esemény.";
+    }
+  }
+
   const isPaid = Boolean(detail.fee_paid);
   const member = detail.members?.find((item) => item.id === sessionUser.id);
   const isDelegate = Boolean(sessionUser.is_admin || member?.is_voting_delegate);
+
+  if (!activeEvent) {
+    openVotingButton.disabled = true;
+    setVotingHelper(
+      "Jelenleg nincs megnyitható szavazási esemény. Kérjük, várd meg az adminisztrátori értesítést.",
+    );
+    return;
+  }
 
   if (!isPaid) {
     openVotingButton.disabled = true;
@@ -198,13 +220,15 @@ function renderVoting(detail, sessionUser) {
   if (!isDelegate) {
     openVotingButton.disabled = true;
     setVotingHelper(
-      "Nem vagy kijelölve a szavazási eseményre, ezért nem nyithatod meg a felületet.",
+      `Nem vagy kijelölve a(z) "${eventName}" szavazási eseményre, ezért nem nyithatod meg a felületet.`,
     );
     return;
   }
 
   openVotingButton.disabled = false;
-  setVotingHelper("A gombra kattintva új lapon nyílik meg a szavazási felület.");
+  setVotingHelper(
+    `A gombra kattintva új lapon nyílik meg a(z) "${eventName}" szavazási felület.`,
+  );
 
   if (!votingHandlerBound) {
     openVotingButton.addEventListener("click", handleOpenVoting);
