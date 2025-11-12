@@ -88,6 +88,7 @@ class ActiveEventInfo(BaseModel):
     delegate_deadline: Optional[datetime] = None
     is_voting_enabled: bool = False
     delegate_count: int = 0
+    delegate_limit: Optional[int] = None
 
 
 class OrganizationMember(BaseModel):
@@ -166,6 +167,7 @@ class VotingEventCreateRequest(BaseModel):
     description: Optional[constr(strip_whitespace=True, max_length=500)] = None
     event_date: datetime
     delegate_deadline: datetime
+    delegate_limit: int = Field(..., ge=1, le=500)
     activate: bool = False
 
 
@@ -181,6 +183,7 @@ class VotingEventRead(BaseModel):
     delegate_deadline: Optional[datetime] = None
     is_active: bool
     is_voting_enabled: bool
+    delegate_limit: Optional[int] = None
     created_at: datetime
     delegate_count: int = 0
     can_delete: bool = False

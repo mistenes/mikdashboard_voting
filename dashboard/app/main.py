@@ -137,10 +137,14 @@ def _delegate_count(event: VotingEvent | None) -> int:
     delegates = getattr(event, "delegates", None)
     if delegates is None:
         return 0
+    count = 0
     try:
-        return len(delegates)
+        for delegate in delegates:
+            if getattr(delegate, "user_id", None):
+                count += 1
     except TypeError:
         return 0
+    return count
 
 
 def _build_voting_sync_payload(event: VotingEvent | None) -> dict:
@@ -152,6 +156,7 @@ def _build_voting_sync_payload(event: VotingEvent | None) -> dict:
             "event_date": _serialize_datetime(event.event_date),
             "delegate_deadline": _serialize_datetime(event.delegate_deadline),
             "is_voting_enabled": bool(event.is_voting_enabled),
+            "delegate_limit": getattr(event, "delegate_limit", None),
         }
 
     payload = {
@@ -313,6 +318,10 @@ def ensure_event_metadata_columns() -> None:
                 text(
                     "ALTER TABLE voting_events ADD COLUMN is_voting_enabled BOOLEAN NOT NULL DEFAULT FALSE"
                 )
+            )
+        if "delegate_limit" not in columns:
+            connection.execute(
+                text("ALTER TABLE voting_events ADD COLUMN delegate_limit INTEGER")
             )
 
 
@@ -516,6 +525,7 @@ def active_event_info(event: VotingEvent | None) -> ActiveEventInfo | None:
         delegate_deadline=event.delegate_deadline,
         is_voting_enabled=event.is_voting_enabled,
         delegate_count=event_delegate_count(event),
+        delegate_limit=getattr(event, "delegate_limit", None),
     )
 
 
@@ -575,6 +585,7 @@ def build_event_read(event: VotingEvent) -> VotingEventRead:
         delegate_deadline=event.delegate_deadline,
         is_active=event.is_active,
         is_voting_enabled=event.is_voting_enabled,
+        delegate_limit=event.delegate_limit,
         created_at=event.created_at,
         delegate_count=delegate_count,
         can_delete=not event.is_active,
@@ -1171,6 +1182,7 @@ def create_voting_event_endpoint(
             description=payload.description,
             event_date=payload.event_date,
             delegate_deadline=payload.delegate_deadline,
+            delegate_limit=payload.delegate_limit,
             activate=payload.activate,
         )
         db.flush()

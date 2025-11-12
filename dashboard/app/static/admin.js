@@ -20,6 +20,24 @@ const eventDateFormatter = new Intl.DateTimeFormat("hu-HU", {
   timeStyle: "short",
 });
 
+function getSelectedEvent() {
+  if (!eventState.selectedEventId) {
+    return null;
+  }
+  return (
+    eventState.events.find((item) => item.id === eventState.selectedEventId) || null
+  );
+}
+
+function countAssignedDelegates() {
+  if (!Array.isArray(eventState.delegates)) {
+    return 0;
+  }
+  return eventState.delegates.reduce((count, item) => {
+    return item && item.user_id ? count + 1 : count;
+  }, 0);
+}
+
 function formatDateTime(value) {
   if (!value) {
     return null;
@@ -756,7 +774,10 @@ function renderEventsList(events) {
     const createdLabel = event.created_at
       ? eventDateFormatter.format(new Date(event.created_at))
       : "Ismeretlen időpont";
-    meta.textContent = `Létrehozva: ${createdLabel} • Delegáltak: ${event.delegate_count}`;
+    const delegateSummary = event.delegate_limit
+      ? `${event.delegate_count} / ${event.delegate_limit}`
+      : `${event.delegate_count}`;
+    meta.textContent = `Létrehozva: ${createdLabel} • Delegáltak: ${delegateSummary}`;
 
     const details = document.createElement("ul");
     details.classList.add("event-details");
@@ -777,6 +798,11 @@ function renderEventsList(events) {
       ? "Szavazási felület engedélyezve"
       : "Szavazási felület letiltva";
     details.appendChild(accessItem);
+    const limitItem = document.createElement("li");
+    limitItem.textContent = event.delegate_limit
+      ? `Delegált keret: ${event.delegate_count} / ${event.delegate_limit}`
+      : "Delegált keret: nincs felső határ";
+    details.appendChild(limitItem);
 
     const actions = document.createElement("div");
     actions.classList.add("event-actions");
@@ -889,7 +915,7 @@ function renderSelectedEventInfo() {
     selectedEventInfo.textContent = "Válassz ki egy eseményt.";
     return;
   }
-  const event = eventState.events.find((item) => item.id === eventState.selectedEventId);
+  const event = getSelectedEvent();
   if (!event) {
     selectedEventInfo.textContent = "Válassz ki egy eseményt.";
     return;
@@ -904,6 +930,15 @@ function renderSelectedEventInfo() {
     parts.push(`Delegált határidő: ${deadlineLabel}`);
   }
   parts.push(event.is_voting_enabled ? "Szavazási felület engedélyezve" : "Szavazási felület letiltva");
+  const assignedCount = countAssignedDelegates();
+  if (event.delegate_limit) {
+    parts.push(`Delegáltak: ${assignedCount}/${event.delegate_limit}`);
+    if (assignedCount >= event.delegate_limit) {
+      parts.push("Delegált keret betelt");
+    }
+  } else {
+    parts.push(`Delegáltak: ${assignedCount}`);
+  }
   selectedEventInfo.textContent = parts.join(" • ");
 }
 
@@ -935,6 +970,12 @@ function renderDelegateTable() {
     return;
   }
 
+  const selectedEvent = getSelectedEvent();
+  const delegateLimit = selectedEvent?.delegate_limit ?? null;
+  const assignedCount = countAssignedDelegates();
+  const limitReached =
+    delegateLimit !== null && delegateLimit > 0 && assignedCount >= delegateLimit;
+
   eventState.organizations.forEach((organization) => {
     const info = currentDelegateInfo(organization.id);
     const row = document.createElement("tr");
@@ -951,7 +992,9 @@ function renderDelegateTable() {
       );
     } else {
       delegateCell.classList.add("muted");
-      delegateCell.textContent = "Nincs kijelölt delegált";
+      delegateCell.textContent = limitReached
+        ? "Nincs kijelölt delegált (a keret betelt)"
+        : "Nincs kijelölt delegált";
     }
 
     const selectCell = document.createElement("td");
@@ -979,6 +1022,11 @@ function renderDelegateTable() {
     });
 
     select.value = info && info.user_id ? String(info.user_id) : "";
+    const hasDelegate = Boolean(info && info.user_id);
+    if (limitReached && !hasDelegate) {
+      select.disabled = true;
+      select.title = "Elérte a delegáltak maximális számát ezen az eseményen.";
+    }
     select.addEventListener("change", async () => {
       await handleDelegateChange(organization.id, select);
     });
@@ -1010,6 +1058,7 @@ async function refreshEventDelegates() {
     eventState.delegates = [];
     handleAuthError(error);
   }
+  renderSelectedEventInfo();
 }
 
 async function refreshEventData(refreshOrganizations = false) {
@@ -1120,6 +1169,26 @@ async function handleDelegateChange(organizationId, selectElement) {
   const value = selectElement.value;
   const userId = value ? Number.parseInt(value, 10) : null;
   const previous = currentDelegateInfo(organizationId);
+  const selectedEvent = getSelectedEvent();
+  const delegateLimit = selectedEvent?.delegate_limit ?? null;
+  const assignedCount = countAssignedDelegates();
+  const hadDelegate = Boolean(previous && previous.user_id);
+  const isAssigning = userId !== null;
+  if (
+    delegateLimit !== null &&
+    delegateLimit > 0 &&
+    isAssigning &&
+    !hadDelegate &&
+    assignedCount >= delegateLimit
+  ) {
+    const fallback = previous && previous.user_id ? String(previous.user_id) : "";
+    selectElement.value = fallback;
+    setStatus(
+      "Elérte a kijelölhető delegáltak maximális számát ezen az eseményen.",
+      "error",
+    );
+    return;
+  }
   try {
     await requestJSON(
       `/api/admin/events/${eventState.selectedEventId}/organizations/${organizationId}/delegate`,
@@ -1131,12 +1200,14 @@ async function handleDelegateChange(organizationId, selectElement) {
     setStatus("A delegált sikeresen frissítve.", "success");
     await refreshEventDelegates();
     renderDelegateTable();
+    renderSelectedEventInfo();
   } catch (error) {
     handleAuthError(error);
     const fallback = previous && previous.user_id ? String(previous.user_id) : "";
     selectElement.value = fallback;
     await refreshEventDelegates();
     renderDelegateTable();
+    renderSelectedEventInfo();
   }
 }
 
@@ -1167,8 +1238,14 @@ async function initEventsPage() {
     const formData = new FormData(createEventForm);
     const eventDateValue = formData.get("event_date");
     const deadlineValue = formData.get("delegate_deadline");
+    const limitValue = formData.get("delegate_limit");
     if (!eventDateValue || !deadlineValue) {
       setStatus("Kérjük, add meg az esemény dátumát és a delegált határidejét.", "error");
+      return;
+    }
+    const delegateLimit = limitValue ? Number.parseInt(String(limitValue), 10) : NaN;
+    if (!Number.isFinite(delegateLimit) || delegateLimit < 1) {
+      setStatus("Kérjük, válaszd ki a delegáltak maximális számát.", "error");
       return;
     }
     const payload = {
@@ -1176,6 +1253,7 @@ async function initEventsPage() {
       description: formData.get("description") || null,
       event_date: String(eventDateValue),
       delegate_deadline: String(deadlineValue),
+      delegate_limit: delegateLimit,
       activate: formData.get("activate") === "on",
     };
     try {

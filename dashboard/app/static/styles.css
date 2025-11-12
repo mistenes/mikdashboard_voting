@@ -449,6 +449,12 @@ button.sidebar-link {
   box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.12);
 }
 
+.delegate-table select:disabled {
+  background: rgba(241, 245, 249, 0.8);
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
 .members-table,
 #pending-table {
   width: 100%;
@@ -501,6 +507,41 @@ button.sidebar-link {
   display: grid;
   gap: 16px;
   margin-bottom: 16px;
+}
+
+.event-form input,
+.event-form textarea,
+.event-form select {
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.6);
+  padding: 12px 14px;
+  font-size: 1rem;
+  background: rgba(255, 255, 255, 0.92);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.event-form input:focus,
+.event-form textarea:focus,
+.event-form select:focus {
+  outline: none;
+  border-color: rgba(59, 130, 246, 0.8);
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.12);
+}
+
+.event-form select {
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, #64748b 50%),
+    linear-gradient(135deg, #64748b 50%, transparent 50%);
+  background-position: calc(100% - 20px) calc(1rem + 2px),
+    calc(100% - 14px) calc(1rem + 2px);
+  background-size: 6px 6px;
+  background-repeat: no-repeat;
+}
+
+.field-hint {
+  font-size: 0.85rem;
+  color: #64748b;
+  margin-top: -10px;
 }
 
 .form-field {

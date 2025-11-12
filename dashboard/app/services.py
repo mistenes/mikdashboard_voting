@@ -419,6 +419,7 @@ def create_voting_event(
     description: Optional[str] = None,
     event_date: datetime,
     delegate_deadline: datetime,
+    delegate_limit: int,
     activate: bool = False,
 ) -> VotingEvent:
     cleaned_title = title.strip()
@@ -433,6 +434,9 @@ def create_voting_event(
             "A delegált kijelölési határidő nem lehet a rendezvény dátuma után."
         )
 
+    if delegate_limit < 1:
+        raise RegistrationError("A delegáltak száma legalább 1 kell legyen.")
+
     event = VotingEvent(
         title=cleaned_title,
         description=sanitize_optional_text(description),
@@ -440,6 +444,7 @@ def create_voting_event(
         delegate_deadline=normalized_delegate_deadline,
         is_active=False,
         is_voting_enabled=False,
+        delegate_limit=delegate_limit,
     )
     session.add(event)
     session.flush()
@@ -571,6 +576,17 @@ def assign_event_delegate(
             previous_user.is_voting_delegate = False
         delegate = existing
     else:
+        if event.delegate_limit is not None:
+            current_count_stmt = (
+                select(func.count(EventDelegate.id))
+                .where(EventDelegate.event_id == event.id)
+                .where(EventDelegate.user_id.is_not(None))
+            )
+            current_count = session.scalar(current_count_stmt) or 0
+            if current_count >= event.delegate_limit:
+                raise RegistrationError(
+                    "Elérte a kijelölhető delegáltak maximális számát ezen az eseményen."
+                )
         delegate = EventDelegate(event=event, organization=organization, user=user)
         session.add(delegate)
 

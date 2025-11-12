@@ -83,6 +83,17 @@
                 name="delegate_deadline"
                 required
               />
+              <label for="delegate-limit">Maximális delegáltak száma</label>
+              <select id="delegate-limit" name="delegate_limit" required>
+                <option value="10">10 delegált</option>
+                <option value="20">20 delegált</option>
+                <option value="30" selected>30 delegált</option>
+                <option value="40">40 delegált</option>
+                <option value="50">50 delegált</option>
+                <option value="75">75 delegált</option>
+                <option value="100">100 delegált</option>
+              </select>
+              <small class="field-hint">A kijelölhető delegáltak összesített felső határa.</small>
             </div>
             <div class="form-row event-form-actions">
               <label class="checkbox">
