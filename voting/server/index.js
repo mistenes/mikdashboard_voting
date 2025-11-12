@@ -254,10 +254,11 @@ app.post('/api/auth/login', async (req, res) => {
     dashboardEmail = ADMIN_EMAIL;
   }
 
+  let dashboardResult = null;
   if (dashboardEmail) {
-    const result = await authenticateAgainstDashboard(dashboardEmail, password);
-    if (result.ok) {
-      const { data } = result;
+    dashboardResult = await authenticateAgainstDashboard(dashboardEmail, password);
+    if (dashboardResult.ok) {
+      const { data } = dashboardResult;
       const session = createSession({
         role: data.is_admin ? 'admin' : 'voter',
         email: dashboardEmail,
@@ -270,16 +271,36 @@ app.post('/api/auth/login', async (req, res) => {
       res.json({ user: session.user });
       return;
     }
+  }
 
-    if (result.status !== 503) {
-      res.status(result.status).json({ detail: result.detail });
-      return;
+  const shouldAttemptLocalFallback = (() => {
+    if (!ADMIN_PASSWORD) {
+      return false;
     }
+
+    const normalizedIdentifier = identifier.toLowerCase();
+    const normalizedUsername = ADMIN_USERNAME.toLowerCase();
+    const normalizedEmail = ADMIN_EMAIL ? ADMIN_EMAIL.toLowerCase() : null;
+
+    if (normalizedIdentifier === normalizedUsername) {
+      return true;
+    }
+
+    if (normalizedEmail && normalizedIdentifier === normalizedEmail) {
+      return true;
+    }
+
+    return false;
+  })();
+
+  if (dashboardResult && dashboardResult.status !== 503 && !shouldAttemptLocalFallback) {
+    res.status(dashboardResult.status).json({ detail: dashboardResult.detail });
+    return;
   }
 
   if (!ADMIN_PASSWORD) {
     const detail =
-      dashboardEmail || DASHBOARD_API_BASE_URL
+      (dashboardEmail || DASHBOARD_API_BASE_URL)
         ? 'A dashboard elérése nem sikerült, és nincs megadva helyi admin jelszó.'
         : 'Az adminisztrátori bejelentkezés nincs konfigurálva.';
     res.status(503).json({ detail });
@@ -291,10 +312,17 @@ app.post('/api/auth/login', async (req, res) => {
   const normalizedEmail = ADMIN_EMAIL ? ADMIN_EMAIL.toLowerCase() : null;
   const matchesUsername = normalizedIdentifier === normalizedUsername;
   const matchesEmail = normalizedEmail ? normalizedIdentifier === normalizedEmail : false;
-  if ((!matchesUsername && !matchesEmail) || password !== ADMIN_PASSWORD) {
+
+  if (!matchesUsername && !matchesEmail) {
     const detail = dashboardEmail
-      ? 'Hibás email cím vagy jelszó.'
+      ? dashboardResult?.detail || 'Hibás email cím vagy jelszó.'
       : 'Kérjük, használj e-mail címet a bejelentkezéshez.';
+    res.status(dashboardResult?.status ?? 401).json({ detail });
+    return;
+  }
+
+  if (password !== ADMIN_PASSWORD) {
+    const detail = dashboardEmail ? 'Hibás email cím vagy jelszó.' : 'Érvénytelen jelszó.';
     res.status(401).json({ detail });
     return;
   }
