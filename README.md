@@ -27,11 +27,14 @@ Update the environment variables in the blueprint before the first deploy:
 - Set unique `ADMIN_EMAIL`/`ADMIN_PASSWORD` pairs for both services (the default username is
   always `admin`). The dashboard forces a password change on first login.
 - Point the voting service `DASHBOARD_API_BASE_URL` at the publicly reachable dashboard base
-  URL (including the `https://` scheme). The voting API signs login checks with the shared
+  URL (including the `https://` scheme). The blueprint now references the live dashboard at
+  `https://dashboard.mikegyesulet.hu/`. The voting API signs login checks with the shared
   `VOTING_O2AUTH_SECRET` and first calls the dashboard’s `/api/voting/authenticate` endpoint before
   falling back to `/api/login`, so both apps accept the exact same credentials.
 - Provide `BREVO_API_KEY`, `BREVO_SENDER_EMAIL`, and `PUBLIC_BASE_URL` so the registration
-  service can deliver verification emails through Brevo.
+  service can deliver verification emails through Brevo. The blueprint defaults to the
+  production dashboard domain `https://dashboard.mikegyesulet.hu/`, so update the value if
+  you deploy elsewhere.
 - Optionally configure Google reCAPTCHA keys if you want captcha protection on sign-up forms.
 
 The dashboard now exposes a dedicated **Szavazási események** admin page where you can create

@@ -98,6 +98,9 @@ provided blueprint or the manual setup steps below.
    label the seeded admin, configure outbound e-mail delivery, enable the Google
    reCAPTCHA integration, és beállíthatod a szavazási webalkalmazás felé használt
    o2auth titkot és átirányítási URL-t.
+   Alapértelmezetten a blueprint a `https://dashboard.mikegyesulet.hu/` és
+   `https://voting.mikegyesulet.hu/` domainekre mutat, ezért más környezetben
+   frissítsd ezeket az értékeket.
 
 ### Option B: Manual setup via the Render dashboard
 
@@ -122,7 +125,8 @@ provided blueprint or the manual setup steps below.
 7. Állítsd be a `PUBLIC_BASE_URL` értékét a dashboard publikus URL-jére, majd
    add meg a Brevo küldő adatait (`BREVO_API_KEY`, `BREVO_SENDER_EMAIL`,
    `BREVO_SENDER_NAME`), hogy a regisztrációs visszaigazoló e-mailek ténylegesen
-   kiküldésre kerüljenek.
+   kiküldésre kerüljenek. A blueprint a `https://dashboard.mikegyesulet.hu/`
+   értékkel indul ki, amit szükség esetén cserélj le a saját környezetedre.
 8. (Optional) Configure Google reCAPTCHA by setting `RECAPTCHA_SITE_KEY` and
    `RECAPTCHA_SECRET_KEY`. When omitted, the regisztrációs űrlap captcha
    automatikusan letiltva marad.
@@ -132,6 +136,8 @@ provided blueprint or the manual setup steps below.
    hogy a tagi felület által generált o2auth tokeneket a voting alkalmazás
    érvényesnek fogadja el, és hogy az új `/api/voting/authenticate` végpont
    kizárólag a megosztott titokkal aláírt hitelesítési kéréseket fogadja el.
+   A blueprint a `VOTING_APP_BASE_URL` értékét `https://voting.mikegyesulet.hu/`
+   címre állítja, ezért más deploy esetén módosítsd.
 
 On the first startup the application only creates the required tables; all
 organizations must now be added manually via the admin felület.

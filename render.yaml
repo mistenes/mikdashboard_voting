@@ -26,7 +26,7 @@ services:
       - key: ADMIN_LAST_NAME
         value: Adminisztrátor
       - key: PUBLIC_BASE_URL
-        value: https://mikdashboard-dashboard.onrender.com
+        value: https://dashboard.mikegyesulet.hu/
       - key: BREVO_API_KEY
         value: ""
       - key: BREVO_SENDER_EMAIL
@@ -40,7 +40,7 @@ services:
       - key: VOTING_O2AUTH_SECRET
         value: change-this-secret
       - key: VOTING_APP_BASE_URL
-        value: https://mikdashboard-voting-btie.onrender.com
+        value: https://voting.mikegyesulet.hu/
       - key: VOTING_O2AUTH_TTL_SECONDS
         value: "300"
   - type: web
@@ -64,7 +64,7 @@ services:
       - key: ADMIN_PASSWORD
         value: change-me
       - key: DASHBOARD_API_BASE_URL
-        value: https://mikdashboard-dashboard.onrender.com
+        value: https://dashboard.mikegyesulet.hu/
 
 databases:
   - name: mikdashboard-db
