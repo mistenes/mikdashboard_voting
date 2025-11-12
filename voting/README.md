@@ -54,3 +54,7 @@ real-time voting API from the same Express server.
   felhasználónév alapértelmezetten `admin`, de az `ADMIN_USERNAME` változóval
   felülírható. Az `ADMIN_EMAIL` megadásával az admin munkamenet metaadataiban
   is látszódni fog a cím. Ez csak tartalék, ha a dashboard API nem érhető el.
+- `VOTE_DURATION_SECONDS`: (Opcionális) Mennyi ideig maradnak aktívak a szavazó
+  gombok egy indított szekcióban. Alapértelmezett értéke 10 másodperc, a számláló
+  ennek megfelelően fut le, és a gombok a határidő után automatikusan letiltásra
+  kerülnek.

@@ -47,12 +47,16 @@ const normalizedDashboardBaseUrl = (() => {
 })();
 
 const defaultResults = () => ({ igen: 0, nem: 0, tartozkodott: 0 });
+const VOTE_DURATION_SECONDS =
+  Number.parseInt(process.env.VOTE_DURATION_SECONDS || '10', 10) || 10;
 
 let sessionState = {
   status: 'WAITING',
   results: defaultResults(),
   totalVoters: INITIAL_TOTAL_VOTERS,
   voteStartTime: null,
+  voteEndTime: null,
+  voteDurationSeconds: VOTE_DURATION_SECONDS,
 };
 
 const clients = new Set();
@@ -678,11 +682,14 @@ app.post('/api/session/start', requireRoles(['admin']), (req, res) => {
   const totalVoters = Number.parseInt(req.body?.totalVoters, 10);
   const safeTotalVoters = Number.isFinite(totalVoters) && totalVoters > 0 ? totalVoters : sessionState.totalVoters;
 
+  const voteStartTime = new Date();
   setState({
     status: 'IN_PROGRESS',
     results: defaultResults(),
     totalVoters: safeTotalVoters,
-    voteStartTime: new Date().toISOString(),
+    voteStartTime: voteStartTime.toISOString(),
+    voteEndTime: new Date(voteStartTime.getTime() + VOTE_DURATION_SECONDS * 1000).toISOString(),
+    voteDurationSeconds: VOTE_DURATION_SECONDS,
   });
 
   res.json(sessionState);
@@ -703,6 +710,8 @@ app.post('/api/session/reset', requireRoles(['admin']), (_req, res) => {
     status: 'WAITING',
     results: defaultResults(),
     voteStartTime: null,
+    voteEndTime: null,
+    voteDurationSeconds: VOTE_DURATION_SECONDS,
   });
 
   res.json(sessionState);
@@ -712,6 +721,14 @@ app.post('/api/session/vote', requireRoles(['voter', 'admin']), (req, res) => {
   if (sessionState.status !== 'IN_PROGRESS') {
     res.status(400).json({ detail: 'A szavazás nem aktív.' });
     return;
+  }
+
+  if (sessionState.voteEndTime) {
+    const voteEnd = new Date(sessionState.voteEndTime).getTime();
+    if (Number.isFinite(voteEnd) && Date.now() > voteEnd) {
+      res.status(400).json({ detail: 'A szavazási idő lejárt.' });
+      return;
+    }
   }
 
   const voteType = req.body?.voteType;

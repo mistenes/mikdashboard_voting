@@ -28,6 +28,8 @@ interface SessionData {
     results: { igen: number; nem: number; tartozkodott: number; };
     totalVoters: number;
     voteStartTime: string | null;
+    voteEndTime: string | null;
+    voteDurationSeconds: number;
 }
 
 interface SessionResponse {
@@ -35,6 +37,8 @@ interface SessionResponse {
     results?: Partial<Record<'igen' | 'nem' | 'tartozkodott', number>>;
     totalVoters?: number;
     voteStartTime?: string | null;
+    voteEndTime?: string | null;
+    voteDurationSeconds?: number;
 }
 
 type UserRole = 'admin' | 'voter';
@@ -60,6 +64,8 @@ interface AuthSessionResponse {
 
 const DEFAULT_RESULTS: SessionData['results'] = { igen: 0, nem: 0, tartozkodott: 0 };
 
+const DEFAULT_VOTE_DURATION = 10;
+
 const toSessionData = (response: SessionResponse | null | undefined): SessionData => ({
     status: response?.status ?? 'WAITING',
     results: {
@@ -69,6 +75,8 @@ const toSessionData = (response: SessionResponse | null | undefined): SessionDat
     },
     totalVoters: Number(response?.totalVoters ?? 0),
     voteStartTime: response?.voteStartTime ?? null,
+    voteEndTime: response?.voteEndTime ?? null,
+    voteDurationSeconds: Number(response?.voteDurationSeconds ?? DEFAULT_VOTE_DURATION),
 });
 
 async function jsonRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -218,13 +226,12 @@ const AdminView = ({ sessionData, onLogout, onSessionUpdate }: {
     onLogout: () => void,
     onSessionUpdate: (session: SessionData) => void,
 }) => {
-    const VOTE_DURATION_S = 10;
     const [isLoading, setIsLoading] = useState(false);
     const [adminTimeLeft, setAdminTimeLeft] = useState<number | null>(null);
 
-    const voteStartMs = useMemo(() => (
-        sessionData.voteStartTime ? new Date(sessionData.voteStartTime).getTime() : null
-    ), [sessionData.voteStartTime]);
+    const voteEndMs = useMemo(() => (
+        sessionData.voteEndTime ? new Date(sessionData.voteEndTime).getTime() : null
+    ), [sessionData.voteEndTime]);
 
     const handleFinish = useCallback(async () => {
         setIsLoading(true);
@@ -242,15 +249,15 @@ const AdminView = ({ sessionData, onLogout, onSessionUpdate }: {
     }, [onSessionUpdate]);
 
     useEffect(() => {
-        if (sessionData.status !== 'IN_PROGRESS' || !voteStartMs) {
+        if (sessionData.status !== 'IN_PROGRESS' || !voteEndMs) {
             setAdminTimeLeft(null);
             return;
         }
 
         const interval = setInterval(() => {
             const nowMs = Date.now();
-            const elapsedSeconds = Math.floor((nowMs - voteStartMs) / 1000);
-            const newTimeLeft = Math.max(0, VOTE_DURATION_S - elapsedSeconds);
+            const remainingSeconds = Math.ceil((voteEndMs - nowMs) / 1000);
+            const newTimeLeft = Math.max(0, remainingSeconds);
             setAdminTimeLeft(newTimeLeft);
 
             if (newTimeLeft === 0) {
@@ -259,7 +266,7 @@ const AdminView = ({ sessionData, onLogout, onSessionUpdate }: {
         }, 500);
 
         return () => clearInterval(interval);
-    }, [sessionData.status, voteStartMs, handleFinish]);
+    }, [sessionData.status, voteEndMs, handleFinish]);
 
     const handleStartVote = async () => {
         setIsLoading(true);
@@ -310,7 +317,7 @@ const AdminView = ({ sessionData, onLogout, onSessionUpdate }: {
             
             {sessionData.status === 'IN_PROGRESS' && (
                 <div className="admin-timer-container">
-                    <p>Hátralévő idő: <strong>{adminTimeLeft ?? VOTE_DURATION_S}s</strong></p>
+                    <p>Hátralévő idő: <strong>{adminTimeLeft ?? sessionData.voteDurationSeconds}s</strong></p>
                     <button onClick={handleFinish} className="btn btn-danger" disabled={isLoading}>
                         Szavazás Befejezése (most)
                     </button>
@@ -338,14 +345,14 @@ const AdminView = ({ sessionData, onLogout, onSessionUpdate }: {
 };
 
 const VoterView = ({ sessionData, onLogout, eventTitle }: { sessionData: SessionData, onLogout: () => void, eventTitle?: string | null }) => {
-    const VOTE_DURATION_S = 10;
-    const [timeLeft, setTimeLeft] = useState(VOTE_DURATION_S);
+    const initialDuration = sessionData.voteDurationSeconds || DEFAULT_VOTE_DURATION;
+    const [timeLeft, setTimeLeft] = useState(initialDuration);
     const [hasVoted, setHasVoted] = useState(false);
 
     const voteSessionId = sessionData?.voteStartTime ?? undefined;
-    const voteStartMs = useMemo(() => (
-        sessionData.voteStartTime ? new Date(sessionData.voteStartTime).getTime() : null
-    ), [sessionData.voteStartTime]);
+    const voteEndMs = useMemo(() => (
+        sessionData.voteEndTime ? new Date(sessionData.voteEndTime).getTime() : null
+    ), [sessionData.voteEndTime]);
 
     useEffect(() => {
         if (voteSessionId) {
@@ -359,14 +366,14 @@ const VoterView = ({ sessionData, onLogout, eventTitle }: { sessionData: Session
     }, [voteSessionId, sessionData?.status]);
     
     useEffect(() => {
-        if (sessionData.status !== 'IN_PROGRESS' || !voteStartMs || hasVoted) {
+        if (sessionData.status !== 'IN_PROGRESS' || !voteEndMs || hasVoted) {
             return;
         }
 
         const interval = setInterval(() => {
             const nowMs = Date.now();
-            const elapsedSeconds = Math.floor((nowMs - voteStartMs) / 1000);
-            const newTimeLeft = Math.max(0, VOTE_DURATION_S - elapsedSeconds);
+            const remainingSeconds = Math.ceil((voteEndMs - nowMs) / 1000);
+            const newTimeLeft = Math.max(0, remainingSeconds);
             setTimeLeft(newTimeLeft);
 
             if (newTimeLeft === 0) {
@@ -375,16 +382,22 @@ const VoterView = ({ sessionData, onLogout, eventTitle }: { sessionData: Session
         }, 500);
 
         return () => clearInterval(interval);
-    }, [sessionData.status, voteStartMs, hasVoted]);
+    }, [sessionData.status, voteEndMs, hasVoted]);
 
     useEffect(() => {
         if (sessionData.status !== 'IN_PROGRESS') {
-            setTimeLeft(VOTE_DURATION_S);
+            setTimeLeft(sessionData.voteDurationSeconds || DEFAULT_VOTE_DURATION);
         }
-    }, [sessionData.status]);
+    }, [sessionData.status, sessionData.voteDurationSeconds]);
 
-     const handleVote = async (voteType: 'igen' | 'nem' | 'tartozkodott') => {
+    const canVoteNow = sessionData.status === 'IN_PROGRESS' && timeLeft > 0 && !hasVoted;
+
+    const handleVote = async (voteType: 'igen' | 'nem' | 'tartozkodott') => {
         if (hasVoted) return;
+        if (timeLeft <= 0) {
+            alert('A szavazási idő lejárt.');
+            return;
+        }
         setHasVoted(true);
         if(voteSessionId) {
            localStorage.setItem('votedInSession', voteSessionId);
@@ -398,7 +411,7 @@ const VoterView = ({ sessionData, onLogout, eventTitle }: { sessionData: Session
         } catch (error) {
             console.error("Error casting vote:", error);
             alert("Hiba a szavazat leadásakor.");
-            // Rollback UI state if firestore fails
+            // Rollback UI state if the vote submission fails
             setHasVoted(false);
             localStorage.removeItem('votedInSession');
         }
@@ -422,12 +435,12 @@ const VoterView = ({ sessionData, onLogout, eventTitle }: { sessionData: Session
                                 <div className="timer">{timeLeft}s</div>
                             </>
                         ) : (
-                            <p className="timer-expired">A szavazás időkorlátja lejárt, de a lezárásig még leadhatja a szavazatát.</p>
+                            <p className="timer-expired">A szavazás időkorlátja lejárt.</p>
                         )}
                         <div className="vote-buttons">
-                            <button onClick={() => handleVote('igen')} className="btn btn-igen">Igen</button>
-                            <button onClick={() => handleVote('nem')} className="btn btn-nem">Nem</button>
-                            <button onClick={() => handleVote('tartozkodott')} className="btn btn-tartozkodom">Tartózkodom</button>
+                            <button onClick={() => handleVote('igen')} className="btn btn-igen" disabled={!canVoteNow}>Igen</button>
+                            <button onClick={() => handleVote('nem')} className="btn btn-nem" disabled={!canVoteNow}>Nem</button>
+                            <button onClick={() => handleVote('tartozkodott')} className="btn btn-tartozkodom" disabled={!canVoteNow}>Tartózkodom</button>
                         </div>
                     </div>
                 );
