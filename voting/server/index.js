@@ -566,7 +566,7 @@ function renderO2AuthErrorPage(message) {
 </html>`;
 }
 
-app.get('/o2auth', (req, res) => {
+function handleO2AuthRequest(req, res) {
   const tokenParam = Array.isArray(req.query.token) ? req.query.token[0] : req.query.token;
   if (!tokenParam) {
     const errorPage = renderO2AuthErrorPage('Hiányzó o2auth token.');
@@ -605,6 +605,14 @@ app.get('/o2auth', (req, res) => {
   }
 
   res.status(200).send(renderO2AuthSuccessPage(payload));
+}
+
+app.get('/o2auth', (req, res) => {
+  handleO2AuthRequest(req, res);
+});
+
+app.get('/sso', (req, res) => {
+  handleO2AuthRequest(req, res);
 });
 
 app.get('/api/session', (_req, res) => {
