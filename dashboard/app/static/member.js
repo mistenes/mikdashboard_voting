@@ -132,7 +132,13 @@ function ensureNavLinks(orgId) {
       return;
     }
     link.href = `/szervezetek/${orgId}/${target}`;
-    link.classList.toggle("active", pageType === target);
+    const isActive = pageType === target;
+    link.classList.toggle("active", isActive);
+    if (isActive) {
+      link.setAttribute("aria-current", "page");
+    } else {
+      link.removeAttribute("aria-current");
+    }
   });
 }
 
