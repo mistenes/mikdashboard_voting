@@ -48,6 +48,7 @@ from .schemas import (
     VotingAuthResponse,
     VotingEventAccessUpdate,
     VotingEventCreateRequest,
+    VotingEventUpdateRequest,
     VotingEventRead,
     VotingO2AuthLaunchRequest,
     VotingO2AuthResponse,
@@ -80,6 +81,7 @@ from .services import (
     set_voting_event_accessibility,
     set_organization_billing_details,
     set_organization_fee_status,
+    update_voting_event,
     verify_email,
     verify_recaptcha,
 )
@@ -1219,6 +1221,49 @@ def create_voting_event_endpoint(
     except RegistrationError as exc:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    db.commit()
+    _sync_active_event(db)
+    return build_event_read(event)
+
+
+@app.patch(
+    "/api/admin/events/{event_id}",
+    response_model=VotingEventRead,
+    responses={
+        401: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+        400: {"model": ErrorResponse},
+    },
+)
+def update_voting_event_endpoint(
+    event_id: int,
+    payload: VotingEventUpdateRequest,
+    db: DatabaseDependency,
+    _: Annotated[User, Depends(require_admin)],
+) -> VotingEventRead:
+    try:
+        event = update_voting_event(
+            db,
+            event_id=event_id,
+            title=payload.title,
+            description=payload.description,
+            event_date=payload.event_date,
+            delegate_deadline=payload.delegate_deadline,
+            delegate_limit=payload.delegate_limit,
+        )
+        db.flush()
+        db.refresh(event, attribute_names=["delegates"])
+    except RegistrationError as exc:
+        db.rollback()
+        detail = str(exc)
+        lowered = detail.lower()
+        status_code = (
+            status.HTTP_404_NOT_FOUND
+            if "nem található" in lowered
+            else status.HTTP_400_BAD_REQUEST
+        )
+        raise HTTPException(status_code=status_code, detail=detail) from exc
 
     db.commit()
     _sync_active_event(db)

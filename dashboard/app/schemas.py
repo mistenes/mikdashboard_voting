@@ -172,6 +172,14 @@ class VotingEventCreateRequest(BaseModel):
     activate: bool = False
 
 
+class VotingEventUpdateRequest(BaseModel):
+    title: constr(strip_whitespace=True, min_length=3, max_length=255)
+    description: Optional[constr(strip_whitespace=True, max_length=500)] = None
+    event_date: datetime
+    delegate_deadline: datetime
+    delegate_limit: int = Field(..., ge=1, le=500)
+
+
 class VotingEventAccessUpdate(BaseModel):
     is_voting_enabled: bool
 

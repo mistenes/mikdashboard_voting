@@ -7,12 +7,32 @@ const eventSelector = document.querySelector("#event-selector");
 const delegateTableBody = document.querySelector("#delegate-table-body");
 const createEventForm = document.querySelector("#create-event-form");
 const selectedEventInfo = document.querySelector("#selected-event-info");
+const createEventTitle = document.querySelector("#create-event-title");
+const createEventHint = document.querySelector("#create-event-hint");
+const cancelEventEditButton = document.querySelector("#cancel-event-edit");
+const activateWrapper = createEventForm?.querySelector("[data-activate-wrapper]");
+const activateCheckbox = createEventForm?.querySelector('input[name="activate"]');
+const createEventSubmitButton = createEventForm?.querySelector('button[type="submit"]');
+const eventTitleInput = createEventForm?.querySelector("#event-title");
+const eventDescriptionInput = createEventForm?.querySelector("#event-description");
+const eventDateInput = createEventForm?.querySelector("#event-date");
+const delegateDeadlineInput = createEventForm?.querySelector("#delegate-deadline");
+const delegateLimitSelect = createEventForm?.querySelector("#delegate-limit");
+
+const defaultEventFormTitle = createEventTitle?.textContent?.trim() || "";
+const defaultEventFormHint = createEventHint?.textContent?.trim() || "";
+const defaultSubmitLabel = createEventSubmitButton?.textContent?.trim() || "";
+
+const editFormTitle = "Esemény szerkesztése";
+const editFormHint =
+  "Frissítsd az esemény adatait, majd mentsd a módosításokat.";
 
 const eventState = {
   organizations: [],
   events: [],
   delegates: [],
   selectedEventId: null,
+  editingEventId: null,
 };
 
 const eventDateFormatter = new Intl.DateTimeFormat("hu-HU", {
@@ -50,6 +70,126 @@ function formatDateTime(value) {
     return eventDateFormatter.format(new Date(value));
   } catch (_) {
     return null;
+  }
+}
+
+function toDateTimeLocalValue(value) {
+  if (!value) {
+    return "";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  const pad = (number) => String(number).padStart(2, "0");
+  return (
+    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` +
+    `T${pad(date.getHours())}:${pad(date.getMinutes())}`
+  );
+}
+
+function ensureDelegateLimitOption(limit) {
+  if (!delegateLimitSelect) {
+    return;
+  }
+  if (!Number.isFinite(limit) || limit < 1) {
+    return;
+  }
+  const desiredValue = String(limit);
+  const hasOption = Array.from(delegateLimitSelect.options).some(
+    (option) => option.value === desiredValue,
+  );
+  if (!hasOption) {
+    const option = document.createElement("option");
+    option.value = desiredValue;
+    option.textContent = `${limit} delegált / szervezet`;
+    delegateLimitSelect.appendChild(option);
+  }
+}
+
+function resetEventFormPresentation() {
+  if (createEventTitle) {
+    createEventTitle.textContent = defaultEventFormTitle;
+  }
+  if (createEventHint) {
+    createEventHint.textContent = defaultEventFormHint;
+  }
+  if (createEventSubmitButton) {
+    createEventSubmitButton.textContent = defaultSubmitLabel ||
+      createEventSubmitButton.textContent;
+  }
+  if (activateWrapper) {
+    activateWrapper.classList.remove("is-hidden");
+  }
+  if (activateCheckbox) {
+    activateCheckbox.disabled = false;
+  }
+  cancelEventEditButton?.classList.add("is-hidden");
+}
+
+function exitEventEditMode(options = {}) {
+  const { resetForm = true } = options;
+  eventState.editingEventId = null;
+  if (resetForm && createEventForm) {
+    createEventForm.reset();
+  }
+  resetEventFormPresentation();
+}
+
+function enterEventEditMode(eventId) {
+  if (!createEventForm) {
+    return;
+  }
+  const event = eventState.events.find((item) => item.id === eventId);
+  if (!event) {
+    return;
+  }
+
+  eventState.editingEventId = eventId;
+
+  if (eventTitleInput) {
+    eventTitleInput.value = event.title || "";
+  }
+  if (eventDescriptionInput) {
+    eventDescriptionInput.value = event.description || "";
+  }
+  if (eventDateInput) {
+    eventDateInput.value = toDateTimeLocalValue(event.event_date);
+  }
+  if (delegateDeadlineInput) {
+    delegateDeadlineInput.value = toDateTimeLocalValue(event.delegate_deadline);
+  }
+  ensureDelegateLimitOption(event.delegate_limit);
+  if (delegateLimitSelect && Number.isFinite(event.delegate_limit)) {
+    delegateLimitSelect.value = String(event.delegate_limit);
+  }
+
+  if (activateCheckbox) {
+    activateCheckbox.checked = false;
+    activateCheckbox.disabled = true;
+  }
+  if (activateWrapper) {
+    activateWrapper.classList.add("is-hidden");
+  }
+
+  cancelEventEditButton?.classList.remove("is-hidden");
+  if (createEventSubmitButton) {
+    createEventSubmitButton.textContent = "Változtatások mentése";
+  }
+  if (createEventTitle) {
+    createEventTitle.textContent = editFormTitle;
+  }
+  if (createEventHint) {
+    createEventHint.textContent = editFormHint;
+  }
+
+  setStatus(`"${event.title}" szerkesztése folyamatban.`);
+  if (eventTitleInput) {
+    eventTitleInput.focus();
+    eventTitleInput.select();
+  }
+  if (typeof window?.scrollTo === "function") {
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 }
 
@@ -839,6 +979,15 @@ function renderEventsList(events) {
     const actions = document.createElement("div");
     actions.classList.add("event-actions");
 
+    const editButton = document.createElement("button");
+    editButton.type = "button";
+    editButton.classList.add("ghost-btn");
+    editButton.textContent = "Szerkesztés";
+    editButton.addEventListener("click", () => {
+      enterEventEditMode(event.id);
+    });
+    actions.appendChild(editButton);
+
     const toggleWrapper = document.createElement("label");
     toggleWrapper.classList.add("event-toggle");
     const toggle = document.createElement("input");
@@ -1104,11 +1253,13 @@ async function refreshEventDelegates() {
   renderSelectedEventInfo();
 }
 
-async function refreshEventData(refreshOrganizations = false) {
+async function refreshEventData(refreshOrganizations = false, preserveStatus = false) {
   if (!ensureAdminSession(true)) {
     return;
   }
-  clearStatus();
+  if (!preserveStatus) {
+    clearStatus();
+  }
   try {
     if (refreshOrganizations || !eventState.organizations.length) {
       const organizations = await requestJSON("/api/admin/organizations");
@@ -1116,6 +1267,13 @@ async function refreshEventData(refreshOrganizations = false) {
     }
     const events = await requestJSON("/api/admin/events");
     eventState.events = Array.isArray(events) ? events : [];
+
+    if (
+      eventState.editingEventId &&
+      !eventState.events.some((event) => event.id === eventState.editingEventId)
+    ) {
+      exitEventEditMode();
+    }
 
     if (!eventState.events.length) {
       eventState.selectedEventId = null;
@@ -1299,12 +1457,27 @@ async function initEventsPage() {
     renderDelegateTable();
   });
 
+  cancelEventEditButton?.addEventListener("click", () => {
+    if (!eventState.editingEventId) {
+      createEventForm?.reset();
+      resetEventFormPresentation();
+      return;
+    }
+    exitEventEditMode();
+    setStatus("Az esemény szerkesztése megszakítva.");
+  });
+
   createEventForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
     if (!ensureAdminSession(true)) {
       return;
     }
     const formData = new FormData(createEventForm);
+    const titleValue = String(formData.get("title") || "").trim();
+    if (titleValue.length < 3) {
+      setStatus("Kérjük, adj meg legalább 3 karakter hosszú eseménynevet.", "error");
+      return;
+    }
     const eventDateValue = formData.get("event_date");
     const deadlineValue = formData.get("delegate_deadline");
     const limitValue = formData.get("delegate_limit");
@@ -1317,12 +1490,39 @@ async function initEventsPage() {
       setStatus("Kérjük, válaszd ki a delegáltak maximális számát.", "error");
       return;
     }
-    const payload = {
-      title: formData.get("title"),
-      description: formData.get("description") || null,
+    const descriptionValue = formData.get("description");
+    const normalizedDescription = descriptionValue
+      ? String(descriptionValue).trim() || null
+      : null;
+
+    const basePayload = {
+      title: titleValue,
+      description: normalizedDescription,
       event_date: String(eventDateValue),
       delegate_deadline: String(deadlineValue),
       delegate_limit: delegateLimit,
+    };
+
+    if (eventState.editingEventId) {
+      try {
+        const updated = await requestJSON(`/api/admin/events/${eventState.editingEventId}`, {
+          method: "PATCH",
+          body: JSON.stringify(basePayload),
+        });
+        setStatus("Az esemény adatai frissítve.", "success");
+        exitEventEditMode();
+        if (updated?.id) {
+          eventState.selectedEventId = updated.id;
+        }
+        await refreshEventData(false, true);
+      } catch (error) {
+        handleAuthError(error);
+      }
+      return;
+    }
+
+    const payload = {
+      ...basePayload,
       activate: formData.get("activate") === "on",
     };
     try {
@@ -1332,10 +1532,11 @@ async function initEventsPage() {
       });
       setStatus("Új szavazási esemény létrehozva.", "success");
       createEventForm.reset();
+      resetEventFormPresentation();
       if (created?.id) {
         eventState.selectedEventId = created.id;
       }
-      await refreshEventData();
+      await refreshEventData(false, true);
     } catch (error) {
       handleAuthError(error);
     }

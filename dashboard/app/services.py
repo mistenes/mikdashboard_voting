@@ -458,6 +458,44 @@ def create_voting_event(
     return event
 
 
+def update_voting_event(
+    session: Session,
+    event_id: int,
+    *,
+    title: str,
+    description: Optional[str] = None,
+    event_date: datetime,
+    delegate_deadline: datetime,
+    delegate_limit: int,
+) -> VotingEvent:
+    event = session.get(VotingEvent, event_id)
+    if event is None:
+        raise RegistrationError("Nem található szavazási esemény")
+
+    cleaned_title = title.strip()
+    if len(cleaned_title) < 3:
+        raise RegistrationError("Az esemény neve legalább 3 karakter legyen.")
+
+    normalized_event_date = _normalize_datetime(event_date)
+    normalized_delegate_deadline = _normalize_datetime(delegate_deadline)
+
+    if normalized_delegate_deadline > normalized_event_date:
+        raise RegistrationError(
+            "A delegált kijelölési határidő nem lehet a rendezvény dátuma után."
+        )
+
+    if delegate_limit < 1:
+        raise RegistrationError("A delegáltak száma legalább 1 kell legyen.")
+
+    event.title = cleaned_title
+    event.description = sanitize_optional_text(description)
+    event.event_date = normalized_event_date
+    event.delegate_deadline = normalized_delegate_deadline
+    event.delegate_limit = delegate_limit
+    session.flush()
+    return event
+
+
 def set_active_voting_event(session: Session, event_id: int) -> VotingEvent:
     event = session.get(VotingEvent, event_id)
     if event is None:

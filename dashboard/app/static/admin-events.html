@@ -45,7 +45,7 @@
         <section class="auth-card" aria-labelledby="create-event-title">
           <div class="section-header">
             <h2 id="create-event-title">Új esemény létrehozása</h2>
-            <p class="muted">
+            <p id="create-event-hint" class="muted">
               Adj nevet és opcionális leírást a szavazási eseményhez. Szükség esetén azonnal aktiválhatod.
             </p>
           </div>
@@ -97,10 +97,17 @@
               <small class="field-hint">Minden szervezet legfeljebb ennyi delegáltat jelölhet ki az eseményre.</small>
             </div>
             <div class="form-row event-form-actions">
-              <label class="checkbox">
+              <label class="checkbox" data-activate-wrapper>
                 <input type="checkbox" name="activate" />
                 <span>Az esemény legyen azonnal aktív</span>
               </label>
+              <button
+                type="button"
+                class="ghost-btn is-hidden"
+                id="cancel-event-edit"
+              >
+                Szerkesztés megszakítása
+              </button>
               <button type="submit" class="primary-btn">Esemény létrehozása</button>
             </div>
           </form>
