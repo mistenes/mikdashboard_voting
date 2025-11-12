@@ -4,6 +4,7 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import os
 import time
 from typing import Annotated, List
@@ -14,6 +15,8 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import inspect, text
+
+import httpx
 
 from .database import Base, SessionLocal, engine
 from .models import ApprovalDecision, EventDelegate, Organization, User, VotingEvent
@@ -83,6 +86,9 @@ from .services import (
 )
 from .security import hash_password
 
+
+logger = logging.getLogger(__name__)
+
 ADMIN_EMAILS = {
     email.strip().lower()
     for email in os.getenv("ADMIN_EMAILS", "").split(",")
@@ -113,6 +119,79 @@ BREVO_SENDER_EMAIL = os.getenv("BREVO_SENDER_EMAIL", "").strip()
 BREVO_SENDER_NAME = os.getenv("BREVO_SENDER_NAME", "MikDashboard").strip() or "MikDashboard"
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").strip()
 _VOTING_O2AUTH_SECRET_BYTES = VOTING_O2AUTH_SECRET.encode("utf-8")
+VOTING_SYNC_TIMEOUT_SECONDS = float(os.getenv("VOTING_SYNC_TIMEOUT_SECONDS", "5"))
+
+
+def _serialize_datetime(value):
+    if value is None:
+        return None
+    try:
+        return value.isoformat()
+    except AttributeError:
+        return None
+
+
+def _delegate_count(event: VotingEvent | None) -> int:
+    if event is None:
+        return 0
+    delegates = getattr(event, "delegates", None)
+    if delegates is None:
+        return 0
+    try:
+        return len(delegates)
+    except TypeError:
+        return 0
+
+
+def _build_voting_sync_payload(event: VotingEvent | None) -> dict:
+    event_payload = None
+    if event is not None:
+        event_payload = {
+            "id": event.id,
+            "title": event.title,
+            "event_date": _serialize_datetime(event.event_date),
+            "delegate_deadline": _serialize_datetime(event.delegate_deadline),
+            "is_voting_enabled": bool(event.is_voting_enabled),
+        }
+
+    payload = {
+        "event": event_payload,
+        "delegate_count": _delegate_count(event),
+    }
+    return payload
+
+
+def _sync_voting_service(event: VotingEvent | None) -> None:
+    payload = _build_voting_sync_payload(event)
+    canonical = json.dumps(payload, separators=(",", ":"), sort_keys=True)
+    timestamp = int(time.time())
+    signature_payload = f"{timestamp}:{canonical}".encode("utf-8")
+    signature = hmac.new(
+        _VOTING_O2AUTH_SECRET_BYTES, signature_payload, hashlib.sha256
+    ).hexdigest()
+    url = f"{VOTING_APP_BASE_URL.rstrip('/')}/api/internal/event-sync"
+    headers = {
+        "accept": "application/json",
+        "content-type": "application/json",
+        "x-voting-timestamp": str(timestamp),
+        "x-voting-signature": signature,
+    }
+
+    try:
+        response = httpx.post(
+            url,
+            json=payload,
+            headers=headers,
+            timeout=VOTING_SYNC_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+    except Exception as exc:  # pragma: no cover - network best effort
+        logger.warning("Failed to synchronize voting metadata: %s", exc)
+
+
+def _sync_active_event(db: Session) -> None:
+    active_event = get_active_voting_event(db)
+    _sync_voting_service(active_event)
 
 app = FastAPI(title="MikDashboard Registration Service")
 
@@ -1101,6 +1180,7 @@ def create_voting_event_endpoint(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     db.commit()
+    _sync_active_event(db)
     return build_event_read(event)
 
 
@@ -1123,6 +1203,7 @@ def activate_voting_event_endpoint(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
     db.commit()
+    _sync_active_event(db)
     return build_event_read(event)
 
 
@@ -1159,6 +1240,7 @@ def update_event_accessibility(
         raise HTTPException(status_code=status_code, detail=detail) from exc
 
     db.commit()
+    _sync_active_event(db)
     return build_event_read(event)
 
 
@@ -1275,6 +1357,7 @@ def reset_events_endpoint(
 ) -> SimpleMessageResponse:
     removed = reset_voting_events(db)
     db.commit()
+    _sync_voting_service(None)
 
     if removed == 0:
         message = "Nem volt törölhető esemény."
