@@ -32,6 +32,7 @@ interface AuthUser {
     eventTitle?: string | null;
     mustChangePassword?: boolean;
     isEventDelegate?: boolean | null;
+    source?: string;
 }
 
 interface AuthSessionResponse {

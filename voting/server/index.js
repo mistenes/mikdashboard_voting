@@ -492,26 +492,118 @@ app.post('/api/auth/logout', (req, res) => {
   res.json({ user: null });
 });
 
+function escapeHtml(value) {
+  if (!value) {
+    return '';
+  }
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function renderSsoSuccessPage(payload) {
+  const eventTitle = escapeHtml(payload.event_title || '');
+  const nameParts = [escapeHtml(payload.last_name || ''), escapeHtml(payload.first_name || '')].filter(Boolean);
+  const displayName = nameParts.join(' ') || escapeHtml(payload.email || '');
+  const subtitle = eventTitle
+    ? `A(z) <strong>${eventTitle}</strong> eseményhez kapcsoltuk a fiókodat.`
+    : 'Sikeres bejelentkezés a szavazási felületre.';
+  return `<!DOCTYPE html>
+<html lang="hu">
+  <head>
+    <meta charset="utf-8" />
+    <title>SSO beléptetés folyamatban...</title>
+    <meta http-equiv="refresh" content="0;url=/" />
+    <style>
+      body { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0f172a; color: #f8fafc; min-height: 100vh; display: flex; align-items: center; justify-content: center; margin: 0; }
+      main { text-align: center; padding: 32px; max-width: 520px; }
+      h1 { font-size: 1.75rem; margin-bottom: 0.75rem; }
+      p { margin: 0.35rem 0; line-height: 1.45; }
+      .detail { color: #94a3b8; font-size: 0.95rem; }
+      a { color: #38bdf8; text-decoration: none; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Sikeres SSO beléptetés</h1>
+      <p>${subtitle}</p>
+      <p class="detail">Felhasználó: <strong>${displayName}</strong></p>
+      <p class="detail">Ha nem történik automatikus átirányítás, <a href="/">kattints ide a folytatáshoz</a>.</p>
+    </main>
+    <script>
+      window.history.replaceState({}, document.title, '/');
+    </script>
+  </body>
+</html>`;
+}
+
+function renderSsoErrorPage(message) {
+  const detail = escapeHtml(message || 'Érvénytelen vagy lejárt SSO token.');
+  return `<!DOCTYPE html>
+<html lang="hu">
+  <head>
+    <meta charset="utf-8" />
+    <title>SSO hiba</title>
+    <style>
+      body { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0f172a; color: #f8fafc; min-height: 100vh; display: flex; align-items: center; justify-content: center; margin: 0; }
+      main { text-align: center; padding: 32px; max-width: 520px; }
+      h1 { font-size: 1.75rem; margin-bottom: 0.75rem; }
+      p { margin: 0.35rem 0; line-height: 1.45; }
+      a { color: #38bdf8; text-decoration: none; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Nem sikerült a beléptetés</h1>
+      <p>${detail}</p>
+      <p><a href="/">Vissza a szavazási felülethez</a></p>
+    </main>
+  </body>
+</html>`;
+}
+
 app.get('/sso', (req, res) => {
-  const token = req.query.token;
-  const payload = verifySsoToken(token);
-  if (!payload) {
-    res.status(400).send('Érvénytelen vagy lejárt SSO token.');
+  const tokenParam = Array.isArray(req.query.token) ? req.query.token[0] : req.query.token;
+  if (!tokenParam) {
+    const errorPage = renderSsoErrorPage('Hiányzó SSO token.');
+    res.status(400).send(errorPage);
     return;
   }
+
+  const payload = verifySsoToken(tokenParam);
+  if (!payload) {
+    const errorPage = renderSsoErrorPage('Érvénytelen vagy lejárt SSO token.');
+    res.status(400).send(errorPage);
+    return;
+  }
+
   const role = payload.role === 'admin' ? 'admin' : 'voter';
   const session = createSession({
     role,
-    id: payload.uid,
-    email: payload.email,
-    firstName: payload.first_name,
-    lastName: payload.last_name,
-    organizationId: payload.org,
-    eventId: payload.event,
-    eventTitle: payload.event_title,
+    username: payload.username || payload.email || null,
+    email: payload.email || null,
+    firstName: payload.first_name ?? null,
+    lastName: payload.last_name ?? null,
+    organizationId: payload.org ?? null,
+    organizationFeePaid: payload.organization_fee_paid ?? null,
+    mustChangePassword: false,
+    eventId: payload.event ?? null,
+    eventTitle: payload.event_title ?? null,
+    isEventDelegate: payload.is_delegate ?? (role === 'admin'),
+    source: 'sso',
   });
   setSessionCookie(res, session.id);
-  res.redirect('/');
+
+  const prefersJson = req.headers.accept && req.headers.accept.includes('application/json');
+  if (prefersJson) {
+    res.json({ ok: true, redirect: '/' });
+    return;
+  }
+
+  res.status(200).send(renderSsoSuccessPage(payload));
 });
 
 app.get('/api/session', (_req, res) => {
