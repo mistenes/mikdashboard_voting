@@ -227,6 +227,7 @@ def startup() -> None:
     ensure_is_admin_column()
     ensure_voting_delegate_column()
     ensure_must_change_password_column()
+    ensure_organization_contact_column()
     ensure_nullable_organization_column()
     ensure_name_columns()
     ensure_event_metadata_columns()
@@ -297,6 +298,18 @@ def ensure_must_change_password_column() -> None:
             connection.execute(
                 text(
                     "ALTER TABLE users ADD COLUMN must_change_password BOOLEAN NOT NULL DEFAULT FALSE"
+                )
+            )
+
+
+def ensure_organization_contact_column() -> None:
+    with engine.begin() as connection:
+        inspector = inspect(connection)
+        columns = {column["name"] for column in inspector.get_columns("users")}
+        if "is_organization_contact" not in columns:
+            connection.execute(
+                text(
+                    "ALTER TABLE users ADD COLUMN is_organization_contact BOOLEAN NOT NULL DEFAULT FALSE"
                 )
             )
 
