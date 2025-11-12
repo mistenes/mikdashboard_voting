@@ -72,6 +72,45 @@ const snapshotState = () => {
   return sessionState;
 };
 
+let autoFinishTimer = null;
+
+const clearAutoFinishTimer = () => {
+  if (autoFinishTimer) {
+    clearTimeout(autoFinishTimer);
+    autoFinishTimer = null;
+  }
+};
+
+const scheduleAutoFinishTimer = () => {
+  clearAutoFinishTimer();
+
+  if (sessionState.status !== 'IN_PROGRESS') {
+    return;
+  }
+
+  if (!sessionState.voteEndTime) {
+    return;
+  }
+
+  const voteEnd = new Date(sessionState.voteEndTime).getTime();
+  if (!Number.isFinite(voteEnd)) {
+    return;
+  }
+
+  const delay = voteEnd - Date.now();
+  if (delay <= 0) {
+    setState({ status: 'FINISHED' });
+    return;
+  }
+
+  autoFinishTimer = setTimeout(() => {
+    autoFinishTimer = null;
+    if (sessionState.status === 'IN_PROGRESS') {
+      setState({ status: 'FINISHED' });
+    }
+  }, delay);
+};
+
 const broadcast = () => {
   const payload = `data: ${JSON.stringify(sessionState)}\n\n`;
   for (const res of clients) {
@@ -82,6 +121,7 @@ const broadcast = () => {
 const setState = (nextState) => {
   sessionState = stampState({ ...sessionState, ...nextState });
   broadcast();
+  scheduleAutoFinishTimer();
 };
 
 const normalizeTotalVoters = (value) => {
