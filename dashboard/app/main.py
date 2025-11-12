@@ -55,7 +55,6 @@ from .schemas import (
 from .services import (
     AuthenticationError,
     RegistrationError,
-    assign_event_delegate,
     authenticate_user,
     change_user_password,
     create_organization,
@@ -73,11 +72,11 @@ from .services import (
     pending_registrations,
     queue_verification_email,
     register_user,
-    remove_event_delegate,
     reset_voting_events,
     resolve_session_user,
     search_organizations,
     set_active_voting_event,
+    set_event_delegates_for_organization,
     set_voting_event_accessibility,
     set_organization_billing_details,
     set_organization_fee_status,
@@ -212,6 +211,7 @@ def startup() -> None:
     ensure_nullable_organization_column()
     ensure_name_columns()
     ensure_event_metadata_columns()
+    ensure_delegate_uniqueness_constraints()
     seed_admin_user()
     app.state.email_queue = []
 
@@ -323,6 +323,22 @@ def ensure_event_metadata_columns() -> None:
             connection.execute(
                 text("ALTER TABLE voting_events ADD COLUMN delegate_limit INTEGER")
             )
+
+
+def ensure_delegate_uniqueness_constraints() -> None:
+    with engine.begin() as connection:
+        inspector = inspect(connection)
+        constraint_names = {
+            constraint["name"] for constraint in inspector.get_unique_constraints("event_delegates")
+        }
+        if "uq_event_org" not in constraint_names:
+            return
+
+        dialect = connection.dialect.name
+        if dialect == "sqlite":
+            connection.execute(text("DROP INDEX IF EXISTS uq_event_org"))
+        else:
+            connection.execute(text("ALTER TABLE event_delegates DROP CONSTRAINT uq_event_org"))
 
 
 def _base64url_encode(data: bytes) -> str:
@@ -555,12 +571,15 @@ def build_organization_detail(
     organization: Organization, *, active_event: VotingEvent | None
 ) -> OrganizationDetail:
     members = [build_member_payload(member, organization) for member in organization.users]
-    active_delegate_user_id = None
+    active_delegate_user_ids: list[int] = []
     if active_event is not None:
         for delegate in organization.event_delegates:
-            if delegate.event_id == active_event.id:
-                active_delegate_user_id = delegate.user_id
-                break
+            if delegate.event_id == active_event.id and delegate.user_id:
+                if delegate.user_id not in active_delegate_user_ids:
+                    active_delegate_user_ids.append(delegate.user_id)
+    active_delegate_user_id = (
+        active_delegate_user_ids[0] if active_delegate_user_ids else None
+    )
     return OrganizationDetail(
         id=organization.id,
         name=organization.name,
@@ -572,6 +591,7 @@ def build_organization_detail(
         payment_instructions=organization.payment_instructions,
         active_event=active_event_info(active_event),
         active_event_delegate_user_id=active_delegate_user_id,
+        active_event_delegate_user_ids=active_delegate_user_ids,
     )
 
 
@@ -593,17 +613,25 @@ def build_event_read(event: VotingEvent) -> VotingEventRead:
 
 
 def build_delegate_info(
-    organization: Organization, delegates: dict[int, EventDelegate]
+    organization: Organization, delegates: dict[int, list[EventDelegate]]
 ) -> EventDelegateInfo:
-    delegate = delegates.get(organization.id)
-    user = delegate.user if delegate else None
+    entries: list[dict] = []
+    for delegate in delegates.get(organization.id, []):
+        user = delegate.user
+        if not user:
+            continue
+        entries.append(
+            {
+                "user_id": user.id,
+                "user_email": user.email,
+                "user_first_name": user.first_name,
+                "user_last_name": user.last_name,
+            }
+        )
     return EventDelegateInfo(
         organization_id=organization.id,
         organization_name=organization.name,
-        user_id=user.id if user else None,
-        user_email=user.email if user else None,
-        user_first_name=user.first_name if user else None,
-        user_last_name=user.last_name if user else None,
+        delegates=entries,
     )
 
 
@@ -706,8 +734,9 @@ def create_voting_o2auth_session(
 
     if not user.is_admin and requested_view != "public":
         delegate_map = delegates_for_event(db, event_id=active_event.id)
-        delegate = delegate_map.get(organization.id)
-        if not delegate or delegate.user_id != user.id:
+        delegates = delegate_map.get(organization.id, []) if organization else []
+        has_access = any(delegate.user_id == user.id for delegate in delegates)
+        if not has_access:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Nem vagy kijelölve a szavazási eseményre ennél a szervezetnél.",
@@ -753,8 +782,8 @@ def authenticate_for_voting(
     is_delegate = False
     if active_event and organization_id is not None:
         delegate_map = delegates_for_event(db, event_id=active_event.id)
-        delegate = delegate_map.get(organization_id)
-        is_delegate = bool(delegate and delegate.user_id == user.id)
+        delegates = delegate_map.get(organization_id, [])
+        is_delegate = any(delegate.user_id == user.id for delegate in delegates)
 
     if active_event is None and not user.is_admin:
         raise HTTPException(
@@ -1276,7 +1305,7 @@ def list_event_delegates(
 
 
 @app.post(
-    "/api/admin/events/{event_id}/organizations/{organization_id}/delegate",
+    "/api/admin/events/{event_id}/organizations/{organization_id}/delegates",
     response_model=SimpleMessageResponse,
     responses={
         401: {"model": ErrorResponse},
@@ -1284,32 +1313,19 @@ def list_event_delegates(
         404: {"model": ErrorResponse},
     },
 )
-def update_event_delegate(
+def update_event_delegates(
     event_id: int,
     organization_id: int,
     payload: EventDelegateAssignmentRequest,
     db: DatabaseDependency,
     _: Annotated[User, Depends(require_admin)],
 ) -> SimpleMessageResponse:
-    if payload.user_id is None:
-        try:
-            remove_event_delegate(
-                db, event_id=event_id, organization_id=organization_id
-            )
-            db.flush()
-        except RegistrationError as exc:
-            db.rollback()
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-
-        db.commit()
-        return SimpleMessageResponse(message="A szervezet delegáltja törölve.")
-
     try:
-        assign_event_delegate(
+        set_event_delegates_for_organization(
             db,
             event_id=event_id,
             organization_id=organization_id,
-            user_id=payload.user_id,
+            user_ids=payload.user_ids,
         )
         db.flush()
     except RegistrationError as exc:
@@ -1324,7 +1340,7 @@ def update_event_delegate(
         raise HTTPException(status_code=status_code, detail=detail) from exc
 
     db.commit()
-    return SimpleMessageResponse(message="A szervezet delegáltja frissítve.")
+    return SimpleMessageResponse(message="A szervezet delegáltjai frissítve.")
 
 
 @app.delete(

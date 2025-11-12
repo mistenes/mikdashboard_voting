@@ -228,12 +228,15 @@ function renderVoting(detail, sessionUser) {
 
   const isPaid = Boolean(detail.fee_paid);
   const isAdmin = Boolean(sessionUser.is_admin);
-  const activeDelegateUserId = detail.active_event_delegate_user_id || null;
-  const activeDelegateMember = detail.members?.find(
-    (item) => item.id === activeDelegateUserId,
-  );
+  const delegateIds = Array.isArray(detail.active_event_delegate_user_ids)
+    ? detail.active_event_delegate_user_ids.filter((id) => Number.isInteger(id))
+    : [];
+  const primaryDelegateId = detail.active_event_delegate_user_id || delegateIds[0] || null;
+  const delegateMembers = Array.isArray(detail.members)
+    ? detail.members.filter((member) => delegateIds.includes(member.id))
+    : [];
   const isDelegate = Boolean(
-    isAdmin || (activeDelegateUserId && activeDelegateUserId === sessionUser.id),
+    isAdmin || delegateIds.includes(sessionUser.id) || primaryDelegateId === sessionUser.id,
   );
 
   if (!activeEvent) {
@@ -268,15 +271,11 @@ function renderVoting(detail, sessionUser) {
   }
 
   if (!isDelegate) {
-    const assignedName = activeDelegateMember
-      ? formatDisplayName(
-          activeDelegateMember.first_name,
-          activeDelegateMember.last_name,
-          activeDelegateMember.email,
-        )
-      : null;
-    let delegateMessage = assignedName
-      ? `A(z) "${eventName}" eseményre jelenleg ${assignedName} van kijelölve a szervezet képviseletére.`
+    const assignedNames = delegateMembers.map((member) =>
+      formatDisplayName(member.first_name, member.last_name, member.email),
+    );
+    let delegateMessage = assignedNames.length
+      ? `A(z) "${eventName}" eseményre jelenleg ${assignedNames.join(", ")} képviseli(k) a szervezetet a szavazás során.`
       : `Nem vagy kijelölve a(z) "${eventName}" szavazási eseményre, ezért nem nyithatod meg a felületet.`;
     if (publicAvailable) {
       delegateMessage = `${delegateMessage} A nyilvános nézet gombbal követheted az eredményeket.`;

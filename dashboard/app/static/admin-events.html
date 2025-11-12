@@ -83,17 +83,18 @@
                 name="delegate_deadline"
                 required
               />
-              <label for="delegate-limit">Maximális delegáltak száma</label>
+              <label for="delegate-limit">Szervezetenként kijelölhető delegáltak száma</label>
               <select id="delegate-limit" name="delegate_limit" required>
-                <option value="10">10 delegált</option>
-                <option value="20">20 delegált</option>
-                <option value="30" selected>30 delegált</option>
-                <option value="40">40 delegált</option>
-                <option value="50">50 delegált</option>
-                <option value="75">75 delegált</option>
-                <option value="100">100 delegált</option>
+                <option value="1">1 delegált / szervezet</option>
+                <option value="2">2 delegált / szervezet</option>
+                <option value="3">3 delegált / szervezet</option>
+                <option value="4">4 delegált / szervezet</option>
+                <option value="5" selected>5 delegált / szervezet</option>
+                <option value="6">6 delegált / szervezet</option>
+                <option value="8">8 delegált / szervezet</option>
+                <option value="10">10 delegált / szervezet</option>
               </select>
-              <small class="field-hint">A kijelölhető delegáltak összesített felső határa.</small>
+              <small class="field-hint">Minden szervezet legfeljebb ennyi delegáltat jelölhet ki az eseményre.</small>
             </div>
             <div class="form-row event-form-actions">
               <label class="checkbox">
@@ -117,7 +118,7 @@
           <div class="section-header">
             <h2 id="delegate-title">Delegáltak kezelése</h2>
             <p class="muted">
-              Válaszd ki az eseményt, majd rendelj minden szervezethez egy szavazásra jogosult személyt.
+              Válaszd ki az eseményt, majd állítsd be szervezetenként, hogy kik képviselhetik a tagságot a szavazás során.
             </p>
           </div>
           <div class="delegate-controls">
@@ -130,8 +131,8 @@
               <thead>
                 <tr>
                   <th>Szervezet</th>
-                  <th>Jelenlegi delegált</th>
-                  <th>Delegált kijelölése</th>
+                  <th>Jelenlegi delegáltak</th>
+                  <th>Delegáltak kiválasztása</th>
                 </tr>
               </thead>
               <tbody id="delegate-table-body"></tbody>

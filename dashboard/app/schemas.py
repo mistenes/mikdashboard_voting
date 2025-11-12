@@ -114,6 +114,7 @@ class OrganizationDetail(BaseModel):
     payment_instructions: Optional[str] = None
     active_event: Optional[ActiveEventInfo] = None
     active_event_delegate_user_id: Optional[int] = None
+    active_event_delegate_user_ids: list[int] = Field(default_factory=list)
 
 
 class OrganizationFeeUpdate(BaseModel):
@@ -189,17 +190,21 @@ class VotingEventRead(BaseModel):
     can_delete: bool = False
 
 
-class EventDelegateInfo(BaseModel):
-    organization_id: int
-    organization_name: str
-    user_id: Optional[int]
-    user_email: Optional[EmailStr]
+class EventDelegateMember(BaseModel):
+    user_id: int
+    user_email: EmailStr
     user_first_name: Optional[str]
     user_last_name: Optional[str]
 
 
+class EventDelegateInfo(BaseModel):
+    organization_id: int
+    organization_name: str
+    delegates: list[EventDelegateMember] = Field(default_factory=list)
+
+
 class EventDelegateAssignmentRequest(BaseModel):
-    user_id: Optional[int]
+    user_ids: list[int] = Field(default_factory=list)
 
 
 class SimpleMessageResponse(BaseModel):

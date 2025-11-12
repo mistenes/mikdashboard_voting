@@ -435,24 +435,39 @@ button.sidebar-link {
   background: rgba(59, 130, 246, 0.05);
 }
 
-.delegate-table select {
-  width: 100%;
+.delegate-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.delegate-selector .muted {
+  margin: 0;
+}
+
+.delegate-limit-hint {
+  font-size: 0.85rem;
+}
+
+.delegate-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
   border-radius: 10px;
-  border: 1px solid rgba(148, 163, 184, 0.6);
-  padding: 8px 10px;
+  border: 1px solid rgba(148, 163, 184, 0.4);
   background: rgba(255, 255, 255, 0.95);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
-.delegate-table select:focus {
-  outline: none;
-  border-color: rgba(59, 130, 246, 0.8);
-  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.12);
+.delegate-checkbox:hover {
+  border-color: rgba(59, 130, 246, 0.6);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
 }
 
-.delegate-table select:disabled {
-  background: rgba(241, 245, 249, 0.8);
-  color: #94a3b8;
-  cursor: not-allowed;
+.delegate-checkbox input {
+  width: 16px;
+  height: 16px;
 }
 
 .members-table,

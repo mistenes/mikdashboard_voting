@@ -125,7 +125,6 @@ class VotingEvent(Base):
 class EventDelegate(Base):
     __tablename__ = "event_delegates"
     __table_args__ = (
-        UniqueConstraint("event_id", "organization_id", name="uq_event_org"),
         UniqueConstraint("event_id", "user_id", name="uq_event_user"),
     )
 
