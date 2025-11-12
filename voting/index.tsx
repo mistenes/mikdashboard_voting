@@ -31,7 +31,7 @@ const toSessionData = (response: SessionResponse | null | undefined): SessionDat
     voteStartTime: response?.voteStartTime ?? null,
 });
 
-const jsonRequest = async <T>(path: string, init?: RequestInit): Promise<T> => {
+async function jsonRequest<T>(path: string, init?: RequestInit): Promise<T> {
     const response = await fetch(path, {
         headers: { 'Content-Type': 'application/json' },
         ...init,
@@ -43,7 +43,7 @@ const jsonRequest = async <T>(path: string, init?: RequestInit): Promise<T> => {
     }
 
     return (await response.json()) as T;
-};
+}
 
 // --- Registered Voters ---
 const voterCredentials = [
