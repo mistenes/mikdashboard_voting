@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import AnyHttpUrl, BaseModel, EmailStr, Field, constr
 
@@ -192,6 +192,10 @@ class SimpleMessageResponse(BaseModel):
 class VotingO2AuthResponse(BaseModel):
     redirect: AnyHttpUrl
     expires_in: int
+
+
+class VotingO2AuthLaunchRequest(BaseModel):
+    view: Literal["default", "admin", "public"] = "default"
 
 
 class VotingAuthRequest(BaseModel):

@@ -547,6 +547,10 @@ button.ghost-btn:hover {
   background: rgba(148, 163, 184, 0.3);
 }
 
+.is-hidden {
+  display: none !important;
+}
+
 button:disabled {
   opacity: 0.5;
   cursor: not-allowed;

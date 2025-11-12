@@ -45,6 +45,7 @@ from .schemas import (
     VotingAuthResponse,
     VotingEventCreateRequest,
     VotingEventRead,
+    VotingO2AuthLaunchRequest,
     VotingO2AuthResponse,
 )
 from .services import (
@@ -243,7 +244,11 @@ def _validate_voting_auth_request(payload: VotingAuthRequest) -> None:
 
 
 def generate_voting_o2auth_token(
-    user: User, organization: Organization, event: VotingEvent
+    user: User,
+    organization: Organization,
+    event: VotingEvent,
+    *,
+    view: str = "default",
 ) -> str:
     ttl = _effective_o2auth_ttl()
     payload = {
@@ -257,14 +262,19 @@ def generate_voting_o2auth_token(
         "event": event.id,
         "event_title": event.title,
     }
+    if view and view != "default":
+        payload["view"] = view
     body = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
     signature = hmac.new(_VOTING_O2AUTH_SECRET_BYTES, body, hashlib.sha256).hexdigest()
     return f"{_base64url_encode(body)}.{signature}"
 
 
-def build_voting_redirect_url(token: str) -> str:
+def build_voting_redirect_url(token: str, *, view: str = "default") -> str:
     base = VOTING_APP_BASE_URL.rstrip("/")
-    return f"{base}/o2auth?token={token}"
+    query = f"token={token}"
+    if view and view != "default":
+        query = f"{query}&view={view}"
+    return f"{base}/o2auth?{query}"
 
 
 def seed_admin_user() -> None:
@@ -516,6 +526,7 @@ def create_voting_o2auth_session(
     organization_id: int,
     user: Annotated[User, Depends(get_session_user)],
     db: DatabaseDependency,
+    launch: VotingO2AuthLaunchRequest | None = None,
 ) -> VotingO2AuthResponse:
     ensure_organization_membership(user, organization_id)
     organization = db.get(Organization, organization_id)
@@ -536,7 +547,15 @@ def create_voting_o2auth_session(
             detail="Jelenleg nincs aktív szavazási esemény.",
         )
 
-    if not user.is_admin:
+    requested_view = (launch.view if launch else "default") or "default"
+
+    if requested_view == "admin" and not user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Az admin nézet eléréséhez adminisztrátori jogosultság szükséges.",
+        )
+
+    if not user.is_admin and requested_view != "public":
         delegate_map = delegates_for_event(db, event_id=active_event.id)
         delegate = delegate_map.get(organization.id)
         if not delegate or delegate.user_id != user.id:
@@ -545,8 +564,13 @@ def create_voting_o2auth_session(
                 detail="Nem vagy kijelölve a szavazási eseményre ennél a szervezetnél.",
             )
 
-    token = generate_voting_o2auth_token(user, organization, active_event)
-    redirect = build_voting_redirect_url(token)
+    token = generate_voting_o2auth_token(
+        user,
+        organization,
+        active_event,
+        view=requested_view,
+    )
+    redirect = build_voting_redirect_url(token, view=requested_view)
     return VotingO2AuthResponse(
         redirect=redirect, expires_in=_effective_o2auth_ttl()
     )

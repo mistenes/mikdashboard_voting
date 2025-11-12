@@ -40,7 +40,10 @@ Update the environment variables in the blueprint before the first deploy:
 The dashboard now exposes a dedicated **Szavazási események** admin page where you can create
 named voting events, choose the active session, and assign exactly one delegate per
 organization. Only the active-event delegate (or a system administrator) is allowed to launch
-the separate voting service through the signed o2auth flow.
+the separate voting service through the signed o2auth flow. The launch endpoint accepts an
+optional `view` value so admins can jump directly to the voting admin console (`/admin`),
+while any paid member can open the public scoreboard via `/public` without needing to be the
+delegated voter.
 
 ## Local development
 

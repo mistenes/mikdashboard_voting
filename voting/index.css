@@ -184,6 +184,43 @@ input[type="text"]:focus, input[type="password"]:focus, input[type="number"]:foc
     font-size: 0.9rem;
 }
 
+.public-view {
+    max-width: 620px;
+}
+
+.public-caption {
+    font-size: 1rem;
+    margin-bottom: 1rem;
+}
+
+.public-status-badge {
+    display: inline-block;
+    padding: 0.5rem 1.5rem;
+    border-radius: 999px;
+    font-weight: 600;
+    margin-bottom: 1.5rem;
+}
+
+.public-status-waiting {
+    background: rgba(148, 163, 184, 0.25);
+    color: var(--text-primary);
+}
+
+.public-status-in_progress {
+    background: var(--accent-color);
+    color: #ffffff;
+}
+
+.public-status-finished {
+    background: var(--igen-color);
+    color: #ffffff;
+}
+
+.public-note {
+    margin-top: 1.5rem;
+    color: var(--text-secondary);
+}
+
 .btn-start-vote {
     padding: 1rem;
     font-size: 1.2rem;

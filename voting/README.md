@@ -19,6 +19,16 @@ Fejlesztéshez add meg az `ADMIN_PASSWORD` (és opcionálisan az `ADMIN_EMAIL` v
 `ADMIN_USERNAME`) változókat is; manuális bejelentkezés csak az admin számára
 engedélyezett, minden más felhasználó az o2auth átadáson keresztül éri el a rendszert.
 
+### Views
+
+- `/` – a szavazói felület, ahol a delegált leadhatja a szavazatát, az admin pedig
+  indíthatja vagy zárhatja a folyamatot.
+- `/public` – nyilvános, csak olvasható eredménykijelző, amely bejelentkezés nélkül
+  is követi a valós idejű állást.
+- `/admin` – az admin vezérlőfelület. Ide csak rendszerszintű adminok férnek hozzá;
+  a dashboardból induló o2auth kérésben a `view="admin"` érték kérhető, hogy a
+  token közvetlenül ezt a nézetet nyissa meg.
+
 ## Deploy on Render
 
 The root [`render.yaml`](../render.yaml) blueprint provisions a dedicated Node

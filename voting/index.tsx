@@ -4,6 +4,25 @@ import { createRoot } from 'react-dom/client';
 // --- API helpers ---
 type SessionStatus = 'WAITING' | 'IN_PROGRESS' | 'FINISHED';
 
+type AppMode = 'default' | 'admin' | 'public';
+
+const STATUS_MESSAGES: Record<SessionStatus, string> = {
+    WAITING: 'A szavazás még nem indult el.',
+    IN_PROGRESS: 'A szavazás jelenleg is tart.',
+    FINISHED: 'A szavazás lezárult.',
+};
+
+const detectAppMode = (): AppMode => {
+    const path = window.location.pathname.toLowerCase();
+    if (path.startsWith('/admin')) {
+        return 'admin';
+    }
+    if (path.startsWith('/public')) {
+        return 'public';
+    }
+    return 'default';
+};
+
 interface SessionData {
     status: SessionStatus;
     results: { igen: number; nem: number; tartozkodott: number; };
@@ -161,6 +180,35 @@ const ResultsDisplay = ({ results, totalVoters }: { results: SessionData['result
         </div>
     );
 };
+
+
+const PublicView = ({ sessionData, lastUpdate }: { sessionData: SessionData, lastUpdate: Date | null }) => {
+    const statusLabel = STATUS_MESSAGES[sessionData.status];
+    return (
+        <div className="container public-view">
+            <h1>Nyilvános szavazás</h1>
+            <p className="public-caption">Eredmények valós időben frissítve</p>
+            <div className={`public-status-badge public-status-${sessionData.status.toLowerCase()}`}>
+                {statusLabel}
+            </div>
+            <ResultsDisplay results={sessionData.results} totalVoters={sessionData.totalVoters} />
+            <p className="public-note">
+                {lastUpdate
+                    ? `Utolsó frissítés: ${lastUpdate.toLocaleTimeString()}`
+                    : 'A kijelző automatikusan frissül.'}
+            </p>
+        </div>
+    );
+};
+
+
+const UnauthorizedAdminView = ({ onLogout }: { onLogout: () => void }) => (
+    <div className="container">
+        <h1>Nincs jogosultság</h1>
+        <p>Az admin nézet eléréséhez adminisztrátori jogosultság szükséges.</p>
+        <button onClick={onLogout} className="btn btn-secondary logout-button">Kijelentkezés</button>
+    </div>
+);
 
 
 // --- View Components ---
@@ -440,8 +488,14 @@ const App = () => {
     const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
     const [authChecked, setAuthChecked] = useState(false);
     const [connectionError, setConnectionError] = useState('');
+    const mode = useMemo<AppMode>(() => detectAppMode(), []);
 
     useEffect(() => {
+        if (mode === 'public') {
+            setAuthChecked(true);
+            return;
+        }
+
         let isActive = true;
         const loadSession = async () => {
             try {
@@ -461,7 +515,7 @@ const App = () => {
         return () => {
             isActive = false;
         };
-    }, []);
+    }, [mode]);
 
     // Effect for Render API connection
     useEffect(() => {
@@ -533,16 +587,27 @@ const App = () => {
     };
 
     const renderView = () => {
+        if (mode === 'public') {
+            if (!sessionData) {
+                return <div className="container"><h2>Adatok betöltése...</h2></div>;
+            }
+            return <PublicView sessionData={sessionData} lastUpdate={lastUpdate} />;
+        }
+
         if (!authChecked) {
             return <div className="container"><h2>Hitelesítés folyamatban...</h2></div>;
         }
-        
+
         if (!user) {
             return <LoginScreen onLogin={handleLogin} error={error} />;
         }
-        
+
         if (!sessionData) {
             return <div className="container"><h2>Adatok betöltése...</h2></div>;
+        }
+
+        if (mode === 'admin' && user.role !== 'admin') {
+            return <UnauthorizedAdminView onLogout={handleLogout} />;
         }
 
         switch (user.role) {
@@ -563,7 +628,7 @@ const App = () => {
                 </div>
             )}
             {renderView()}
-            {user && <SyncStatus lastUpdate={lastUpdate} />}
+            {(user || mode === 'public') && <SyncStatus lastUpdate={lastUpdate} />}
         </>
     );
 };

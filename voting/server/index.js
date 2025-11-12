@@ -140,6 +140,14 @@ function dashboardUrl(path) {
   }
 }
 
+function normalizeView(value) {
+  if (!value || typeof value !== 'string') {
+    return 'default';
+  }
+  const normalized = value.toLowerCase();
+  return normalized === 'admin' || normalized === 'public' ? normalized : 'default';
+}
+
 function createSignedVotingAuthPayload(email, password) {
   const timestamp = Math.floor(Date.now() / 1000);
   const canonicalEmail = email.trim().toLowerCase();
@@ -505,7 +513,9 @@ function escapeHtml(value) {
     .replace(/'/g, '&#39;');
 }
 
-function renderO2AuthSuccessPage(payload) {
+function renderO2AuthSuccessPage(payload, targetPath = '/') {
+  const safeTarget =
+    typeof targetPath === 'string' && targetPath.startsWith('/') ? targetPath : '/';
   const eventTitle = escapeHtml(payload.event_title || '');
   const nameParts = [escapeHtml(payload.last_name || ''), escapeHtml(payload.first_name || '')].filter(Boolean);
   const displayName = nameParts.join(' ') || escapeHtml(payload.email || '');
@@ -517,7 +527,7 @@ function renderO2AuthSuccessPage(payload) {
   <head>
     <meta charset="utf-8" />
     <title>o2auth beléptetés folyamatban...</title>
-    <meta http-equiv="refresh" content="0;url=/" />
+    <meta http-equiv="refresh" content="0;url=${safeTarget}" />
     <style>
       body { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0f172a; color: #f8fafc; min-height: 100vh; display: flex; align-items: center; justify-content: center; margin: 0; }
       main { text-align: center; padding: 32px; max-width: 520px; }
@@ -532,10 +542,11 @@ function renderO2AuthSuccessPage(payload) {
       <h1>Sikeres o2auth beléptetés</h1>
       <p>${subtitle}</p>
       <p class="detail">Felhasználó: <strong>${displayName}</strong></p>
-      <p class="detail">Ha nem történik automatikus átirányítás, <a href="/">kattints ide a folytatáshoz</a>.</p>
+      <p class="detail">Ha nem történik automatikus átirányítás, <a href="${safeTarget}">kattints ide a folytatáshoz</a>.</p>
     </main>
     <script>
-      window.history.replaceState({}, document.title, '/');
+      window.history.replaceState({}, document.title, '${safeTarget}');
+      window.location.replace('${safeTarget}');
     </script>
   </body>
 </html>`;
@@ -582,6 +593,19 @@ function handleO2AuthRequest(req, res) {
   }
 
   const role = payload.role === 'admin' ? 'admin' : 'voter';
+  const queryViewParam = Array.isArray(req.query.view) ? req.query.view[0] : req.query.view;
+  const payloadView = normalizeView(payload.view);
+  const queryView = normalizeView(queryViewParam);
+  let resolvedView = payloadView !== 'default' ? payloadView : queryView;
+  if (resolvedView === 'admin' && role !== 'admin') {
+    resolvedView = 'default';
+  }
+  let targetPath = '/';
+  if (resolvedView === 'admin') {
+    targetPath = '/admin';
+  } else if (resolvedView === 'public') {
+    targetPath = '/public';
+  }
   const session = createSession({
     role,
     username: payload.username || payload.email || null,
@@ -600,11 +624,11 @@ function handleO2AuthRequest(req, res) {
 
   const prefersJson = req.headers.accept && req.headers.accept.includes('application/json');
   if (prefersJson) {
-    res.json({ ok: true, redirect: '/' });
+    res.json({ ok: true, redirect: targetPath });
     return;
   }
 
-  res.status(200).send(renderO2AuthSuccessPage(payload));
+  res.status(200).send(renderO2AuthSuccessPage(payload, targetPath));
 }
 
 app.get('/o2auth', (req, res) => {

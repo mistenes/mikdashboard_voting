@@ -159,6 +159,12 @@ organizations must now be added manually via the admin felület.
   a felhasználó, a szervezet és az aktív esemény azonosítóját. A token az
   `VOTING_APP_BASE_URL` szerinti `/o2auth` végpontra irányítja a felhasználót, és
   alapértelmezetten 5 percig érvényes (`VOTING_O2AUTH_TTL_SECONDS`).
+- A kérés törzsében opcionálisan megadható egy `view` mező is. A `"default"`
+  érték a szavazói felületre visz, a `"public"` nézet a voting szolgáltatás
+  `/public` útvonalára irányít és minden rendezett tagságú tag számára elérhető
+  (akkor is, ha nem ő a delegált), míg a `"admin"` érték csak rendszerszintű
+  adminok számára engedélyezett és közvetlenül a `/admin` irányítópultot nyitja
+  meg.
 - A különálló szavazási szolgáltatás ugyanazzal a `VOTING_O2AUTH_SECRET` titokkal
   ellenőrzi a tokeneket. Sikeres hitelesítés után HTTP-only munkamenet sütit
   állít be, és a felhasználói felület megjeleníti az aktív esemény nevét is.
