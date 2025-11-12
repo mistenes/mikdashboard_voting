@@ -398,13 +398,13 @@ const VoterView = ({ sessionData, onLogout, eventTitle }: { sessionData: Session
     );
 };
 
-const LoginScreen = ({ onLogin, error }: { onLogin: (u: string, p: string) => Promise<void> | void, error: string }) => {
-    const [username, setUsername] = useState('');
+const LoginScreen = ({ onLogin, error }: { onLogin: (email: string, password: string) => Promise<void> | void, error: string }) => {
+    const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
 
     const handleSubmit = async (e: FormEvent) => {
         e.preventDefault();
-        await onLogin(username, password);
+        await onLogin(email, password);
     };
 
     return (
@@ -413,8 +413,8 @@ const LoginScreen = ({ onLogin, error }: { onLogin: (u: string, p: string) => Pr
                 <h1>Szavazórendszer</h1>
                 <p>Kérjük, jelentkezzen be a folytatáshoz, vagy használja a MikDashboard felületéről érkező egyszeri bejelentkezést.</p>
                 <div className="form-group">
-                    <label htmlFor="username">Felhasználónév</label>
-                    <input type="text" id="username" value={username} onChange={(e) => setUsername(e.target.value)} required />
+                    <label htmlFor="email">Email cím</label>
+                    <input type="email" id="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
                 </div>
                 <div className="form-group">
                     <label htmlFor="password">Jelszó</label>
@@ -498,18 +498,18 @@ const App = () => {
         };
     }, []);
 
-    const handleLogin = async (username: string, password: string): Promise<void> => {
+    const handleLogin = async (email: string, password: string): Promise<void> => {
         setError('');
         try {
             const payload = await jsonRequest<AuthSessionResponse>('/api/auth/login', {
                 method: 'POST',
-                body: JSON.stringify({ username, password }),
+                body: JSON.stringify({ email, password }),
             });
             setUser(payload.user);
             setAuthChecked(true);
         } catch (err) {
             const message = err instanceof Error ? err.message : '';
-            setError(message || 'Hibás felhasználónév vagy jelszó.');
+            setError(message || 'Hibás email cím vagy jelszó.');
         }
     };
 

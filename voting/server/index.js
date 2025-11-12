@@ -13,7 +13,7 @@ const isProduction = process.env.NODE_ENV === 'production' || process.env.RENDER
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const distPath = path.resolve(__dirname, '../dist');
-const hasBuiltAssets = fs.existsSync(distPath);
+const distIndexPath = path.join(distPath, 'index.html');
 
 const SSO_SECRET = process.env.VOTING_SSO_SECRET || 'development-secret';
 const SSO_TTL_SECONDS = Number.parseInt(process.env.VOTING_SSO_TTL_SECONDS || '300', 10) || 300;
@@ -199,20 +199,30 @@ app.get('/api/auth/session', (req, res) => {
 });
 
 app.post('/api/auth/login', (req, res) => {
-  const { username, password } = req.body || {};
-  if (!username || !password) {
-    res.status(400).json({ detail: 'A felhasználónév és jelszó megadása kötelező.' });
+  const { email, username, password } = req.body || {};
+  const identifier = (email || username || '').trim();
+  if (!identifier || !password) {
+    res.status(400).json({ detail: 'Az email cím és jelszó megadása kötelező.' });
     return;
   }
   if (!ADMIN_PASSWORD) {
     res.status(503).json({ detail: 'Az adminisztrátori bejelentkezés nincs konfigurálva.' });
     return;
   }
-  if (username.toLowerCase() !== ADMIN_USERNAME.toLowerCase() || password !== ADMIN_PASSWORD) {
-    res.status(401).json({ detail: 'Hibás felhasználónév vagy jelszó.' });
+  const normalizedIdentifier = identifier.toLowerCase();
+  const normalizedUsername = ADMIN_USERNAME.toLowerCase();
+  const normalizedEmail = ADMIN_EMAIL ? ADMIN_EMAIL.toLowerCase() : null;
+  const matchesUsername = normalizedIdentifier === normalizedUsername;
+  const matchesEmail = normalizedEmail ? normalizedIdentifier === normalizedEmail : false;
+  if ((!matchesUsername && !matchesEmail) || password !== ADMIN_PASSWORD) {
+    res.status(401).json({ detail: 'Hibás email cím vagy jelszó.' });
     return;
   }
-  const session = createSession({ role: 'admin', username: ADMIN_USERNAME, email: ADMIN_EMAIL || undefined });
+  const session = createSession({
+    role: 'admin',
+    username: ADMIN_USERNAME,
+    email: ADMIN_EMAIL || identifier,
+  });
   setSessionCookie(res, session.id);
   res.json({ user: session.user });
 });
@@ -329,17 +339,29 @@ app.get('/api/session/stream', (req, res) => {
   });
 });
 
-if (hasBuiltAssets) {
+if (fs.existsSync(distPath)) {
   app.use(express.static(distPath));
-
-  app.get('*', (_req, res) => {
-    res.sendFile(path.join(distPath, 'index.html'));
-  });
-} else {
-  app.get('/', (_req, res) => {
-    res.status(200).send('Voting service ready. Build the client bundle to enable the UI.');
-  });
 }
+
+const sendAppShell = (_req, res) => {
+  if (fs.existsSync(distIndexPath)) {
+    res.sendFile(distIndexPath);
+    return;
+  }
+  res.status(200).send('Voting service ready. Build the client bundle to enable the UI.');
+};
+
+app.get('/', (req, res) => {
+  sendAppShell(req, res);
+});
+
+app.get('*', (req, res) => {
+  if (req.path.startsWith('/api/')) {
+    res.status(404).json({ detail: 'Not Found' });
+    return;
+  }
+  sendAppShell(req, res);
+});
 
 app.listen(PORT, () => {
   console.log(`Voting service listening on port ${PORT}`);
