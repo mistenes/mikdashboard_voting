@@ -476,6 +476,18 @@ button:disabled {
   color: #10b981;
 }
 
+.voting-actions {
+  margin-top: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.voting-actions .primary-btn[disabled] {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .danger-btn {
   background: rgba(220, 38, 38, 0.12);
   color: #b91c1c;

@@ -18,6 +18,21 @@ interface SessionResponse {
     voteStartTime?: string | null;
 }
 
+type UserRole = 'admin' | 'voter' | 'public';
+
+interface AuthUser {
+    role: UserRole;
+    username?: string;
+    email?: string;
+    firstName?: string | null;
+    lastName?: string | null;
+    organizationId?: number | null;
+}
+
+interface AuthSessionResponse {
+    user: AuthUser | null;
+}
+
 const DEFAULT_RESULTS: SessionData['results'] = { igen: 0, nem: 0, tartozkodott: 0 };
 
 const toSessionData = (response: SessionResponse | null | undefined): SessionData => ({
@@ -31,18 +46,52 @@ const toSessionData = (response: SessionResponse | null | undefined): SessionDat
     voteStartTime: response?.voteStartTime ?? null,
 });
 
-async function jsonRequest<T>(path: string, init?: RequestInit): Promise<T> {
+async function jsonRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
+    const headers: HeadersInit = {
+        'Content-Type': 'application/json',
+        ...(init.headers || {}),
+    };
     const response = await fetch(path, {
-        headers: { 'Content-Type': 'application/json' },
         ...init,
+        headers,
+        credentials: 'include',
     });
 
     if (!response.ok) {
-        const message = await response.text();
+        let message = '';
+        try {
+            const payload = await response.json();
+            message = (payload?.detail as string) || (payload?.message as string) || '';
+        } catch {
+            message = await response.text();
+        }
         throw new Error(message || `Request to ${path} failed with status ${response.status}`);
     }
 
+    if (response.status === 204) {
+        return undefined as T;
+    }
+
     return (await response.json()) as T;
+}
+
+async function fetchAuthSession(): Promise<AuthUser | null> {
+    const response = await fetch('/api/auth/session', { credentials: 'include' });
+    if (response.status === 401) {
+        return null;
+    }
+    if (!response.ok) {
+        let message = '';
+        try {
+            const payload = await response.json();
+            message = (payload?.detail as string) || '';
+        } catch {
+            message = await response.text();
+        }
+        throw new Error(message || 'Nem sikerült betölteni a bejelentkezési állapotot.');
+    }
+    const payload = (await response.json()) as AuthSessionResponse;
+    return payload.user;
 }
 
 // --- Registered Voters ---
@@ -386,20 +435,20 @@ const PublicView = ({ sessionData, onLogout }: { sessionData: SessionData, onLog
     );
 };
 
-const LoginScreen = ({ onLogin, error }: { onLogin: (u: string, p: string) => void, error: string }) => {
+const LoginScreen = ({ onLogin, error }: { onLogin: (u: string, p: string) => Promise<void> | void, error: string }) => {
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
 
-    const handleSubmit = (e: FormEvent) => {
+    const handleSubmit = async (e: FormEvent) => {
         e.preventDefault();
-        onLogin(username, password);
+        await onLogin(username, password);
     };
 
     return (
         <div className="container">
             <form onSubmit={handleSubmit}>
                 <h1>Szavazórendszer</h1>
-                <p>Kérjük, jelentkezzen be a folytatáshoz.</p>
+                <p>Kérjük, jelentkezzen be a folytatáshoz, vagy használja a MikDashboard felületéről érkező egyszeri bejelentkezést.</p>
                 <div className="form-group">
                     <label htmlFor="username">Felhasználónév</label>
                     <input type="text" id="username" value={username} onChange={(e) => setUsername(e.target.value)} required />
@@ -419,30 +468,32 @@ const LoginScreen = ({ onLogin, error }: { onLogin: (u: string, p: string) => vo
 
 const App = () => {
     const [sessionData, setSessionData] = useState<SessionData | null>(null);
-    const [user, setUser] = useState<{ role: 'admin' | 'voter' | 'public' } | null>(null);
+    const [user, setUser] = useState<AuthUser | null>(null);
     const [error, setError] = useState('');
     const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
     const [authChecked, setAuthChecked] = useState(false);
     const [connectionError, setConnectionError] = useState('');
 
-    // Effect for simulated SSO check
     useEffect(() => {
-        try {
-            const wpUserRaw = localStorage.getItem('wordpress_user');
-            if (wpUserRaw) {
-                const wpUser = JSON.parse(wpUserRaw);
-                // Check for an active user from the simulated WordPress session
-                if (wpUser && wpUser.username && wpUser.status === 'active') {
-                    console.log(`SSO login for: ${wpUser.username}`);
-                    setUser({ role: 'voter' });
+        let isActive = true;
+        const loadSession = async () => {
+            try {
+                const currentUser = await fetchAuthSession();
+                if (isActive) {
+                    setUser(currentUser);
+                }
+            } catch (err) {
+                console.error('Failed to load authentication session', err);
+            } finally {
+                if (isActive) {
+                    setAuthChecked(true);
                 }
             }
-        } catch (e) {
-            console.error("Failed to parse WordPress user session", e);
-        } finally {
-            // Mark the authentication check as complete
-            setAuthChecked(true);
-        }
+        };
+        loadSession();
+        return () => {
+            isActive = false;
+        };
     }, []);
 
     // Effect for Render API connection
@@ -484,28 +535,30 @@ const App = () => {
         };
     }, []);
 
-    const handleLogin = (username, password) => {
+    const handleLogin = async (username: string, password: string): Promise<void> => {
         setError('');
-        const isVoter = voterCredentials.some(
-            cred => cred.username.toLowerCase() === username.toLowerCase() && cred.password === password
-        );
-
-        // NOTE: In a real application, use a secure authentication provider.
-        if (username.toLowerCase() === 'admin' && password === 'admin') {
-            setUser({ role: 'admin' });
-        } else if (isVoter) {
-            setUser({ role: 'voter' });
-        } else if (username.toLowerCase() === 'public' && password === 'public') {
-            setUser({ role: 'public' });
-        } else {
-            setError('Hibás felhasználónév vagy jelszó.');
+        try {
+            const payload = await jsonRequest<AuthSessionResponse>('/api/auth/login', {
+                method: 'POST',
+                body: JSON.stringify({ username, password }),
+            });
+            setUser(payload.user);
+            setAuthChecked(true);
+        } catch (err) {
+            const message = err instanceof Error ? err.message : '';
+            setError(message || 'Hibás felhasználónév vagy jelszó.');
         }
     };
 
-    const handleLogout = () => {
-        // Also clear the simulated WordPress session on logout for consistency
-        localStorage.removeItem('wordpress_user');
-        setUser(null);
+    const handleLogout = async (): Promise<void> => {
+        try {
+            await jsonRequest('/api/auth/logout', { method: 'POST' });
+        } catch (err) {
+            console.error('Failed to log out', err);
+        } finally {
+            setUser(null);
+            setError('');
+        }
     };
 
     const handleSessionUpdate = (session: SessionData) => {
@@ -514,7 +567,7 @@ const App = () => {
 
     const renderView = () => {
         if (!authChecked) {
-            return <div className="container"><h2>Authenticating...</h2></div>;
+            return <div className="container"><h2>Hitelesítés folyamatban...</h2></div>;
         }
         
         if (!user) {

@@ -23,6 +23,9 @@ separate adminisztrációs felület.
   hozzáférést, majd automatikusan a szervezethez kötött oldalra irányítja a felhasználót:
   ha a tagsági díj rendezetlen, az egyedi díjfizetési oldal (`/szervezetek/<id>/dij`) jelenik
   meg, rendezett díj esetén pedig a tagi felület (`/szervezetek/<id>/tagok`) nyílik meg.
+- Adminisztrátorok a taglistán külön jelölhetik ki a „szavazó delegáltakat”, akik
+  rendezett tagsági díj mellett egy kattintással átirányíthatók a különálló szavazási
+  webalkalmazásba egy aláírt SSO tokennel.
 - Kötelező keresztnév és vezetéknév megadása, amely az admin felületen is látható.
 - Jelszó-erősségi ellenőrzés (legalább 8 karakter, nagybetű és speciális karakter) és Google
   reCAPTCHA védelem a regisztrációs űrlapon.
@@ -85,8 +88,10 @@ provided blueprint or the manual setup steps below.
    $PORT`. The blueprint also wires the `DATABASE_URL` environment variable to
    the managed database and surfaces placeholders for `ADMIN_EMAILS`, `ADMIN_EMAIL`,
    `ADMIN_PASSWORD`, `ADMIN_FIRST_NAME`, `ADMIN_LAST_NAME`, `RECAPTCHA_SITE_KEY`,
-   and `RECAPTCHA_SECRET_KEY` so you can pre-authorize administrator accounts,
-   label the seeded admin, and enable the Google reCAPTCHA integration.
+   `RECAPTCHA_SECRET_KEY`, `VOTING_SSO_SECRET`, `VOTING_APP_BASE_URL`, and
+   `VOTING_SSO_TTL_SECONDS` so you can pre-authorize administrator accounts,
+   label the seeded admin, enable the Google reCAPTCHA integration, és beállíthatod
+   a szavazási webalkalmazás felé használt SSO titkot és átirányítási URL-t.
 
 ### Option B: Manual setup via the Render dashboard
 
@@ -111,6 +116,30 @@ provided blueprint or the manual setup steps below.
 7. (Optional) Configure Google reCAPTCHA by setting `RECAPTCHA_SITE_KEY` and
    `RECAPTCHA_SECRET_KEY`. When omitted, the regisztrációs űrlap captcha
    automatikusan letiltva marad.
+8. Állítsd be a `VOTING_SSO_SECRET`, `VOTING_APP_BASE_URL` és `VOTING_SSO_TTL_SECONDS`
+   változókat ugyanazzal az értékkel, amit a szavazási webszolgáltatásnál használsz.
+   Ezek biztosítják, hogy a tagi felület által generált SSO tokeneket a voting
+   alkalmazás érvényesnek fogadja el.
 
 On the first startup the application will create the required tables and seed a
 set of demo organizations.
+
+## Szavazási SSO és delegálás
+
+- Az admin felületen minden nem admin tag mellett megjelenik egy
+  „Szavazóként kijelölöm” gomb, amellyel be- és kikapcsolható a
+  `szavazó delegált` státusz. A beállítás a tagi felület taglistáján is
+  látszik.
+- A tagi „Szavazás” oldal akkor engedi a **Szavazás megnyitása** gombot,
+  ha a szervezet `fee_paid` mezője igaz és a felhasználó admin vagy kijelölt
+  delegált. Máskülönben információs üzenet tájékoztat a rendezendő tagsági
+  díjról vagy arról, hogy a felhasználó nincs delegálva.
+- A gomb megnyomásakor a backend egy HMAC-aláírt SSO tokent generál a
+  `VOTING_SSO_SECRET` segítségével, majd a konfigurált `VOTING_APP_BASE_URL`
+  szerinti `/sso?token=...` végpontra irányítja a felhasználót. A token
+  alapértelmezetten 5 percig érvényes, amit a `VOTING_SSO_TTL_SECONDS`
+  változóval lehet módosítani.
+- A szavazási webszolgáltatás ugyanazzal a titokkal validálja a tokent, és
+  `SameSite=Lax` HTTP-only sütiben tárolja a munkamenetet. Manuális bejelentkezés
+  továbbra is elérhető az admin (`admin/admin`), publikus (`public/public`)
+  és a demo `voter1`–`voter10` felhasználóknak.

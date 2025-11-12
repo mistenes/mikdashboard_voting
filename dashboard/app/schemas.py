@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, EmailStr, Field, constr
+from pydantic import AnyHttpUrl, BaseModel, EmailStr, Field, constr
 
 from .models import ApprovalDecision
 
@@ -88,6 +88,7 @@ class OrganizationMember(BaseModel):
     is_email_verified: bool
     admin_decision: ApprovalDecision
     has_access: bool
+    is_voting_delegate: bool
 
 
 class OrganizationDetail(BaseModel):
@@ -139,3 +140,17 @@ class SessionUser(BaseModel):
     last_name: Optional[str]
     is_admin: bool
     organization: Optional[OrganizationMembershipInfo]
+    is_voting_delegate: Optional[bool] = None
+
+
+class VotingDelegateUpdate(BaseModel):
+    is_delegate: bool
+
+
+class SimpleMessageResponse(BaseModel):
+    message: str
+
+
+class VotingSSOResponse(BaseModel):
+    redirect: AnyHttpUrl
+    expires_in: int

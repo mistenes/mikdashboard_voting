@@ -4,6 +4,12 @@ const statusEl = document.querySelector("#member-status");
 const organizationId = extractOrganizationId();
 const navLinks = document.querySelectorAll("[data-member-link]");
 const signOutButton = document.querySelector("#member-sign-out");
+const openVotingButton = document.querySelector("#open-voting");
+const votingHelper = document.querySelector("#voting-helper");
+
+let cachedSessionUser = null;
+let cachedOrganizationDetail = null;
+let votingHandlerBound = false;
 
 function extractOrganizationId() {
   const match = window.location.pathname.match(/\/szervezetek\/(\d+)\//);
@@ -26,6 +32,13 @@ function setStatus(message, type = "") {
 
 function clearStatus() {
   setStatus("");
+}
+
+function setVotingHelper(message = "") {
+  if (!votingHelper) {
+    return;
+  }
+  votingHelper.textContent = message || "";
 }
 
 function getAuthHeaders(options = {}) {
@@ -127,6 +140,8 @@ function renderMembers(detail) {
       statusCell.textContent = "Tagsági díj rendezetlen";
     } else if (!member.has_access) {
       statusCell.textContent = "Hozzáférés blokkolva";
+    } else if (member.is_voting_delegate) {
+      statusCell.textContent = "Szavazó delegált";
     } else {
       statusCell.textContent = "Aktív";
     }
@@ -159,6 +174,70 @@ function renderUnpaid(detail) {
   bankNameEl.textContent = detail.bank_name || "Nincs megadva";
   bankAccountEl.textContent = detail.bank_account_number || "Nincs megadva";
   instructionsEl.textContent = detail.payment_instructions || "Nincs megadva";
+}
+
+function renderVoting(detail, sessionUser) {
+  if (!openVotingButton) {
+    return;
+  }
+
+  setVotingHelper("");
+
+  const isPaid = Boolean(detail.fee_paid);
+  const member = detail.members?.find((item) => item.id === sessionUser.id);
+  const isDelegate = Boolean(sessionUser.is_admin || member?.is_voting_delegate);
+
+  if (!isPaid) {
+    openVotingButton.disabled = true;
+    setVotingHelper(
+      "A szervezet tagsági díja rendezetlen, ezért a szavazási felület nem nyitható meg.",
+    );
+    return;
+  }
+
+  if (!isDelegate) {
+    openVotingButton.disabled = true;
+    setVotingHelper(
+      "Nem vagy kijelölve a szavazási eseményre, ezért nem nyithatod meg a felületet.",
+    );
+    return;
+  }
+
+  openVotingButton.disabled = false;
+  setVotingHelper("A gombra kattintva új lapon nyílik meg a szavazási felület.");
+
+  if (!votingHandlerBound) {
+    openVotingButton.addEventListener("click", handleOpenVoting);
+    votingHandlerBound = true;
+  }
+}
+
+async function handleOpenVoting(event) {
+  event.preventDefault();
+  if (!organizationId) {
+    return;
+  }
+
+  try {
+    openVotingButton.disabled = true;
+    setStatus("Szavazási felület megnyitása folyamatban...", "");
+    const response = await requestJSON(
+      `/api/organizations/${organizationId}/voting/sso`,
+      {
+        method: "POST",
+      },
+    );
+    window.location.href = response.redirect;
+  } catch (error) {
+    const message =
+      error?.message || "Nem sikerült megnyitni a szavazási felületet. Próbáld újra később.";
+    setStatus(message, "error");
+    if (cachedOrganizationDetail && cachedSessionUser) {
+      renderVoting(cachedOrganizationDetail, cachedSessionUser);
+    } else if (openVotingButton) {
+      openVotingButton.disabled = false;
+    }
+  }
 }
 
 async function fetchSessionUser() {
@@ -194,6 +273,7 @@ async function init() {
   }
   try {
     const sessionUser = await fetchSessionUser();
+    cachedSessionUser = sessionUser;
     if (
       !sessionUser.is_admin &&
       (!sessionUser.organization || sessionUser.organization.id !== organizationId)
@@ -210,6 +290,7 @@ async function init() {
     clearStatus();
 
     const detail = await requestJSON(`/api/organizations/${organizationId}/detail`);
+    cachedOrganizationDetail = detail;
     renderOrganizationBasics(detail);
 
     if (!sessionUser.is_admin) {
@@ -223,10 +304,16 @@ async function init() {
       }
     }
 
+    if (pageType !== "szavazas") {
+      setVotingHelper("");
+    }
+
     if (pageType === "tagok") {
       renderMembers(detail);
     } else if (pageType === "dij") {
       renderUnpaid(detail);
+    } else if (pageType === "szavazas") {
+      renderVoting(detail, sessionUser);
     }
   } catch (error) {
     handleAuthError(error);

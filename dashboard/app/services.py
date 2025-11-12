@@ -259,6 +259,20 @@ def set_organization_billing_details(
     return organization
 
 
+def set_voting_delegate(
+    session: Session, *, user_id: int, is_delegate: bool
+) -> User:
+    user = session.get(User, user_id)
+    if user is None:
+        raise RegistrationError("Nem található felhasználó")
+    if user.is_admin:
+        raise RegistrationError(
+            "Az adminisztrátorok jogosultsága nem módosítható ezen a felületen."
+        )
+    user.is_voting_delegate = is_delegate
+    return user
+
+
 def organization_with_members(session: Session, organization_id: int) -> Organization:
     stmt = (
         select(Organization)

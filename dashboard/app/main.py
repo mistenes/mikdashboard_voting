@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
+import json
 import os
+import time
 from typing import Annotated, List
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
@@ -29,6 +34,9 @@ from .schemas import (
     OrganizationCreateRequest,
     OrganizationMembershipInfo,
     SessionUser,
+    SimpleMessageResponse,
+    VotingDelegateUpdate,
+    VotingSSOResponse,
     VerificationResponse,
 )
 from .services import (
@@ -49,6 +57,7 @@ from .services import (
     search_organizations,
     set_organization_billing_details,
     set_organization_fee_status,
+    set_voting_delegate,
     verify_email,
     verify_recaptcha,
 )
@@ -71,6 +80,12 @@ ADMIN_REDIRECT_PATH = os.getenv("ADMIN_REDIRECT_PATH", "/admin")
 RECAPTCHA_SITE_KEY = os.getenv("RECAPTCHA_SITE_KEY", "").strip()
 RECAPTCHA_SECRET_KEY = os.getenv("RECAPTCHA_SECRET_KEY", "").strip()
 RECAPTCHA_ENABLED = bool(RECAPTCHA_SITE_KEY and RECAPTCHA_SECRET_KEY)
+VOTING_SSO_SECRET = os.getenv("VOTING_SSO_SECRET", "development-secret") or "development-secret"
+VOTING_SSO_TTL_SECONDS = int(os.getenv("VOTING_SSO_TTL_SECONDS", "300"))
+VOTING_APP_BASE_URL = (
+    os.getenv("VOTING_APP_BASE_URL", "http://localhost:3001").strip() or "http://localhost:3001"
+)
+_VOTING_SSO_SECRET_BYTES = VOTING_SSO_SECRET.encode("utf-8")
 
 app = FastAPI(title="MikDashboard Registration Service")
 
@@ -81,6 +96,7 @@ def startup() -> None:
     ensure_fee_paid_column()
     ensure_billing_columns()
     ensure_is_admin_column()
+    ensure_voting_delegate_column()
     ensure_nullable_organization_column()
     ensure_name_columns()
     seed_organizations()
@@ -130,6 +146,18 @@ def ensure_is_admin_column() -> None:
             )
 
 
+def ensure_voting_delegate_column() -> None:
+    with engine.begin() as connection:
+        inspector = inspect(connection)
+        columns = {column["name"] for column in inspector.get_columns("users")}
+        if "is_voting_delegate" not in columns:
+            connection.execute(
+                text(
+                    "ALTER TABLE users ADD COLUMN is_voting_delegate BOOLEAN NOT NULL DEFAULT FALSE"
+                )
+            )
+
+
 def ensure_nullable_organization_column() -> None:
     with engine.begin() as connection:
         inspector = inspect(connection)
@@ -149,6 +177,35 @@ def ensure_name_columns() -> None:
             connection.execute(text("ALTER TABLE users ADD COLUMN first_name VARCHAR"))
         if "last_name" not in columns:
             connection.execute(text("ALTER TABLE users ADD COLUMN last_name VARCHAR"))
+
+
+def _base64url_encode(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).decode("ascii").rstrip("=")
+
+
+def _effective_sso_ttl() -> int:
+    return VOTING_SSO_TTL_SECONDS if VOTING_SSO_TTL_SECONDS > 0 else 300
+
+
+def generate_voting_sso_token(user: User, organization: Organization) -> str:
+    ttl = _effective_sso_ttl()
+    payload = {
+        "uid": user.id,
+        "org": organization.id,
+        "email": user.email,
+        "role": "admin" if user.is_admin else "voter",
+        "exp": int(time.time()) + ttl,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+    }
+    body = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    signature = hmac.new(_VOTING_SSO_SECRET_BYTES, body, hashlib.sha256).hexdigest()
+    return f"{_base64url_encode(body)}.{signature}"
+
+
+def build_voting_redirect_url(token: str) -> str:
+    base = VOTING_APP_BASE_URL.rstrip("/")
+    return f"{base}/sso?token={token}"
 
 
 def seed_organizations() -> None:
@@ -192,6 +249,7 @@ def seed_admin_user() -> None:
             existing.admin_decision = ApprovalDecision.approved
             existing.first_name = ADMIN_FIRST_NAME
             existing.last_name = ADMIN_LAST_NAME
+            existing.is_voting_delegate = True
         else:
             user = User(
                 email=ADMIN_EMAIL,
@@ -203,6 +261,7 @@ def seed_admin_user() -> None:
                 is_admin=True,
                 is_email_verified=True,
                 admin_decision=ApprovalDecision.approved,
+                is_voting_delegate=True,
             )
             session.add(user)
 
@@ -313,6 +372,43 @@ def organization_member_page(organization_id: int) -> FileResponse:
 @app.get("/szervezetek/{organization_id}/szavazas", response_class=FileResponse)
 def organization_voting_page(organization_id: int) -> FileResponse:
     return FileResponse("app/static/member-voting.html")
+
+
+@app.post(
+    "/api/organizations/{organization_id}/voting/sso",
+    response_model=VotingSSOResponse,
+    responses={
+        401: {"model": ErrorResponse},
+        403: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+    },
+)
+def create_voting_sso_session(
+    organization_id: int,
+    user: Annotated[User, Depends(get_session_user)],
+    db: DatabaseDependency,
+) -> VotingSSOResponse:
+    ensure_organization_membership(user, organization_id)
+    organization = db.get(Organization, organization_id)
+    if organization is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Nem található szervezet",
+        )
+    if not organization.fee_paid:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="A szervezet tagsági díja rendezetlen, ezért nem nyitható meg a szavazási felület.",
+        )
+    if not user.is_admin and not user.is_voting_delegate:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Ehhez a szavazáshoz nincs jogosultságod.",
+        )
+
+    token = generate_voting_sso_token(user, organization)
+    redirect = build_voting_redirect_url(token)
+    return VotingSSOResponse(redirect=redirect, expires_in=_effective_sso_ttl())
 
 
 @app.get("/szervezetek/{organization_id}/penzugyek", response_class=FileResponse)
@@ -481,6 +577,7 @@ def current_user(user: Annotated[User, Depends(get_session_user)]) -> SessionUse
         last_name=user.last_name,
         is_admin=user.is_admin,
         organization=membership_info(user.organization),
+        is_voting_delegate=user.is_voting_delegate,
     )
 
 
@@ -606,6 +703,7 @@ def admin_organizations(
                     "is_email_verified": member.is_email_verified,
                     "admin_decision": member.admin_decision,
                     "has_access": has_access,
+                    "is_voting_delegate": member.is_voting_delegate,
                 }
             )
         items.append(
@@ -663,6 +761,7 @@ def update_organization_fee(
                 "is_email_verified": member.is_email_verified,
                 "admin_decision": member.admin_decision,
                 "has_access": has_access,
+                "is_voting_delegate": member.is_voting_delegate,
             }
         )
 
@@ -728,6 +827,7 @@ def update_organization_billing(
                 "is_email_verified": member.is_email_verified,
                 "admin_decision": member.admin_decision,
                 "has_access": has_access,
+                "is_voting_delegate": member.is_voting_delegate,
             }
         )
 
@@ -743,6 +843,42 @@ def update_organization_billing(
         bank_account_number=organization.bank_account_number,
         payment_instructions=organization.payment_instructions,
     )
+
+
+@app.post(
+    "/api/admin/users/{user_id}/delegate",
+    response_model=SimpleMessageResponse,
+    responses={
+        401: {"model": ErrorResponse},
+        400: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+    },
+)
+def update_voting_delegate_endpoint(
+    user_id: int,
+    payload: VotingDelegateUpdate,
+    db: DatabaseDependency,
+    _: Annotated[User, Depends(require_admin)],
+) -> SimpleMessageResponse:
+    try:
+        user = set_voting_delegate(db, user_id=user_id, is_delegate=payload.is_delegate)
+        organization = user.organization
+        if organization is None:
+            raise RegistrationError("A felhasználó nincs szervezethez rendelve")
+        db.flush()
+    except RegistrationError as exc:
+        db.rollback()
+        detail = str(exc)
+        lowered = detail.lower()
+        status_code = (
+            status.HTTP_404_NOT_FOUND
+            if "nem található" in lowered
+            else status.HTTP_400_BAD_REQUEST
+        )
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+
+    db.commit()
+    return SimpleMessageResponse(message="A szavazási jogosultság frissítve.")
 
 
 @app.delete(
@@ -841,6 +977,7 @@ def organization_detail_endpoint(
                 "is_email_verified": member.is_email_verified,
                 "admin_decision": member.admin_decision,
                 "has_access": has_access,
+                "is_voting_delegate": member.is_voting_delegate,
             }
         )
 

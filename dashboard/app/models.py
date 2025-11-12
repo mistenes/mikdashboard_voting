@@ -51,6 +51,7 @@ class User(Base):
     admin_decision = Column(Enum(ApprovalDecision), default=ApprovalDecision.pending, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    is_voting_delegate = Column(Boolean, default=False, nullable=False)
 
     organization = relationship("Organization", back_populates="users")
     verification_tokens = relationship("EmailVerificationToken", back_populates="user")

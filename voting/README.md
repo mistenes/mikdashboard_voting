@@ -13,6 +13,14 @@
 
 The dev server proxies `/api` requests to the local API server, so keep both processes running during development.
 
+Set the `VOTING_SSO_SECRET` environment variable before starting `npm run api`
+so the Express server can validate the dashboard által generált SSO tokeneket.
+Fejlesztés közben használhatók a beépített felhasználók is:
+
+- Adminisztrátor: `admin / admin`
+- Publikus megfigyelő: `public / public`
+- Szavazók: `voter1`–`voter10` a hozzájuk tartozó `p1`–`p10` jelszóval
+
 ## Deploy on Render
 
 The root [`render.yaml`](../render.yaml) blueprint provisions a dedicated Node
@@ -20,3 +28,11 @@ web service (`mikdashboard-voting`) for this app on the Starter plan in the
 Frankfurt region. Render automatically runs `npm install && npm run build` and
 starts the service with `npm run start`, which serves the static bundle and the
 real-time voting API from the same Express server.
+
+### Required environment variables
+
+- `VOTING_SSO_SECRET`: Meg kell egyeznie a dashboard szolgáltatásban használt
+  titkos kulccsal, így a szavazási app ellenőrizni tudja a tokeneket.
+- `VOTING_SSO_TTL_SECONDS`: A dashboard által jelzett token lejárati idő másodpercben.
+- `VOTING_SESSION_TTL_SECONDS`: Mennyi ideig marad érvényes egy bejelentkezett
+  session (alapértelmezés szerint 3600 másodperc).

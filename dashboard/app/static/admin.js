@@ -109,6 +109,9 @@ function memberStatus(member, organizationPaid) {
   if (!member.has_access) {
     return "Hozzáférés blokkolva";
   }
+  if (member.is_voting_delegate) {
+    return "Szavazó delegált";
+  }
   return "Aktív tagság";
 }
 
@@ -377,6 +380,28 @@ function renderOrganizations(items) {
       if (member.is_admin) {
         actionsCell.textContent = "-";
       } else {
+        const delegateButton = document.createElement("button");
+        delegateButton.type = "button";
+        delegateButton.classList.add("ghost-btn");
+        delegateButton.textContent = member.is_voting_delegate
+          ? "Szavazó státusz visszavonása"
+          : "Szavazóként kijelölöm";
+        delegateButton.addEventListener("click", async () => {
+          if (!ensureAdminSession(true)) {
+            return;
+          }
+          try {
+            await requestJSON(`/api/admin/users/${member.id}/delegate`, {
+              method: "POST",
+              body: JSON.stringify({ is_delegate: !member.is_voting_delegate }),
+            });
+            setStatus("Szavazási jogosultság frissítve.", "success");
+            await loadOrganizations();
+          } catch (error) {
+            handleAuthError(error);
+          }
+        });
+
         const deleteButton = document.createElement("button");
         deleteButton.type = "button";
         deleteButton.classList.add("ghost-btn");
@@ -395,6 +420,7 @@ function renderOrganizations(items) {
             handleAuthError(error);
           }
         });
+        actionsCell.appendChild(delegateButton);
         actionsCell.appendChild(deleteButton);
       }
 
