@@ -255,9 +255,6 @@ const AdminView = ({ sessionData, onLogout, onSessionUpdate }: {
 
             if (newTimeLeft === 0) {
                 clearInterval(interval);
-                if (sessionData.status === 'IN_PROGRESS') {
-                    handleFinish();
-                }
             }
         }, 500);
 
@@ -417,13 +414,16 @@ const VoterView = ({ sessionData, onLogout, eventTitle }: { sessionData: Session
                 if (hasVoted) {
                     return <div className="vote-cast-msg"><h2>Köszönjük, szavazatát rögzítettük!</h2></div>
                 }
-                if (timeLeft <= 0) {
-                    return <h2>A szavazási idő lejárt.</h2>
-                }
                 return (
                     <div className="voting-interface">
-                        <p>A szavazat leadására rendelkezésre álló idő:</p>
-                        <div className="timer">{timeLeft}s</div>
+                        {timeLeft > 0 ? (
+                            <>
+                                <p>A szavazat leadására rendelkezésre álló idő:</p>
+                                <div className="timer">{timeLeft}s</div>
+                            </>
+                        ) : (
+                            <p className="timer-expired">A szavazás időkorlátja lejárt, de a lezárásig még leadhatja a szavazatát.</p>
+                        )}
                         <div className="vote-buttons">
                             <button onClick={() => handleVote('igen')} className="btn btn-igen">Igen</button>
                             <button onClick={() => handleVote('nem')} className="btn btn-nem">Nem</button>
