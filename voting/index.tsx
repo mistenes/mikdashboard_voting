@@ -12,6 +12,12 @@ const STATUS_MESSAGES: Record<SessionStatus, string> = {
     FINISHED: 'A szavazás lezárult.',
 };
 
+const MODE_LABELS: Record<AppMode, string> = {
+    default: 'Szavazói felület',
+    admin: 'Admin felület',
+    public: 'Nyilvános nézet',
+};
+
 const detectAppMode = (): AppMode => {
     const path = window.location.pathname.toLowerCase();
     if (path.startsWith('/admin')) {
@@ -156,6 +162,138 @@ const SyncStatus = ({ lastUpdate }: { lastUpdate: Date | null }) => {
     );
 };
 
+const formatDateTime = (value: string | null | undefined) => {
+    if (!value) {
+        return '';
+    }
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+        return '';
+    }
+    return parsed.toLocaleString('hu-HU', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+    });
+};
+
+const getUserDisplayName = (user: AuthUser | null): string => {
+    if (!user) {
+        return '';
+    }
+    const first = (user.firstName || '').trim();
+    const last = (user.lastName || '').trim();
+    const combined = [first, last].filter(Boolean).join(' ');
+    if (combined) {
+        return combined;
+    }
+    if (user.username && user.username.trim()) {
+        return user.username.trim();
+    }
+    if (user.email) {
+        return user.email;
+    }
+    return '';
+};
+
+const SidebarContent = ({ mode, user, sessionData }: { mode: AppMode, user: AuthUser | null, sessionData: SessionData | null }) => {
+    const navItems = (() => {
+        if (mode === 'public') {
+            return [
+                { href: '#overview', label: 'Áttekintés' },
+                { href: '#results', label: 'Eredmények' },
+            ];
+        }
+        if (user?.role === 'admin') {
+            return [
+                { href: '#overview', label: 'Áttekintés' },
+                { href: '#event-overview', label: 'Esemény' },
+                { href: '#controls', label: 'Szavazás kezelése' },
+                { href: '#results', label: 'Eredmények' },
+                { href: '#logout', label: 'Kijelentkezés' },
+            ];
+        }
+        if (user?.role === 'voter') {
+            return [
+                { href: '#overview', label: 'Áttekintés' },
+                { href: '#voting', label: 'Szavazás' },
+                { href: '#logout', label: 'Kijelentkezés' },
+            ];
+        }
+        return [
+            { href: '#login', label: 'Bejelentkezés' },
+        ];
+    })();
+
+    const eventTitle = (sessionData?.eventTitle ?? user?.eventTitle ?? '').trim();
+    const eventDateValue = sessionData?.eventDate ?? user?.eventDate ?? null;
+    const delegateDeadlineValue = sessionData?.delegateDeadline ?? user?.delegateDeadline ?? null;
+    const eventDateLabel = formatDateTime(eventDateValue);
+    const delegateDeadlineLabel = formatDateTime(delegateDeadlineValue);
+    const status = sessionData?.status ?? null;
+    const statusLabel = status ? STATUS_MESSAGES[status] : null;
+    const isVotingEnabled = sessionData?.isVotingEnabled ?? user?.isVotingEnabled ?? false;
+    const totalVoters = sessionData?.totalVoters ?? null;
+    const roleLabel = user?.role === 'admin' ? 'Admin' : user?.role === 'voter' ? 'Delegált' : null;
+
+    return (
+        <div className="sidebar-inner">
+            <div className="sidebar-header">
+                <div className="sidebar-title">MIK Szavazás</div>
+                <div className="sidebar-subtitle">{MODE_LABELS[mode]}</div>
+            </div>
+            <nav className="sidebar-nav" aria-label="Oldal navigáció">
+                <ul>
+                    {navItems.map((item) => (
+                        <li key={item.href}>
+                            <a href={item.href}>{item.label}</a>
+                        </li>
+                    ))}
+                </ul>
+            </nav>
+            <div className="sidebar-card">
+                <p className="sidebar-card-label">Aktuális esemény</p>
+                {eventTitle ? (
+                    <>
+                        <p className="sidebar-event-title">{eventTitle}</p>
+                        <ul className="sidebar-event-meta">
+                            {eventDateLabel && <li><span>Időpont</span><strong>{eventDateLabel}</strong></li>}
+                            {delegateDeadlineLabel && <li><span>Delegált határidő</span><strong>{delegateDeadlineLabel}</strong></li>}
+                            <li><span>Szavazási felület</span><strong>{isVotingEnabled ? 'Engedélyezve' : 'Letiltva'}</strong></li>
+                        </ul>
+                    </>
+                ) : (
+                    <p className="sidebar-empty">Jelenleg nincs aktív esemény.</p>
+                )}
+            </div>
+            {statusLabel && (
+                <div className="sidebar-card sidebar-status">
+                    <p className="sidebar-card-label">Szavazás állapota</p>
+                    <p className="sidebar-status-line">
+                        <span className={`status-indicator status-${status.toLowerCase()}`} aria-hidden="true" />
+                        <span>{statusLabel}</span>
+                    </p>
+                    {typeof totalVoters === 'number' && totalVoters >= 0 && (
+                        <p className="sidebar-status-meta">Delegáltak száma: <strong>{totalVoters}</strong></p>
+                    )}
+                </div>
+            )}
+            {user && (
+                <div className="sidebar-card sidebar-user">
+                    <p className="sidebar-card-label">Bejelentkezve</p>
+                    <p className="sidebar-user-name">{getUserDisplayName(user)}</p>
+                    {user.organizationId && (
+                        <p className="sidebar-user-organization">Szervezet azonosító: {user.organizationId}</p>
+                    )}
+                    {roleLabel && <span className="sidebar-badge">{roleLabel}</span>}
+                </div>
+            )}
+        </div>
+    );
+};
+
 const ResultsDisplay = ({ results, totalVoters }: { results: SessionData['results'], totalVoters: number }) => {
     const totalVotes = results.igen + results.nem + results.tartozkodott;
     const nemSzavazott = Math.max(0, totalVoters - totalVotes);
@@ -208,23 +346,6 @@ const ResultsDisplay = ({ results, totalVoters }: { results: SessionData['result
 };
 
 
-const formatDateTime = (value: string | null) => {
-    if (!value) {
-        return '';
-    }
-    const parsed = new Date(value);
-    if (Number.isNaN(parsed.getTime())) {
-        return '';
-    }
-    return parsed.toLocaleString('hu-HU', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-    });
-};
-
 const PublicView = ({ sessionData, lastUpdate }: { sessionData: SessionData, lastUpdate: Date | null }) => {
     const statusLabel = STATUS_MESSAGES[sessionData.status];
     const eventTitle = (sessionData.eventTitle || '').trim();
@@ -232,17 +353,23 @@ const PublicView = ({ sessionData, lastUpdate }: { sessionData: SessionData, las
     const delegateDeadlineLabel = formatDateTime(sessionData.delegateDeadline);
     return (
         <div className="container public-view">
-            <h1>Nyilvános szavazás</h1>
-            {eventTitle && <p className="event-banner">Esemény: {eventTitle}</p>}
-            <div className="event-meta">
+            <header className="view-header" id="overview">
+                <h1>Nyilvános szavazás</h1>
+                {eventTitle && <p className="event-banner">Esemény: {eventTitle}</p>}
+            </header>
+            <section className="event-meta" id="event-details">
                 {eventDateLabel && <span>Időpont: {eventDateLabel}</span>}
                 {delegateDeadlineLabel && <span>Delegált határidő: {delegateDeadlineLabel}</span>}
                 <span>Szavazási felület: {sessionData.isVotingEnabled ? 'Engedélyezve' : 'Letiltva'}</span>
-            </div>
-            <div className={`public-status-badge public-status-${sessionData.status.toLowerCase()}`}>
-                {statusLabel}
-            </div>
-            <ResultsDisplay results={sessionData.results} totalVoters={sessionData.totalVoters} />
+            </section>
+            <section className="public-status" id="status">
+                <div className={`public-status-badge public-status-${sessionData.status.toLowerCase()}`}>
+                    {statusLabel}
+                </div>
+            </section>
+            <section className="public-results" id="results">
+                <ResultsDisplay results={sessionData.results} totalVoters={sessionData.totalVoters} />
+            </section>
             <p className="public-note">
                 {lastUpdate
                     ? `Utolsó frissítés: ${lastUpdate.toLocaleTimeString()}`
@@ -355,10 +482,12 @@ const AdminView = ({ sessionData, onLogout, onSessionUpdate, clockOffsetMs }: {
 
     return (
         <div className="container admin-view">
-            <h1>Adminisztrátor</h1>
-            <p>Itt kezelheti a szavazási folyamatot.</p>
+            <header className="view-header" id="overview">
+                <h1>Adminisztrátor</h1>
+                <p>Itt kezelheti a szavazási folyamatot.</p>
+            </header>
 
-            <section className="event-overview">
+            <section className="event-overview" id="event-overview">
                 <h2>Aktív esemény</h2>
                 {eventTitle ? (
                     <div className="event-overview-card">
@@ -374,42 +503,46 @@ const AdminView = ({ sessionData, onLogout, onSessionUpdate, clockOffsetMs }: {
                 )}
             </section>
 
-            <div className="admin-info">
-                <span>Regisztrált szavazók:</span>
-                <strong>{sessionData.totalVoters}</strong>
-            </div>
-
-            {sessionData.status === 'WAITING' && (
-                <button onClick={handleStartVote} className="btn btn-primary btn-start-vote" disabled={isLoading}>
-                    Szavazás Indítása
-                </button>
-            )}
-            
-            {sessionData.status === 'IN_PROGRESS' && (
-                <div className="admin-timer-container">
-                    <p>Hátralévő idő: <strong>{adminTimeLeft ?? sessionData.voteDurationSeconds}s</strong></p>
-                    <button onClick={handleFinish} className="btn btn-danger" disabled={isLoading}>
-                        Szavazás Befejezése (most)
-                    </button>
+            <section className="admin-controls" id="controls">
+                <div className="admin-info">
+                    <span>Regisztrált szavazók:</span>
+                    <strong>{sessionData.totalVoters}</strong>
                 </div>
-            )}
 
-            {sessionData.status === 'FINISHED' && (
-                <button onClick={handleReset} className="btn btn-secondary" disabled={isLoading}>
-                    Reset
-                </button>
-            )}
+                {sessionData.status === 'WAITING' && (
+                    <button onClick={handleStartVote} className="btn btn-primary btn-start-vote" disabled={isLoading}>
+                        Szavazás Indítása
+                    </button>
+                )}
 
-            <div className="admin-results">
+                {sessionData.status === 'IN_PROGRESS' && (
+                    <div className="admin-timer-container">
+                        <p>Hátralévő idő: <strong>{adminTimeLeft ?? sessionData.voteDurationSeconds}s</strong></p>
+                        <button onClick={handleFinish} className="btn btn-danger" disabled={isLoading}>
+                            Szavazás Befejezése (most)
+                        </button>
+                    </div>
+                )}
+
+                {sessionData.status === 'FINISHED' && (
+                    <button onClick={handleReset} className="btn btn-secondary" disabled={isLoading}>
+                        Reset
+                    </button>
+                )}
+            </section>
+
+            <section className="admin-results" id="results">
                 <h3>Eredmények</h3>
                 {sessionData.status === 'WAITING' ? (
                     <p>A szavazás még nem kezdődött el.</p>
                 ) : (
                     <ResultsDisplay results={sessionData.results} totalVoters={sessionData.totalVoters} />
                 )}
-            </div>
+            </section>
 
-            <button onClick={onLogout} className="btn btn-secondary logout-button">Kijelentkezés</button>
+            <div className="view-footer" id="logout">
+                <button onClick={onLogout} className="btn btn-secondary logout-button">Kijelentkezés</button>
+            </div>
         </div>
     );
 };
@@ -537,13 +670,19 @@ const VoterView = ({ sessionData, onLogout, eventTitle, clockOffsetMs }: { sessi
     const trimmedTitle = (sessionData.eventTitle || eventTitle || '').trim();
 
     return (
-        <div className="container view-container">
-            <h1>Szavazó</h1>
-            {trimmedTitle && <p className="event-banner">Aktív esemény: {trimmedTitle}</p>}
-            <div className="voter-status-box">
-                {renderContent()}
+        <div className="container view-container voter-view">
+            <header className="view-header" id="overview">
+                <h1>Szavazó</h1>
+                {trimmedTitle && <p className="event-banner">Aktív esemény: {trimmedTitle}</p>}
+            </header>
+            <section className="voter-status-section" id="voting">
+                <div className="voter-status-box">
+                    {renderContent()}
+                </div>
+            </section>
+            <div className="view-footer" id="logout">
+                <button onClick={onLogout} className="btn btn-secondary logout-button">Kijelentkezés</button>
             </div>
-            <button onClick={onLogout} className="btn btn-secondary logout-button">Kijelentkezés</button>
         </div>
     );
 };
@@ -558,7 +697,7 @@ const LoginScreen = ({ onLogin, error }: { onLogin: (email: string, password: st
     };
 
     return (
-        <div className="container">
+        <div className="container login-container" id="login">
             <form onSubmit={handleSubmit}>
                 <h1>Szavazórendszer</h1>
                 <p>Kérjük, jelentkezzen be a folytatáshoz, vagy használja a MikDashboard felületéről érkező egyszeri bejelentkezést.</p>
@@ -735,15 +874,24 @@ const App = () => {
     };
 
     return (
-        <>
-            {connectionError && (
-                <div className="connection-error" role="alert">
-                    {connectionError}
+        <div className={`app-shell mode-${mode}`}>
+            <aside className="app-sidebar">
+                <SidebarContent mode={mode} user={user} sessionData={sessionData} />
+            </aside>
+            <main className="app-main">
+                {connectionError && (
+                    <div className="connection-error" role="alert">
+                        {connectionError}
+                    </div>
+                )}
+                <div className="app-main-content">
+                    {renderView()}
                 </div>
-            )}
-            {renderView()}
-            {(user || mode === 'public') && <SyncStatus lastUpdate={lastUpdate} />}
-        </>
+                <div className="app-main-footer">
+                    {(user || mode === 'public') && <SyncStatus lastUpdate={lastUpdate} />}
+                </div>
+            </main>
+        </div>
     );
 };
 
