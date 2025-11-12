@@ -824,6 +824,51 @@ button:disabled {
   text-align: left;
 }
 
+.organization-contact,
+.organization-invitations {
+  margin-top: 20px;
+}
+
+.organization-contact-form {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.organization-contact-form input {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+}
+
+.organization-contact-form input:focus {
+  outline: 2px solid rgba(59, 130, 246, 0.35);
+  border-color: rgba(59, 130, 246, 0.35);
+}
+
+.organization-contact-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.organization-invitations-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 12px;
+}
+
+.organization-invitations-table th,
+.organization-invitations-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+  text-align: left;
+  font-size: 0.9rem;
+}
+
+.organization-invitations-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
 .organization-footer {
   margin-top: 16px;
   display: flex;
@@ -916,6 +961,63 @@ button:disabled {
   display: flex;
   flex-direction: column;
   gap: 20px;
+}
+
+#member-invitations-card .member-invite-form {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+#member-invitations-card input {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+}
+
+#member-invitations-card input:focus {
+  outline: 2px solid rgba(59, 130, 246, 0.35);
+  border-color: rgba(59, 130, 246, 0.35);
+}
+
+#member-invitations-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+#member-invitations-table th,
+#member-invitations-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+  text-align: left;
+  font-size: 0.9rem;
+}
+
+#member-invitations-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.contact-member {
+  background: rgba(99, 102, 241, 0.08);
+}
+
+.invite-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin: 0;
+}
+
+.invite-summary dt {
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #64748b;
+}
+
+.invite-summary dd {
+  margin: 4px 0 0;
+  font-weight: 600;
 }
 
 .member-main-header {

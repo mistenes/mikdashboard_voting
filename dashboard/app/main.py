@@ -19,7 +19,15 @@ from sqlalchemy import inspect, text
 import httpx
 
 from .database import Base, SessionLocal, engine
-from .models import ApprovalDecision, EventDelegate, Organization, User, VotingEvent
+from .models import (
+    ApprovalDecision,
+    EventDelegate,
+    InvitationRole,
+    Organization,
+    OrganizationInvitation,
+    User,
+    VotingEvent,
+)
 from .schemas import (
     ActiveEventInfo,
     AdminDecisionRequest,
@@ -27,12 +35,16 @@ from .schemas import (
     ErrorResponse,
     EventDelegateAssignmentRequest,
     EventDelegateInfo,
+    InvitationAcceptRequest,
+    InvitationCreateRequest,
     LoginRequest,
     LoginResponse,
     OrganizationBillingUpdate,
+    OrganizationContactInfo,
     OrganizationCreateRequest,
     OrganizationDetail,
     OrganizationFeeUpdate,
+    OrganizationInvitationRead,
     OrganizationMembershipInfo,
     OrganizationRead,
     PasswordChangeRequest,
@@ -56,8 +68,11 @@ from .schemas import (
 from .services import (
     AuthenticationError,
     RegistrationError,
+    accept_invitation,
     authenticate_user,
     change_user_password,
+    create_contact_invitation,
+    create_member_invitation,
     create_organization,
     create_session_token,
     create_voting_event,
@@ -67,10 +82,12 @@ from .services import (
     delete_voting_event,
     delete_user_account,
     get_active_voting_event,
+    get_invitation_by_token,
     list_voting_events,
     organization_with_members,
     organizations_with_members,
     pending_registrations,
+    queue_invitation_email,
     queue_verification_email,
     register_user,
     reset_voting_events,
@@ -566,6 +583,22 @@ def build_member_payload(member: User, organization: Organization) -> dict:
         "admin_decision": member.admin_decision,
         "has_access": has_access,
         "is_voting_delegate": member.is_voting_delegate,
+        "is_contact": member.is_organization_contact,
+    }
+
+
+def build_invitation_payload(invitation: OrganizationInvitation) -> dict:
+    return {
+        "id": invitation.id,
+        "email": invitation.email,
+        "role": invitation.role,
+        "created_at": invitation.created_at,
+        "invited_by_user_id": invitation.invited_by_user_id,
+        "accepted_at": invitation.accepted_at,
+        "first_name": invitation.first_name,
+        "last_name": invitation.last_name,
+        "organization_id": invitation.organization_id,
+        "organization_name": invitation.organization.name if invitation.organization else "",
     }
 
 
@@ -582,6 +615,28 @@ def build_organization_detail(
     active_delegate_user_id = (
         active_delegate_user_ids[0] if active_delegate_user_ids else None
     )
+    contact_member = next((member for member in members if member.get("is_contact")), None)
+    contact_invitation_payload: dict | None = None
+    for invitation in getattr(organization, "invitations", []) or []:
+        if invitation.role == InvitationRole.contact and invitation.accepted_at is None:
+            contact_invitation_payload = build_invitation_payload(invitation)
+            break
+    if contact_member:
+        contact_status = "assigned"
+    elif contact_invitation_payload:
+        contact_status = "invited"
+    else:
+        contact_status = "missing"
+    contact_info = OrganizationContactInfo(
+        status=contact_status,
+        user=contact_member,
+        invitation=contact_invitation_payload,
+    )
+    pending_member_invites = [
+        build_invitation_payload(invitation)
+        for invitation in getattr(organization, "invitations", []) or []
+        if invitation.role == InvitationRole.member and invitation.accepted_at is None
+    ]
     return OrganizationDetail(
         id=organization.id,
         name=organization.name,
@@ -594,6 +649,8 @@ def build_organization_detail(
         active_event=active_event_info(active_event),
         active_event_delegate_user_id=active_delegate_user_id,
         active_event_delegate_user_ids=active_delegate_user_ids,
+        contact=contact_info,
+        pending_invitations=pending_member_invites,
     )
 
 
@@ -645,6 +702,11 @@ def login_page() -> FileResponse:
 @app.get("/register", response_class=FileResponse)
 def register_page() -> FileResponse:
     return FileResponse("app/static/register.html")
+
+
+@app.get("/meghivas/{token}", response_class=FileResponse)
+def invitation_accept_page(token: str) -> FileResponse:  # pragma: no cover - file response
+    return FileResponse("app/static/invitation-accept.html")
 
 
 @app.get("/jelszo-frissites", response_class=FileResponse)
@@ -968,6 +1030,7 @@ def login(request: LoginRequest, db: DatabaseDependency) -> LoginResponse:
         organization_id=organization_id,
         organization_fee_paid=organization_fee_paid,
         must_change_password=user.must_change_password,
+        is_organization_contact=user.is_organization_contact,
     )
 
 
@@ -1027,6 +1090,7 @@ def current_user(
         organization=membership_info(user.organization),
         is_voting_delegate=user.is_voting_delegate,
         active_event=active_event_info(active_event),
+        is_organization_contact=user.is_organization_contact,
     )
 
 
@@ -1180,6 +1244,137 @@ def update_organization_billing(
 
     db.commit()
     return detail
+
+
+@app.post(
+    "/api/admin/organizations/{organization_id}/contact-invitations",
+    response_model=OrganizationDetail,
+    responses={
+        401: {"model": ErrorResponse},
+        403: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+        400: {"model": ErrorResponse},
+    },
+)
+def create_contact_invitation_endpoint(
+    organization_id: int,
+    payload: InvitationCreateRequest,
+    request: Request,
+    db: DatabaseDependency,
+    admin: Annotated[User, Depends(require_admin)],
+) -> OrganizationDetail:
+    if payload.role != InvitationRole.contact:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A kapcsolattartó meghívásához a role mezőnek 'contact'-nak kell lennie.",
+        )
+    try:
+        invitation = create_contact_invitation(
+            db,
+            organization_id=organization_id,
+            email=payload.email,
+            invited_by=admin,
+            first_name=payload.first_name,
+            last_name=payload.last_name,
+        )
+        db.flush()
+        organization = organization_with_members(db, organization_id)
+        active_event = get_active_voting_event(db)
+        detail = build_organization_detail(organization, active_event=active_event)
+        link = queue_invitation_email(
+            invitation,
+            base_url=PUBLIC_BASE_URL,
+            api_key=BREVO_API_KEY or None,
+            sender_email=BREVO_SENDER_EMAIL or None,
+            sender_name=BREVO_SENDER_NAME,
+        )
+    except RegistrationError as exc:
+        db.rollback()
+        detail = str(exc)
+        lowered = detail.lower()
+        if "nem található" in lowered:
+            status_code = status.HTTP_404_NOT_FOUND
+        else:
+            status_code = status.HTTP_400_BAD_REQUEST
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+
+    db.commit()
+    request.app.state.email_queue.append(
+        {
+            "email": invitation.email,
+            "invitation_id": invitation.id,
+            "token": invitation.token,
+            "role": invitation.role.value,
+            "link": link,
+            "sent_via": "brevo" if BREVO_API_KEY and BREVO_SENDER_EMAIL else "noop",
+        }
+    )
+    return detail
+
+
+@app.get(
+    "/api/invitations/{token}",
+    response_model=OrganizationInvitationRead,
+    responses={404: {"model": ErrorResponse}},
+)
+def get_invitation(token: str, db: DatabaseDependency) -> OrganizationInvitationRead:
+    invitation = get_invitation_by_token(db, token=token)
+    if invitation is None or invitation.accepted_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="A meghívó nem található vagy már felhasználták.",
+        )
+    if invitation.organization is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="A meghívóhoz tartozó szervezet nem található.",
+        )
+    return OrganizationInvitationRead(
+        id=invitation.id,
+        email=invitation.email,
+        role=invitation.role,
+        created_at=invitation.created_at,
+        invited_by_user_id=invitation.invited_by_user_id,
+        accepted_at=invitation.accepted_at,
+        first_name=invitation.first_name,
+        last_name=invitation.last_name,
+        organization_id=invitation.organization.id,
+        organization_name=invitation.organization.name,
+    )
+
+
+@app.post(
+    "/api/invitations/{token}/accept",
+    response_model=SimpleMessageResponse,
+    responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+)
+def accept_invitation_endpoint(
+    token: str,
+    payload: InvitationAcceptRequest,
+    db: DatabaseDependency,
+) -> SimpleMessageResponse:
+    try:
+        accept_invitation(
+            db,
+            token=token,
+            first_name=payload.first_name,
+            last_name=payload.last_name,
+            password=payload.password,
+        )
+        db.commit()
+    except RegistrationError as exc:
+        db.rollback()
+        detail = str(exc)
+        lowered = detail.lower()
+        if "nem található" in lowered or "érvénytelen" in lowered:
+            status_code = status.HTTP_404_NOT_FOUND
+        else:
+            status_code = status.HTTP_400_BAD_REQUEST
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+
+    return SimpleMessageResponse(
+        message="Sikeres meghívó elfogadás. Most már bejelentkezhetsz az új jelszóval."
+    )
 
 
 @app.get(
@@ -1519,3 +1714,87 @@ def organization_detail_endpoint(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     active_event = get_active_voting_event(db)
     return build_organization_detail(organization, active_event=active_event)
+
+
+@app.post(
+    "/api/organizations/{organization_id}/invitations",
+    response_model=OrganizationDetail,
+    responses={
+        401: {"model": ErrorResponse},
+        403: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+        400: {"model": ErrorResponse},
+    },
+)
+def create_member_invitation_endpoint(
+    organization_id: int,
+    payload: InvitationCreateRequest,
+    request: Request,
+    db: DatabaseDependency,
+    user: Annotated[User, Depends(get_session_user)],
+) -> OrganizationDetail:
+    ensure_organization_membership(user, organization_id)
+    role = payload.role
+    if role == InvitationRole.contact and not user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Csak az adminisztrátor hívhat meg új kapcsolattartót.",
+        )
+    if role == InvitationRole.member and not (user.is_admin or user.is_organization_contact):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Csak a szervezet kapcsolattartója küldhet tagmeghívót.",
+        )
+
+    try:
+        if role == InvitationRole.contact:
+            invitation = create_contact_invitation(
+                db,
+                organization_id=organization_id,
+                email=payload.email,
+                invited_by=user,
+                first_name=payload.first_name,
+                last_name=payload.last_name,
+            )
+        else:
+            invitation = create_member_invitation(
+                db,
+                organization_id=organization_id,
+                email=payload.email,
+                invited_by=user,
+                first_name=payload.first_name,
+                last_name=payload.last_name,
+            )
+        db.flush()
+        organization = organization_with_members(db, organization_id)
+        active_event = get_active_voting_event(db)
+        detail = build_organization_detail(organization, active_event=active_event)
+        link = queue_invitation_email(
+            invitation,
+            base_url=PUBLIC_BASE_URL,
+            api_key=BREVO_API_KEY or None,
+            sender_email=BREVO_SENDER_EMAIL or None,
+            sender_name=BREVO_SENDER_NAME,
+        )
+    except RegistrationError as exc:
+        db.rollback()
+        detail = str(exc)
+        lowered = detail.lower()
+        if "nem található" in lowered:
+            status_code = status.HTTP_404_NOT_FOUND
+        else:
+            status_code = status.HTTP_400_BAD_REQUEST
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+
+    db.commit()
+    request.app.state.email_queue.append(
+        {
+            "email": invitation.email,
+            "invitation_id": invitation.id,
+            "token": invitation.token,
+            "role": invitation.role.value,
+            "link": link,
+            "sent_via": "brevo" if BREVO_API_KEY and BREVO_SENDER_EMAIL else "noop",
+        }
+    )
+    return detail

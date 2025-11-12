@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Iterable, List, Optional
 
+import uuid
+
 import httpx
 
 from sqlalchemy import delete, func, select
@@ -13,7 +15,9 @@ from .models import (
     ApprovalDecision,
     EventDelegate,
     EmailVerificationToken,
+    InvitationRole,
     Organization,
+    OrganizationInvitation,
     SessionToken,
     VotingEvent,
     User,
@@ -87,6 +91,10 @@ def register_user(
     return token
 
 
+def _normalize_email(value: str) -> str:
+    return value.strip().lower()
+
+
 def queue_verification_email(
     token: EmailVerificationToken,
     *,
@@ -148,6 +156,71 @@ def queue_verification_email(
         ) from exc
 
     return verification_link
+
+
+def queue_invitation_email(
+    invitation: OrganizationInvitation,
+    *,
+    base_url: str = "",
+    api_key: str | None = None,
+    sender_email: str | None = None,
+    sender_name: str | None = None,
+) -> str:
+    base = base_url.rstrip("/") if base_url else ""
+    accept_path = f"/meghivas/{invitation.token}"
+    accept_link = f"{base}{accept_path}" if base else accept_path
+
+    if not api_key or not sender_email:
+        return accept_link
+
+    role_text = (
+        "kapcsolattartójaként" if invitation.role == InvitationRole.contact else "tagjaként"
+    )
+
+    subject = "MikDashboard meghívó"
+    html_body = (
+        f"<p>Meghívást kaptál a MikDashboard rendszerbe a(z) {invitation.organization.name} "
+        f"szervezet {role_text}.</p>"
+        "<p>A csatlakozáshoz kattints az alábbi gombra, és állítsd be a jelszavad:</p>"
+        f"<p><a href=\"{accept_link}\">Csatlakozás a MikDashboardhoz</a></p>"
+        "<p>Ha nem vártad ezt a meghívót, hagyd figyelmen kívül ezt az üzenetet.</p>"
+    )
+    text_body = (
+        f"Meghívást kaptál a MikDashboard rendszerbe a(z) {invitation.organization.name} "
+        f"szervezet {role_text}.\n"
+        "A csatlakozáshoz másold a böngésződbe az alábbi linket és állítsd be a jelszavad:\n"
+        f"{accept_link}\n"
+        "Ha nem vártad ezt a meghívót, hagyd figyelmen kívül ezt az üzenetet."
+    )
+
+    payload = {
+        "sender": {"email": sender_email, "name": sender_name or sender_email},
+        "to": [{"email": invitation.email, "name": invitation.email}],
+        "subject": subject,
+        "htmlContent": html_body,
+        "textContent": text_body,
+    }
+
+    headers = {
+        "accept": "application/json",
+        "api-key": api_key,
+        "content-type": "application/json",
+    }
+
+    try:
+        response = httpx.post(
+            "https://api.brevo.com/v3/smtp/email",
+            json=payload,
+            headers=headers,
+            timeout=15.0,
+        )
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise RegistrationError(
+            "Nem sikerült elküldeni a meghívó e-mailt. Kérjük, próbáld újra később."
+        ) from exc
+
+    return accept_link
 
 
 def verify_email(session: Session, token_value: str) -> User:
@@ -302,6 +375,9 @@ def organizations_with_members(session: Session) -> List[Organization]:
         .options(
             selectinload(Organization.users),
             selectinload(Organization.event_delegates).selectinload(EventDelegate.user),
+            selectinload(Organization.invitations).selectinload(
+                OrganizationInvitation.invited_by_user
+            ),
         )
         .order_by(Organization.name.asc())
     )
@@ -363,6 +439,9 @@ def organization_with_members(session: Session, organization_id: int) -> Organiz
         .options(
             selectinload(Organization.users),
             selectinload(Organization.event_delegates).selectinload(EventDelegate.user),
+            selectinload(Organization.invitations).selectinload(
+                OrganizationInvitation.invited_by_user
+            ),
         )
     )
     organization = session.scalar(stmt)
@@ -655,6 +734,215 @@ def delegates_for_event(
     for delegate_list in delegates.values():
         delegate_list.sort(key=lambda item: (item.created_at, item.id))
     return delegates
+
+
+def _pending_invitation_query(
+    session: Session,
+    *,
+    organization_id: int,
+    email: str,
+    role: InvitationRole,
+) -> OrganizationInvitation | None:
+    stmt = (
+        select(OrganizationInvitation)
+        .where(OrganizationInvitation.organization_id == organization_id)
+        .where(func.lower(OrganizationInvitation.email) == email.lower())
+        .where(OrganizationInvitation.role == role)
+        .where(OrganizationInvitation.accepted_at.is_(None))
+    )
+    return session.scalar(stmt)
+
+
+def _ensure_email_available(session: Session, email: str) -> None:
+    stmt = select(User).where(func.lower(User.email) == email.lower())
+    existing = session.scalar(stmt)
+    if existing is not None:
+        raise RegistrationError("Ezzel az e-mail címmel már létezik felhasználó")
+
+
+def _create_invitation(
+    session: Session,
+    *,
+    organization: Organization,
+    email: str,
+    role: InvitationRole,
+    invited_by: User | None = None,
+    first_name: Optional[str] = None,
+    last_name: Optional[str] = None,
+) -> OrganizationInvitation:
+    normalized_email = _normalize_email(email)
+    _ensure_email_available(session, normalized_email)
+
+    invitation = _pending_invitation_query(
+        session,
+        organization_id=organization.id,
+        email=normalized_email,
+        role=role,
+    )
+    token = uuid.uuid4().hex
+
+    if invitation is None:
+        invitation = OrganizationInvitation(
+            organization=organization,
+            email=normalized_email,
+            role=role,
+        )
+        session.add(invitation)
+
+    invitation.token = token
+    invitation.invited_by_user = invited_by
+    invitation.created_at = datetime.utcnow()
+    invitation.accepted_at = None
+    invitation.accepted_by_user = None
+    invitation.first_name = first_name.strip() if first_name else None
+    invitation.last_name = last_name.strip() if last_name else None
+
+    session.flush()
+    return invitation
+
+
+def create_contact_invitation(
+    session: Session,
+    *,
+    organization_id: int,
+    email: str,
+    invited_by: User,
+    first_name: Optional[str] = None,
+    last_name: Optional[str] = None,
+) -> OrganizationInvitation:
+    organization = session.get(Organization, organization_id)
+    if organization is None:
+        raise RegistrationError("Nem található szervezet")
+
+    stmt = (
+        select(User)
+        .where(User.organization_id == organization_id)
+        .where(User.is_organization_contact.is_(True))
+    )
+    existing_contact = session.scalar(stmt)
+    if existing_contact is not None:
+        raise RegistrationError("Ehhez a szervezethez már tartozik kapcsolattartó")
+
+    return _create_invitation(
+        session,
+        organization=organization,
+        email=email,
+        role=InvitationRole.contact,
+        invited_by=invited_by,
+        first_name=first_name,
+        last_name=last_name,
+    )
+
+
+def create_member_invitation(
+    session: Session,
+    *,
+    organization_id: int,
+    email: str,
+    invited_by: User,
+    first_name: Optional[str] = None,
+    last_name: Optional[str] = None,
+) -> OrganizationInvitation:
+    organization = session.get(Organization, organization_id)
+    if organization is None:
+        raise RegistrationError("Nem található szervezet")
+
+    if invited_by.organization_id != organization.id and not invited_by.is_admin:
+        raise RegistrationError(
+            "Nincs jogosultság felhasználókat meghívni ehhez a szervezethez"
+        )
+
+    return _create_invitation(
+        session,
+        organization=organization,
+        email=email,
+        role=InvitationRole.member,
+        invited_by=invited_by,
+        first_name=first_name,
+        last_name=last_name,
+    )
+
+
+def pending_invitations(
+    session: Session, *, organization_id: int, role: InvitationRole | None = None
+) -> list[OrganizationInvitation]:
+    stmt = (
+        select(OrganizationInvitation)
+        .where(OrganizationInvitation.organization_id == organization_id)
+        .where(OrganizationInvitation.accepted_at.is_(None))
+        .order_by(OrganizationInvitation.created_at.desc())
+    )
+    if role is not None:
+        stmt = stmt.where(OrganizationInvitation.role == role)
+    return list(session.scalars(stmt))
+
+
+def get_invitation_by_token(
+    session: Session, *, token: str
+) -> OrganizationInvitation | None:
+    stmt = (
+        select(OrganizationInvitation)
+        .where(OrganizationInvitation.token == token)
+        .options(
+            selectinload(OrganizationInvitation.organization),
+            selectinload(OrganizationInvitation.invited_by_user),
+        )
+    )
+    return session.scalar(stmt)
+
+
+def accept_invitation(
+    session: Session,
+    *,
+    token: str,
+    first_name: str,
+    last_name: str,
+    password: str,
+) -> User:
+    invitation = get_invitation_by_token(session, token=token)
+    if invitation is None or invitation.accepted_at is not None:
+        raise RegistrationError("Érvénytelen vagy már felhasznált meghívó")
+
+    organization = invitation.organization
+    if organization is None:
+        raise RegistrationError("Hiányzó szervezeti meghívó")
+
+    normalized_email = _normalize_email(invitation.email)
+    _ensure_email_available(session, normalized_email)
+
+    if invitation.role == InvitationRole.contact:
+        stmt = (
+            select(User)
+            .where(User.organization_id == organization.id)
+            .where(User.is_organization_contact.is_(True))
+        )
+        existing_contact = session.scalar(stmt)
+        if existing_contact is not None:
+            raise RegistrationError("Ehhez a szervezethez már tartozik kapcsolattartó")
+
+    salt, password_hash = hash_password(password)
+
+    user = User(
+        email=normalized_email,
+        first_name=first_name,
+        last_name=last_name,
+        password_hash=password_hash,
+        password_salt=salt,
+        organization=organization,
+        is_email_verified=True,
+        admin_decision=ApprovalDecision.approved,
+        is_admin=False,
+        is_voting_delegate=False,
+    )
+    user.is_organization_contact = invitation.role == InvitationRole.contact
+
+    session.add(user)
+    session.flush()
+
+    invitation.accepted_at = datetime.utcnow()
+    invitation.accepted_by_user = user
+
+    return user
 
 
 def delete_user_account(session: Session, *, user_id: int) -> None:

@@ -5,7 +5,7 @@ from typing import Literal, Optional
 
 from pydantic import AnyHttpUrl, BaseModel, EmailStr, Field, constr
 
-from .models import ApprovalDecision
+from .models import ApprovalDecision, InvitationRole
 
 
 class OrganizationRead(BaseModel):
@@ -50,6 +50,7 @@ class LoginResponse(BaseModel):
     organization_id: Optional[int] = None
     organization_fee_paid: Optional[bool] = None
     must_change_password: bool = False
+    is_organization_contact: bool = False
 
 
 class PendingUser(BaseModel):
@@ -101,6 +102,26 @@ class OrganizationMember(BaseModel):
     admin_decision: ApprovalDecision
     has_access: bool
     is_voting_delegate: bool
+    is_contact: bool = False
+
+
+class OrganizationInvitationRead(BaseModel):
+    id: int
+    email: EmailStr
+    role: InvitationRole
+    created_at: datetime
+    invited_by_user_id: Optional[int] = None
+    accepted_at: Optional[datetime] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    organization_id: int
+    organization_name: str
+
+
+class OrganizationContactInfo(BaseModel):
+    status: constr(strip_whitespace=True, min_length=1)
+    user: Optional[OrganizationMember] = None
+    invitation: Optional[OrganizationInvitationRead] = None
 
 
 class OrganizationDetail(BaseModel):
@@ -115,6 +136,8 @@ class OrganizationDetail(BaseModel):
     active_event: Optional[ActiveEventInfo] = None
     active_event_delegate_user_id: Optional[int] = None
     active_event_delegate_user_ids: list[int] = Field(default_factory=list)
+    contact: Optional[OrganizationContactInfo] = None
+    pending_invitations: list[OrganizationInvitationRead] = Field(default_factory=list)
 
 
 class OrganizationFeeUpdate(BaseModel):
@@ -157,6 +180,7 @@ class SessionUser(BaseModel):
     organization: Optional[OrganizationMembershipInfo]
     is_voting_delegate: Optional[bool] = None
     active_event: Optional[ActiveEventInfo] = None
+    is_organization_contact: bool = False
 
 
 class VotingDelegateUpdate(BaseModel):
@@ -196,6 +220,19 @@ class VotingEventRead(BaseModel):
     created_at: datetime
     delegate_count: int = 0
     can_delete: bool = False
+
+
+class InvitationCreateRequest(BaseModel):
+    email: EmailStr
+    first_name: Optional[constr(strip_whitespace=True, max_length=100)] = None
+    last_name: Optional[constr(strip_whitespace=True, max_length=100)] = None
+    role: InvitationRole
+
+
+class InvitationAcceptRequest(BaseModel):
+    first_name: constr(strip_whitespace=True, min_length=1, max_length=100)
+    last_name: constr(strip_whitespace=True, min_length=1, max_length=100)
+    password: constr(min_length=8)
 
 
 class EventDelegateMember(BaseModel):

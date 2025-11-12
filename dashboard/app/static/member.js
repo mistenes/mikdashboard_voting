@@ -9,6 +9,10 @@ const openVotingAdminButton = document.querySelector("#open-voting-admin");
 const openVotingPublicButton = document.querySelector("#open-voting-public");
 const votingHelper = document.querySelector("#voting-helper");
 const eventSummary = document.querySelector("#current-event-summary");
+const invitationCard = document.querySelector("#member-invitations-card");
+const invitationForm = document.querySelector("#member-invite-form");
+const invitationStatus = document.querySelector("#member-invite-status");
+const invitationTableBody = document.querySelector("#member-invitations-table tbody");
 
 let cachedSessionUser = null;
 let cachedOrganizationDetail = null;
@@ -16,6 +20,11 @@ let votingHandlerBound = false;
 let adminVotingHandlerBound = false;
 let publicVotingHandlerBound = false;
 let votingLaunchInFlight = false;
+
+const inviteDateFormatter = new Intl.DateTimeFormat("hu-HU", {
+  dateStyle: "medium",
+  timeStyle: "short",
+});
 
 function extractOrganizationId() {
   const match = window.location.pathname.match(/\/szervezetek\/(\d+)\//);
@@ -125,6 +134,21 @@ function formatDisplayName(firstName, lastName, fallback = "") {
   return display || fallback;
 }
 
+function formatInviteRole(role) {
+  return role === "contact" ? "Kapcsolattartó" : "Tag";
+}
+
+function formatInviteTimestamp(value) {
+  if (!value) {
+    return "";
+  }
+  try {
+    return inviteDateFormatter.format(new Date(value));
+  } catch (_) {
+    return "";
+  }
+}
+
 function ensureNavLinks(orgId) {
   navLinks.forEach((link) => {
     const target = link.dataset.memberLink;
@@ -151,6 +175,7 @@ function renderMembers(detail) {
 
   detail.members.forEach((member) => {
     const row = document.createElement("tr");
+    row.classList.toggle("contact-member", Boolean(member.is_contact));
 
     const nameCell = document.createElement("td");
     nameCell.textContent = formatDisplayName(
@@ -163,7 +188,9 @@ function renderMembers(detail) {
     emailCell.textContent = member.email;
 
     const statusCell = document.createElement("td");
-    if (member.is_admin) {
+    if (member.is_contact) {
+      statusCell.textContent = "Kapcsolattartó";
+    } else if (member.is_admin) {
       statusCell.textContent = "Adminisztrátor";
     } else if (!member.is_email_verified) {
       statusCell.textContent = "E-mail megerősítésre vár";
@@ -184,6 +211,105 @@ function renderMembers(detail) {
     row.appendChild(statusCell);
     tableBody.appendChild(row);
   });
+}
+
+function setInvitationStatus(message, type = "") {
+  if (!invitationStatus) {
+    return;
+  }
+  invitationStatus.textContent = message || "";
+  invitationStatus.classList.remove("error", "success");
+  if (type) {
+    invitationStatus.classList.add(type);
+  }
+}
+
+function clearInvitationStatus() {
+  setInvitationStatus("");
+}
+
+function renderInvitations(detail, sessionUser) {
+  if (!invitationCard || !invitationTableBody) {
+    return;
+  }
+  const isContact = Boolean(
+    sessionUser.is_admin ||
+      sessionUser.is_organization_contact ||
+      (detail.contact && detail.contact.user && detail.contact.user.id === sessionUser.id),
+  );
+  if (!isContact) {
+    invitationCard.classList.add("is-hidden");
+    return;
+  }
+  invitationCard.classList.remove("is-hidden");
+  clearInvitationStatus();
+
+  const pending = Array.isArray(detail.pending_invitations)
+    ? detail.pending_invitations
+    : [];
+  invitationTableBody.innerHTML = "";
+  if (!pending.length) {
+    const row = document.createElement("tr");
+    const emptyCell = document.createElement("td");
+    emptyCell.colSpan = 3;
+    emptyCell.classList.add("muted");
+    emptyCell.textContent = "Nincs folyamatban lévő meghívó.";
+    row.appendChild(emptyCell);
+    invitationTableBody.appendChild(row);
+    return;
+  }
+
+  pending.forEach((invite) => {
+    const row = document.createElement("tr");
+    const emailCell = document.createElement("td");
+    emailCell.textContent = invite.email;
+    const roleCell = document.createElement("td");
+    roleCell.textContent = formatInviteRole(invite.role);
+    const createdCell = document.createElement("td");
+    createdCell.textContent = formatInviteTimestamp(invite.created_at);
+    row.appendChild(emailCell);
+    row.appendChild(roleCell);
+    row.appendChild(createdCell);
+    invitationTableBody.appendChild(row);
+  });
+}
+
+function bindInvitationForm(sessionUser) {
+  if (!invitationForm || invitationForm.dataset.bound === "1") {
+    return;
+  }
+  invitationForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!organizationId) {
+      return;
+    }
+    clearInvitationStatus();
+    const formData = new FormData(invitationForm);
+    const payload = {
+      email: formData.get("email"),
+      first_name: formData.get("first_name"),
+      last_name: formData.get("last_name"),
+      role: "member",
+    };
+
+    try {
+      const detail = await requestJSON(`/api/organizations/${organizationId}/invitations`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      cachedOrganizationDetail = detail;
+      setInvitationStatus("Meghívó elküldve.", "success");
+      invitationForm.reset();
+      renderMembers(detail);
+      renderInvitations(detail, sessionUser);
+    } catch (error) {
+      setInvitationStatus(error?.message || "Nem sikerült elküldeni a meghívót.", "error");
+      if (error?.status === 401 || error?.status === 403) {
+        handleAuthError(error);
+      }
+    }
+  });
+  invitationForm.dataset.bound = "1";
 }
 
 function renderOrganizationBasics(detail) {
@@ -451,7 +577,9 @@ async function init() {
     }
 
     if (pageType === "tagok") {
+      bindInvitationForm(sessionUser);
       renderMembers(detail);
+      renderInvitations(detail, sessionUser);
     } else if (pageType === "dij") {
       renderUnpaid(detail);
     } else if (pageType === "szavazas") {

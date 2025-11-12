@@ -74,6 +74,10 @@ loginForm?.addEventListener("submit", async (event) => {
 
     sessionStorage.setItem("authToken", response.token);
     sessionStorage.setItem("isAdmin", response.is_admin ? "1" : "0");
+    sessionStorage.setItem(
+      "isOrganizationContact",
+      response.is_organization_contact ? "1" : "0",
+    );
     if (payload.email) {
       sessionStorage.setItem("currentEmail", payload.email);
     }

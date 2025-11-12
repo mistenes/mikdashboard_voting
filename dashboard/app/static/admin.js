@@ -320,6 +320,9 @@ function memberStatus(member, organizationPaid) {
   if (member.is_admin) {
     return "Adminisztrátor";
   }
+  if (member.is_contact) {
+    return "Kapcsolattartó";
+  }
   if (!member.is_email_verified) {
     return "E-mail megerősítésre vár";
   }
@@ -558,6 +561,152 @@ function renderOrganizations(items) {
 
     bankSection.appendChild(bankForm);
 
+    const contactSection = document.createElement("section");
+    contactSection.classList.add("organization-contact");
+
+    const contactTitle = document.createElement("h4");
+    contactTitle.textContent = "Kapcsolattartó";
+    contactSection.appendChild(contactTitle);
+
+    const contactStatus = org.contact?.status || "missing";
+    if (contactStatus === "assigned" && org.contact?.user) {
+      const contactUser = org.contact.user;
+      const contactInfo = document.createElement("p");
+      contactInfo.innerHTML = `${formatDisplayName(
+        contactUser.first_name,
+        contactUser.last_name,
+        contactUser.email,
+      )} <span class="muted">(${contactUser.email})</span>`;
+      contactSection.appendChild(contactInfo);
+
+      const contactHint = document.createElement("p");
+      contactHint.classList.add("muted");
+      contactHint.textContent =
+        "Új kapcsolattartó meghívásához először töröld a meglévő felhasználót.";
+      contactSection.appendChild(contactHint);
+    } else {
+      const contactMessage = document.createElement("p");
+      contactMessage.classList.add("muted");
+      if (contactStatus === "invited" && org.contact?.invitation) {
+        const created = formatDateTime(org.contact.invitation.created_at);
+        contactMessage.textContent = created
+          ? `Folyamatban lévő meghívó: ${org.contact.invitation.email} (${created}).`
+          : `Folyamatban lévő meghívó: ${org.contact.invitation.email}.`;
+      } else {
+        contactMessage.textContent = "Még nincs kapcsolattartó hozzárendelve ehhez a szervezethez.";
+      }
+      contactSection.appendChild(contactMessage);
+
+      const contactForm = document.createElement("form");
+      contactForm.classList.add("organization-contact-form");
+
+      const contactEmailLabel = document.createElement("label");
+      contactEmailLabel.setAttribute("for", `contact-email-${org.id}`);
+      contactEmailLabel.textContent = "Kapcsolattartó e-mail címe";
+      const contactEmailInput = document.createElement("input");
+      contactEmailInput.id = `contact-email-${org.id}`;
+      contactEmailInput.type = "email";
+      contactEmailInput.required = true;
+      contactEmailInput.placeholder = "pelda@email.hu";
+
+      const contactFirstLabel = document.createElement("label");
+      contactFirstLabel.setAttribute("for", `contact-first-${org.id}`);
+      contactFirstLabel.textContent = "Keresztnév (opcionális)";
+      const contactFirstInput = document.createElement("input");
+      contactFirstInput.id = `contact-first-${org.id}`;
+      contactFirstInput.type = "text";
+
+      const contactLastLabel = document.createElement("label");
+      contactLastLabel.setAttribute("for", `contact-last-${org.id}`);
+      contactLastLabel.textContent = "Vezetéknév (opcionális)";
+      const contactLastInput = document.createElement("input");
+      contactLastInput.id = `contact-last-${org.id}`;
+      contactLastInput.type = "text";
+
+      const contactActions = document.createElement("div");
+      contactActions.classList.add("organization-contact-actions");
+      const contactSubmit = document.createElement("button");
+      contactSubmit.type = "submit";
+      contactSubmit.classList.add("primary-btn");
+      contactSubmit.textContent =
+        contactStatus === "invited" ? "Meghívó újraküldése" : "Kapcsolattartó meghívása";
+      contactActions.appendChild(contactSubmit);
+
+      contactForm.appendChild(contactEmailLabel);
+      contactForm.appendChild(contactEmailInput);
+      contactForm.appendChild(contactFirstLabel);
+      contactForm.appendChild(contactFirstInput);
+      contactForm.appendChild(contactLastLabel);
+      contactForm.appendChild(contactLastInput);
+      contactForm.appendChild(contactActions);
+
+      contactForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        try {
+          await requestJSON(`/api/admin/organizations/${org.id}/contact-invitations`, {
+            method: "POST",
+            body: JSON.stringify({
+              email: contactEmailInput.value,
+              first_name: contactFirstInput.value,
+              last_name: contactLastInput.value,
+              role: "contact",
+            }),
+          });
+          setStatus("Kapcsolattartó meghívó elküldve.", "success");
+          await loadOrganizations();
+        } catch (error) {
+          handleAuthError(error);
+        }
+      });
+
+      contactSection.appendChild(contactForm);
+    }
+
+    const invitationSection = document.createElement("section");
+    invitationSection.classList.add("organization-invitations");
+
+    const invitationTitle = document.createElement("h4");
+    invitationTitle.textContent = "Függő meghívók";
+    invitationSection.appendChild(invitationTitle);
+
+    const pendingInvites = Array.isArray(org.pending_invitations)
+      ? org.pending_invitations
+      : [];
+    if (!pendingInvites.length) {
+      const emptyInvites = document.createElement("p");
+      emptyInvites.classList.add("muted");
+      emptyInvites.textContent = "Nincs folyamatban lévő tagmeghívó.";
+      invitationSection.appendChild(emptyInvites);
+    } else {
+      const inviteTable = document.createElement("table");
+      inviteTable.classList.add("organization-invitations-table");
+      inviteTable.innerHTML = `
+        <thead>
+          <tr>
+            <th>E-mail</th>
+            <th>Szerepkör</th>
+            <th>Meghívva</th>
+          </tr>
+        </thead>
+      `;
+      const inviteBody = document.createElement("tbody");
+      pendingInvites.forEach((invite) => {
+        const row = document.createElement("tr");
+        const emailCell = document.createElement("td");
+        emailCell.textContent = invite.email;
+        const roleCell = document.createElement("td");
+        roleCell.textContent = invite.role === "contact" ? "Kapcsolattartó" : "Tag";
+        const createdCell = document.createElement("td");
+        createdCell.textContent = formatDateTime(invite.created_at) || "";
+        row.appendChild(emailCell);
+        row.appendChild(roleCell);
+        row.appendChild(createdCell);
+        inviteBody.appendChild(row);
+      });
+      inviteTable.appendChild(inviteBody);
+      invitationSection.appendChild(inviteTable);
+    }
+
     const membersSection = document.createElement("section");
     membersSection.classList.add("organization-members");
 
@@ -684,6 +833,8 @@ function renderOrganizations(items) {
 
     card.appendChild(header);
     card.appendChild(bankSection);
+    card.appendChild(contactSection);
+    card.appendChild(invitationSection);
     card.appendChild(membersSection);
     card.appendChild(footer);
 
