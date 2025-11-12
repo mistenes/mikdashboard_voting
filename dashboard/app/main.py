@@ -380,6 +380,12 @@ def build_organization_detail(
     organization: Organization, *, active_event: VotingEvent | None
 ) -> OrganizationDetail:
     members = [build_member_payload(member, organization) for member in organization.users]
+    active_delegate_user_id = None
+    if active_event is not None:
+        for delegate in organization.event_delegates:
+            if delegate.event_id == active_event.id:
+                active_delegate_user_id = delegate.user_id
+                break
     return OrganizationDetail(
         id=organization.id,
         name=organization.name,
@@ -390,6 +396,7 @@ def build_organization_detail(
         bank_account_number=organization.bank_account_number,
         payment_instructions=organization.payment_instructions,
         active_event=active_event_info(active_event),
+        active_event_delegate_user_id=active_delegate_user_id,
     )
 
 

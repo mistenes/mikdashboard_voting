@@ -108,6 +108,7 @@ class OrganizationDetail(BaseModel):
     bank_account_number: Optional[str] = None
     payment_instructions: Optional[str] = None
     active_event: Optional[ActiveEventInfo] = None
+    active_event_delegate_user_id: Optional[int] = None
 
 
 class OrganizationFeeUpdate(BaseModel):

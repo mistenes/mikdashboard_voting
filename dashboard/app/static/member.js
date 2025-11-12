@@ -198,8 +198,13 @@ function renderVoting(detail, sessionUser) {
   }
 
   const isPaid = Boolean(detail.fee_paid);
-  const member = detail.members?.find((item) => item.id === sessionUser.id);
-  const isDelegate = Boolean(sessionUser.is_admin || member?.is_voting_delegate);
+  const activeDelegateUserId = detail.active_event_delegate_user_id || null;
+  const activeDelegateMember = detail.members?.find(
+    (item) => item.id === activeDelegateUserId,
+  );
+  const isDelegate = Boolean(
+    sessionUser.is_admin || (activeDelegateUserId && activeDelegateUserId === sessionUser.id),
+  );
 
   if (!activeEvent) {
     openVotingButton.disabled = true;
@@ -219,9 +224,17 @@ function renderVoting(detail, sessionUser) {
 
   if (!isDelegate) {
     openVotingButton.disabled = true;
-    setVotingHelper(
-      `Nem vagy kijelölve a(z) "${eventName}" szavazási eseményre, ezért nem nyithatod meg a felületet.`,
-    );
+    const assignedName = activeDelegateMember
+      ? formatDisplayName(
+          activeDelegateMember.first_name,
+          activeDelegateMember.last_name,
+          activeDelegateMember.email,
+        )
+      : null;
+    const delegateMessage = assignedName
+      ? `A(z) "${eventName}" eseményre jelenleg ${assignedName} van kijelölve a szervezet képviseletére.`
+      : `Nem vagy kijelölve a(z) "${eventName}" szavazási eseményre, ezért nem nyithatod meg a felületet.`;
+    setVotingHelper(delegateMessage);
     return;
   }
 
