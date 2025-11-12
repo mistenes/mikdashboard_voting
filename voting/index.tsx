@@ -30,6 +30,7 @@ interface SessionData {
     voteStartTime: string | null;
     voteEndTime: string | null;
     voteDurationSeconds: number;
+    serverTimestamp: string | null;
 }
 
 interface SessionResponse {
@@ -39,6 +40,7 @@ interface SessionResponse {
     voteStartTime?: string | null;
     voteEndTime?: string | null;
     voteDurationSeconds?: number;
+    serverTimestamp?: string | null;
 }
 
 type UserRole = 'admin' | 'voter';
@@ -77,6 +79,7 @@ const toSessionData = (response: SessionResponse | null | undefined): SessionDat
     voteStartTime: response?.voteStartTime ?? null,
     voteEndTime: response?.voteEndTime ?? null,
     voteDurationSeconds: Number(response?.voteDurationSeconds ?? DEFAULT_VOTE_DURATION),
+    serverTimestamp: response?.serverTimestamp ?? null,
 });
 
 async function jsonRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -221,10 +224,11 @@ const UnauthorizedAdminView = ({ onLogout }: { onLogout: () => void }) => (
 
 // --- View Components ---
 
-const AdminView = ({ sessionData, onLogout, onSessionUpdate }: {
+const AdminView = ({ sessionData, onLogout, onSessionUpdate, clockOffsetMs }: {
     sessionData: SessionData,
     onLogout: () => void,
     onSessionUpdate: (session: SessionData) => void,
+    clockOffsetMs: number,
 }) => {
     const [isLoading, setIsLoading] = useState(false);
     const [adminTimeLeft, setAdminTimeLeft] = useState<number | null>(null);
@@ -254,10 +258,16 @@ const AdminView = ({ sessionData, onLogout, onSessionUpdate }: {
             return;
         }
 
-        const interval = setInterval(() => {
-            const nowMs = Date.now();
+        const computeRemaining = () => {
+            const nowMs = Date.now() + clockOffsetMs;
             const remainingSeconds = Math.ceil((voteEndMs - nowMs) / 1000);
-            const newTimeLeft = Math.max(0, remainingSeconds);
+            return Math.max(0, remainingSeconds);
+        };
+
+        setAdminTimeLeft(computeRemaining());
+
+        const interval = setInterval(() => {
+            const newTimeLeft = computeRemaining();
             setAdminTimeLeft(newTimeLeft);
 
             if (newTimeLeft === 0) {
@@ -266,7 +276,7 @@ const AdminView = ({ sessionData, onLogout, onSessionUpdate }: {
         }, 500);
 
         return () => clearInterval(interval);
-    }, [sessionData.status, voteEndMs, handleFinish]);
+    }, [sessionData.status, voteEndMs, clockOffsetMs]);
 
     const handleStartVote = async () => {
         setIsLoading(true);
@@ -344,15 +354,24 @@ const AdminView = ({ sessionData, onLogout, onSessionUpdate }: {
     );
 };
 
-const VoterView = ({ sessionData, onLogout, eventTitle }: { sessionData: SessionData, onLogout: () => void, eventTitle?: string | null }) => {
-    const initialDuration = sessionData.voteDurationSeconds || DEFAULT_VOTE_DURATION;
-    const [timeLeft, setTimeLeft] = useState(initialDuration);
-    const [hasVoted, setHasVoted] = useState(false);
-
-    const voteSessionId = sessionData?.voteStartTime ?? undefined;
+const VoterView = ({ sessionData, onLogout, eventTitle, clockOffsetMs }: { sessionData: SessionData, onLogout: () => void, eventTitle?: string | null, clockOffsetMs: number }) => {
     const voteEndMs = useMemo(() => (
         sessionData.voteEndTime ? new Date(sessionData.voteEndTime).getTime() : null
     ), [sessionData.voteEndTime]);
+
+    const computeInitialTimeLeft = useCallback(() => {
+        if (sessionData.status === 'IN_PROGRESS' && voteEndMs) {
+            const nowMs = Date.now() + clockOffsetMs;
+            const remainingSeconds = Math.ceil((voteEndMs - nowMs) / 1000);
+            return Math.max(0, remainingSeconds);
+        }
+        return sessionData.voteDurationSeconds || DEFAULT_VOTE_DURATION;
+    }, [sessionData.status, sessionData.voteDurationSeconds, voteEndMs, clockOffsetMs]);
+
+    const [timeLeft, setTimeLeft] = useState<number>(() => computeInitialTimeLeft());
+    const [hasVoted, setHasVoted] = useState(false);
+
+    const voteSessionId = sessionData?.voteStartTime ?? undefined;
 
     useEffect(() => {
         if (voteSessionId) {
@@ -370,10 +389,16 @@ const VoterView = ({ sessionData, onLogout, eventTitle }: { sessionData: Session
             return;
         }
 
-        const interval = setInterval(() => {
-            const nowMs = Date.now();
+        const computeRemaining = () => {
+            const nowMs = Date.now() + clockOffsetMs;
             const remainingSeconds = Math.ceil((voteEndMs - nowMs) / 1000);
-            const newTimeLeft = Math.max(0, remainingSeconds);
+            return Math.max(0, remainingSeconds);
+        };
+
+        setTimeLeft(computeRemaining());
+
+        const interval = setInterval(() => {
+            const newTimeLeft = computeRemaining();
             setTimeLeft(newTimeLeft);
 
             if (newTimeLeft === 0) {
@@ -382,13 +407,13 @@ const VoterView = ({ sessionData, onLogout, eventTitle }: { sessionData: Session
         }, 500);
 
         return () => clearInterval(interval);
-    }, [sessionData.status, voteEndMs, hasVoted]);
+    }, [sessionData.status, voteEndMs, hasVoted, clockOffsetMs]);
 
     useEffect(() => {
         if (sessionData.status !== 'IN_PROGRESS') {
-            setTimeLeft(sessionData.voteDurationSeconds || DEFAULT_VOTE_DURATION);
+            setTimeLeft(computeInitialTimeLeft());
         }
-    }, [sessionData.status, sessionData.voteDurationSeconds]);
+    }, [sessionData.status, sessionData.voteDurationSeconds, computeInitialTimeLeft]);
 
     const canVoteNow = sessionData.status === 'IN_PROGRESS' && timeLeft > 0 && !hasVoted;
 
@@ -501,7 +526,18 @@ const App = () => {
     const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
     const [authChecked, setAuthChecked] = useState(false);
     const [connectionError, setConnectionError] = useState('');
+    const [clockOffsetMs, setClockOffsetMs] = useState(0);
     const mode = useMemo<AppMode>(() => detectAppMode(), []);
+
+    const updateClockOffset = useCallback((session: SessionData) => {
+        if (!session.serverTimestamp) {
+            return;
+        }
+        const serverMs = new Date(session.serverTimestamp).getTime();
+        if (Number.isFinite(serverMs)) {
+            setClockOffsetMs(serverMs - Date.now());
+        }
+    }, []);
 
     useEffect(() => {
         if (mode === 'public') {
@@ -537,8 +573,10 @@ const App = () => {
         const loadInitialSession = async () => {
             try {
                 const data = await jsonRequest<SessionResponse>('/api/session');
+                const session = toSessionData(data);
                 if (isActive) {
-                    setSessionData(toSessionData(data));
+                    updateClockOffset(session);
+                    setSessionData(session);
                     setConnectionError('');
                 }
             } catch (err) {
@@ -554,7 +592,9 @@ const App = () => {
         const eventSource = new EventSource('/api/session/stream');
         eventSource.onmessage = (event) => {
             const payload = JSON.parse(event.data) as SessionResponse;
-            setSessionData(toSessionData(payload));
+            const session = toSessionData(payload);
+            updateClockOffset(session);
+            setSessionData(session);
             setLastUpdate(new Date());
             setConnectionError('');
         };
@@ -567,7 +607,7 @@ const App = () => {
             isActive = false;
             eventSource.close();
         };
-    }, []);
+    }, [updateClockOffset]);
 
     const handleLogin = async (email: string, password: string): Promise<void> => {
         setError('');
@@ -596,6 +636,7 @@ const App = () => {
     };
 
     const handleSessionUpdate = (session: SessionData) => {
+        updateClockOffset(session);
         setSessionData(session);
     };
 
@@ -625,9 +666,9 @@ const App = () => {
 
         switch (user.role) {
             case 'admin':
-                return <AdminView sessionData={sessionData} onLogout={handleLogout} onSessionUpdate={handleSessionUpdate} />;
+                return <AdminView sessionData={sessionData} onLogout={handleLogout} onSessionUpdate={handleSessionUpdate} clockOffsetMs={clockOffsetMs} />;
             case 'voter':
-                return <VoterView sessionData={sessionData} onLogout={handleLogout} eventTitle={user.eventTitle} />;
+                return <VoterView sessionData={sessionData} onLogout={handleLogout} eventTitle={user.eventTitle} clockOffsetMs={clockOffsetMs} />;
             default:
                 return <LoginScreen onLogin={handleLogin} error={error} />;
         }

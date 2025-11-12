@@ -50,17 +50,27 @@ const defaultResults = () => ({ igen: 0, nem: 0, tartozkodott: 0 });
 const VOTE_DURATION_SECONDS =
   Number.parseInt(process.env.VOTE_DURATION_SECONDS || '10', 10) || 10;
 
-let sessionState = {
+const stampState = (state) => ({
+  ...state,
+  serverTimestamp: new Date().toISOString(),
+});
+
+let sessionState = stampState({
   status: 'WAITING',
   results: defaultResults(),
   totalVoters: INITIAL_TOTAL_VOTERS,
   voteStartTime: null,
   voteEndTime: null,
   voteDurationSeconds: VOTE_DURATION_SECONDS,
-};
+});
 
 const clients = new Set();
 const sessions = new Map();
+
+const snapshotState = () => {
+  sessionState = stampState(sessionState);
+  return sessionState;
+};
 
 const broadcast = () => {
   const payload = `data: ${JSON.stringify(sessionState)}\n\n`;
@@ -70,7 +80,7 @@ const broadcast = () => {
 };
 
 const setState = (nextState) => {
-  sessionState = { ...sessionState, ...nextState };
+  sessionState = stampState({ ...sessionState, ...nextState });
   broadcast();
 };
 
@@ -675,7 +685,7 @@ app.get('/sso', (req, res) => {
 });
 
 app.get('/api/session', (_req, res) => {
-  res.json(sessionState);
+  res.json(snapshotState());
 });
 
 app.post('/api/session/start', requireRoles(['admin']), (req, res) => {
@@ -753,7 +763,7 @@ app.get('/api/session/stream', (req, res) => {
   res.setHeader('Connection', 'keep-alive');
 
   res.flushHeaders?.();
-  res.write(`data: ${JSON.stringify(sessionState)}\n\n`);
+  res.write(`data: ${JSON.stringify(snapshotState())}\n\n`);
 
   clients.add(res);
 
