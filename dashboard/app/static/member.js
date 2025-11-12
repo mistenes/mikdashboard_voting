@@ -243,6 +243,13 @@ function renderVoting(detail, sessionUser) {
     return;
   }
 
+  if (!activeEvent.is_voting_enabled) {
+    setVotingHelper(
+      "A szavazási felület még nem elérhető ehhez az eseményhez. Kérjük, térj vissza később."
+    );
+    return;
+  }
+
   const publicAvailable = isPaid;
   markVotingButtonState(openVotingPublicButton, {
     available: publicAvailable,

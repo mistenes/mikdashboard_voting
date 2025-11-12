@@ -6,6 +6,7 @@ const eventListContainer = document.querySelector("#event-list");
 const eventSelector = document.querySelector("#event-selector");
 const delegateTableBody = document.querySelector("#delegate-table-body");
 const createEventForm = document.querySelector("#create-event-form");
+const selectedEventInfo = document.querySelector("#selected-event-info");
 
 const eventState = {
   organizations: [],
@@ -18,6 +19,17 @@ const eventDateFormatter = new Intl.DateTimeFormat("hu-HU", {
   dateStyle: "medium",
   timeStyle: "short",
 });
+
+function formatDateTime(value) {
+  if (!value) {
+    return null;
+  }
+  try {
+    return eventDateFormatter.format(new Date(value));
+  } catch (_) {
+    return null;
+  }
+}
 
 function setStatus(message, type = "") {
   if (!adminStatus) {
@@ -732,8 +744,46 @@ function renderEventsList(events) {
       : "Ismeretlen időpont";
     meta.textContent = `Létrehozva: ${createdLabel} • Delegáltak: ${event.delegate_count}`;
 
+    const details = document.createElement("ul");
+    details.classList.add("event-details");
+    const eventDateLabel = formatDateTime(event.event_date);
+    if (eventDateLabel) {
+      const item = document.createElement("li");
+      item.textContent = `Esemény időpontja: ${eventDateLabel}`;
+      details.appendChild(item);
+    }
+    const deadlineLabel = formatDateTime(event.delegate_deadline);
+    if (deadlineLabel) {
+      const item = document.createElement("li");
+      item.textContent = `Delegált határidő: ${deadlineLabel}`;
+      details.appendChild(item);
+    }
+    const accessItem = document.createElement("li");
+    accessItem.textContent = event.is_voting_enabled
+      ? "Szavazási felület engedélyezve"
+      : "Szavazási felület letiltva";
+    details.appendChild(accessItem);
+
     const actions = document.createElement("div");
     actions.classList.add("event-actions");
+
+    const toggleWrapper = document.createElement("label");
+    toggleWrapper.classList.add("event-toggle");
+    const toggle = document.createElement("input");
+    toggle.type = "checkbox";
+    toggle.checked = Boolean(event.is_voting_enabled);
+    toggle.disabled = !event.is_active;
+    toggle.title = event.is_active
+      ? "A szavazási felület engedélyezése vagy letiltása."
+      : "Csak az aktív esemény érhető el a szavazási felületen.";
+    toggle.addEventListener("change", async () => {
+      await handleVotingAccessToggle(event, toggle);
+    });
+    const toggleLabel = document.createElement("span");
+    toggleLabel.textContent = "Szavazási felület engedélyezése";
+    toggleWrapper.appendChild(toggle);
+    toggleWrapper.appendChild(toggleLabel);
+    actions.appendChild(toggleWrapper);
 
     if (!event.is_active) {
       const activateButton = document.createElement("button");
@@ -754,6 +804,7 @@ function renderEventsList(events) {
     card.appendChild(header);
     card.appendChild(description);
     card.appendChild(meta);
+    card.appendChild(details);
     card.appendChild(actions);
 
     eventListContainer.appendChild(card);
@@ -772,6 +823,9 @@ function renderEventSelectorControl(events) {
     option.textContent = "Nincs elérhető esemény";
     eventSelector.appendChild(option);
     eventSelector.disabled = true;
+    if (selectedEventInfo) {
+      selectedEventInfo.textContent = "Még nincs elérhető esemény.";
+    }
     return;
   }
 
@@ -779,9 +833,12 @@ function renderEventSelectorControl(events) {
   events.forEach((event) => {
     const option = document.createElement("option");
     option.value = String(event.id);
-    option.textContent = event.is_active
-      ? `${event.title} (aktív)`
-      : event.title;
+    const labels = [event.title];
+    if (event.is_active) {
+      labels.push("(aktív)");
+    }
+    labels.push(event.is_voting_enabled ? "• szavazás engedélyezve" : "• szavazás letiltva");
+    option.textContent = labels.join(" ");
     eventSelector.appendChild(option);
   });
 
@@ -790,10 +847,37 @@ function renderEventSelectorControl(events) {
       ? String(eventState.selectedEventId)
       : String(events[0].id);
   eventSelector.value = desiredValue;
+  renderSelectedEventInfo();
 }
 
 function currentDelegateInfo(organizationId) {
   return eventState.delegates.find((item) => item.organization_id === organizationId) || null;
+}
+
+function renderSelectedEventInfo() {
+  if (!selectedEventInfo) {
+    return;
+  }
+  if (!eventState.selectedEventId) {
+    selectedEventInfo.textContent = "Válassz ki egy eseményt.";
+    return;
+  }
+  const event = eventState.events.find((item) => item.id === eventState.selectedEventId);
+  if (!event) {
+    selectedEventInfo.textContent = "Válassz ki egy eseményt.";
+    return;
+  }
+  const parts = [];
+  const eventDateLabel = formatDateTime(event.event_date);
+  if (eventDateLabel) {
+    parts.push(`Időpont: ${eventDateLabel}`);
+  }
+  const deadlineLabel = formatDateTime(event.delegate_deadline);
+  if (deadlineLabel) {
+    parts.push(`Delegált határidő: ${deadlineLabel}`);
+  }
+  parts.push(event.is_voting_enabled ? "Szavazási felület engedélyezve" : "Szavazási felület letiltva");
+  selectedEventInfo.textContent = parts.join(" • ");
 }
 
 function renderDelegateTable() {
@@ -957,6 +1041,30 @@ async function handleEventActivation(eventId) {
   }
 }
 
+async function handleVotingAccessToggle(event, toggleElement) {
+  if (!ensureAdminSession(true)) {
+    toggleElement.checked = !toggleElement.checked;
+    return;
+  }
+  const desired = toggleElement.checked;
+  try {
+    await requestJSON(`/api/admin/events/${event.id}/access`, {
+      method: "POST",
+      body: JSON.stringify({ is_voting_enabled: desired }),
+    });
+    setStatus(
+      desired
+        ? "A szavazási felület engedélyezve ezen az eseményen."
+        : "A szavazási felület letiltva ezen az eseményen.",
+      "success",
+    );
+    await refreshEventData();
+  } catch (error) {
+    toggleElement.checked = !desired;
+    handleAuthError(error);
+  }
+}
+
 async function handleDelegateChange(organizationId, selectElement) {
   if (!ensureAdminSession(true)) {
     return;
@@ -999,6 +1107,7 @@ async function initEventsPage() {
     const selected = Number.parseInt(event.target.value, 10);
     eventState.selectedEventId = Number.isFinite(selected) ? selected : null;
     await refreshEventDelegates();
+    renderSelectedEventInfo();
     renderDelegateTable();
   });
 
@@ -1008,9 +1117,17 @@ async function initEventsPage() {
       return;
     }
     const formData = new FormData(createEventForm);
+    const eventDateValue = formData.get("event_date");
+    const deadlineValue = formData.get("delegate_deadline");
+    if (!eventDateValue || !deadlineValue) {
+      setStatus("Kérjük, add meg az esemény dátumát és a delegált határidejét.", "error");
+      return;
+    }
     const payload = {
       title: formData.get("title"),
       description: formData.get("description") || null,
+      event_date: String(eventDateValue),
+      delegate_deadline: String(deadlineValue),
       activate: formData.get("activate") === "on",
     };
     try {

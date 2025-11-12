@@ -107,7 +107,10 @@ class VotingEvent(Base):
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String, nullable=False)
     description = Column(String, nullable=True)
+    event_date = Column(DateTime, nullable=True)
+    delegate_deadline = Column(DateTime, nullable=True)
     is_active = Column(Boolean, default=False, nullable=False)
+    is_voting_enabled = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False

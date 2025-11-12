@@ -31,6 +31,10 @@ interface SessionData {
     voteEndTime: string | null;
     voteDurationSeconds: number;
     serverTimestamp: string | null;
+    eventTitle: string | null;
+    eventDate: string | null;
+    delegateDeadline: string | null;
+    isVotingEnabled: boolean;
 }
 
 interface SessionResponse {
@@ -41,6 +45,10 @@ interface SessionResponse {
     voteEndTime?: string | null;
     voteDurationSeconds?: number;
     serverTimestamp?: string | null;
+    eventTitle?: string | null;
+    eventDate?: string | null;
+    delegateDeadline?: string | null;
+    isVotingEnabled?: boolean;
 }
 
 type UserRole = 'admin' | 'voter';
@@ -55,6 +63,9 @@ interface AuthUser {
     organizationFeePaid?: boolean | null;
     eventId?: number | null;
     eventTitle?: string | null;
+    eventDate?: string | null;
+    delegateDeadline?: string | null;
+    isVotingEnabled?: boolean | null;
     mustChangePassword?: boolean;
     isEventDelegate?: boolean | null;
     source?: string;
@@ -80,6 +91,10 @@ const toSessionData = (response: SessionResponse | null | undefined): SessionDat
     voteEndTime: response?.voteEndTime ?? null,
     voteDurationSeconds: Number(response?.voteDurationSeconds ?? DEFAULT_VOTE_DURATION),
     serverTimestamp: response?.serverTimestamp ?? null,
+    eventTitle: response?.eventTitle ?? null,
+    eventDate: response?.eventDate ?? null,
+    delegateDeadline: response?.delegateDeadline ?? null,
+    isVotingEnabled: Boolean(response?.isVotingEnabled ?? false),
 });
 
 async function jsonRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -193,12 +208,37 @@ const ResultsDisplay = ({ results, totalVoters }: { results: SessionData['result
 };
 
 
+const formatDateTime = (value: string | null) => {
+    if (!value) {
+        return '';
+    }
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+        return '';
+    }
+    return parsed.toLocaleString('hu-HU', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+    });
+};
+
 const PublicView = ({ sessionData, lastUpdate }: { sessionData: SessionData, lastUpdate: Date | null }) => {
     const statusLabel = STATUS_MESSAGES[sessionData.status];
+    const eventTitle = (sessionData.eventTitle || '').trim();
+    const eventDateLabel = formatDateTime(sessionData.eventDate);
+    const delegateDeadlineLabel = formatDateTime(sessionData.delegateDeadline);
     return (
         <div className="container public-view">
             <h1>Nyilvános szavazás</h1>
-            <p className="public-caption">Eredmények valós időben frissítve</p>
+            {eventTitle && <p className="event-banner">Esemény: {eventTitle}</p>}
+            <div className="event-meta">
+                {eventDateLabel && <span>Időpont: {eventDateLabel}</span>}
+                {delegateDeadlineLabel && <span>Delegált határidő: {delegateDeadlineLabel}</span>}
+                <span>Szavazási felület: {sessionData.isVotingEnabled ? 'Engedélyezve' : 'Letiltva'}</span>
+            </div>
             <div className={`public-status-badge public-status-${sessionData.status.toLowerCase()}`}>
                 {statusLabel}
             </div>
@@ -232,6 +272,10 @@ const AdminView = ({ sessionData, onLogout, onSessionUpdate, clockOffsetMs }: {
 }) => {
     const [isLoading, setIsLoading] = useState(false);
     const [adminTimeLeft, setAdminTimeLeft] = useState<number | null>(null);
+
+    const eventTitle = (sessionData.eventTitle || '').trim();
+    const eventDateLabel = formatDateTime(sessionData.eventDate);
+    const delegateDeadlineLabel = formatDateTime(sessionData.delegateDeadline);
 
     const voteEndMs = useMemo(() => (
         sessionData.voteEndTime ? new Date(sessionData.voteEndTime).getTime() : null
@@ -313,7 +357,23 @@ const AdminView = ({ sessionData, onLogout, onSessionUpdate, clockOffsetMs }: {
         <div className="container admin-view">
             <h1>Adminisztrátor</h1>
             <p>Itt kezelheti a szavazási folyamatot.</p>
-            
+
+            <section className="event-overview">
+                <h2>Aktív esemény</h2>
+                {eventTitle ? (
+                    <div className="event-overview-card">
+                        <p className="event-overview-title">{eventTitle}</p>
+                        <ul>
+                            {eventDateLabel && <li>Esemény időpontja: <strong>{eventDateLabel}</strong></li>}
+                            {delegateDeadlineLabel && <li>Delegált kijelölési határidő: <strong>{delegateDeadlineLabel}</strong></li>}
+                            <li>Szavazási felület: <strong>{sessionData.isVotingEnabled ? 'Engedélyezve' : 'Letiltva'}</strong></li>
+                        </ul>
+                    </div>
+                ) : (
+                    <p className="muted">Nincs aktív szavazási esemény.</p>
+                )}
+            </section>
+
             <div className="admin-info">
                 <span>Regisztrált szavazók:</span>
                 <strong>{sessionData.totalVoters}</strong>
@@ -474,7 +534,7 @@ const VoterView = ({ sessionData, onLogout, eventTitle, clockOffsetMs }: { sessi
         }
     }
 
-    const trimmedTitle = (eventTitle || '').trim();
+    const trimmedTitle = (sessionData.eventTitle || eventTitle || '').trim();
 
     return (
         <div className="container view-container">

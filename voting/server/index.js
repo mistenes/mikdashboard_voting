@@ -62,6 +62,10 @@ let sessionState = stampState({
   voteStartTime: null,
   voteEndTime: null,
   voteDurationSeconds: VOTE_DURATION_SECONDS,
+  eventTitle: null,
+  eventDate: null,
+  delegateDeadline: null,
+  isVotingEnabled: false,
 });
 
 const clients = new Set();
@@ -144,6 +148,43 @@ const applyTotalVoters = (value) => {
     return;
   }
   setState({ totalVoters: normalized });
+};
+
+const applyEventMetadata = ({
+  eventTitle,
+  eventDate,
+  delegateDeadline,
+  isVotingEnabled,
+}) => {
+  const updates = {};
+  let changed = false;
+
+  if (eventTitle !== undefined && sessionState.eventTitle !== eventTitle) {
+    updates.eventTitle = eventTitle;
+    changed = true;
+  }
+  if (eventDate !== undefined && sessionState.eventDate !== eventDate) {
+    updates.eventDate = eventDate;
+    changed = true;
+  }
+  if (
+    delegateDeadline !== undefined &&
+    sessionState.delegateDeadline !== delegateDeadline
+  ) {
+    updates.delegateDeadline = delegateDeadline;
+    changed = true;
+  }
+  if (
+    isVotingEnabled !== undefined &&
+    sessionState.isVotingEnabled !== isVotingEnabled
+  ) {
+    updates.isVotingEnabled = isVotingEnabled;
+    changed = true;
+  }
+
+  if (changed) {
+    setState(updates);
+  }
 };
 
 app.use(express.json());
@@ -360,6 +401,12 @@ async function authenticateAgainstDashboard(email, password) {
   if (signedResult.ok) {
     const info = signedResult.data || {};
     const delegateCount = normalizeTotalVoters(info.active_event?.delegate_count);
+    applyEventMetadata({
+      eventTitle: info.active_event?.title ?? null,
+      eventDate: info.active_event?.event_date ?? null,
+      delegateDeadline: info.active_event?.delegate_deadline ?? null,
+      isVotingEnabled: info.active_event?.is_voting_enabled ?? false,
+    });
     return {
       ok: true,
       data: {
@@ -372,6 +419,9 @@ async function authenticateAgainstDashboard(email, password) {
         mustChangePassword: info.must_change_password ?? false,
         eventId: info.active_event?.id ?? null,
         eventTitle: info.active_event?.title ?? null,
+        eventDate: info.active_event?.event_date ?? null,
+        delegateDeadline: info.active_event?.delegate_deadline ?? null,
+        isVotingEnabled: info.active_event?.is_voting_enabled ?? false,
         isEventDelegate: info.is_event_delegate ?? Boolean(info.is_admin),
         delegateCount,
         source: 'voting-auth',
@@ -395,6 +445,12 @@ async function authenticateAgainstDashboard(email, password) {
 
   if (loginResult.ok) {
     const payload = loginResult.data || {};
+    applyEventMetadata({
+      eventTitle: null,
+      eventDate: null,
+      delegateDeadline: null,
+      isVotingEnabled: false,
+    });
     return {
       ok: true,
       data: {
@@ -407,6 +463,9 @@ async function authenticateAgainstDashboard(email, password) {
         mustChangePassword: payload.must_change_password ?? false,
         eventId: null,
         eventTitle: null,
+        eventDate: null,
+        delegateDeadline: null,
+        isVotingEnabled: false,
         isEventDelegate: Boolean(payload.is_admin),
         delegateCount: null,
         source: 'login',
@@ -496,6 +555,9 @@ app.post('/api/auth/login', async (req, res) => {
         mustChangePassword: data.mustChangePassword ?? false,
         eventId: data.eventId ?? null,
         eventTitle: data.eventTitle ?? null,
+        eventDate: data.eventDate ?? null,
+        delegateDeadline: data.delegateDeadline ?? null,
+        isVotingEnabled: data.isVotingEnabled ?? false,
         isEventDelegate: data.isEventDelegate ?? (data.isAdmin ? true : false),
       });
       applyTotalVoters(data.delegateCount);
@@ -570,6 +632,9 @@ app.post('/api/auth/login', async (req, res) => {
     mustChangePassword: false,
     eventId: null,
     eventTitle: null,
+    eventDate: null,
+    delegateDeadline: null,
+    isVotingEnabled: false,
     isEventDelegate: true,
   });
   setSessionCookie(res, session.id);
@@ -701,10 +766,19 @@ function handleO2AuthRequest(req, res) {
     mustChangePassword: false,
     eventId: payload.event ?? null,
     eventTitle: payload.event_title ?? null,
+    eventDate: payload.event_date ?? null,
+    delegateDeadline: payload.delegate_deadline ?? null,
+    isVotingEnabled: payload.is_voting_enabled ?? (role === 'admin'),
     isEventDelegate: payload.is_delegate ?? (role === 'admin'),
     source: 'o2auth',
   });
   applyTotalVoters(payload.delegate_count ?? payload.total_voters ?? payload.totalVoters);
+  applyEventMetadata({
+    eventTitle: payload.event_title ?? null,
+    eventDate: payload.event_date ?? null,
+    delegateDeadline: payload.delegate_deadline ?? null,
+    isVotingEnabled: payload.is_voting_enabled ?? (role === 'admin'),
+  });
   setSessionCookie(res, session.id);
 
   const prefersJson = req.headers.accept && req.headers.accept.includes('application/json');

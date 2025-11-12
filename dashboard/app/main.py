@@ -43,6 +43,7 @@ from .schemas import (
     VerificationResponse,
     VotingAuthRequest,
     VotingAuthResponse,
+    VotingEventAccessUpdate,
     VotingEventCreateRequest,
     VotingEventRead,
     VotingO2AuthLaunchRequest,
@@ -72,6 +73,7 @@ from .services import (
     resolve_session_user,
     search_organizations,
     set_active_voting_event,
+    set_voting_event_accessibility,
     set_organization_billing_details,
     set_organization_fee_status,
     verify_email,
@@ -123,6 +125,7 @@ def startup() -> None:
     ensure_must_change_password_column()
     ensure_nullable_organization_column()
     ensure_name_columns()
+    ensure_event_metadata_columns()
     seed_admin_user()
     app.state.email_queue = []
 
@@ -214,6 +217,24 @@ def ensure_name_columns() -> None:
             connection.execute(text("ALTER TABLE users ADD COLUMN last_name VARCHAR"))
 
 
+def ensure_event_metadata_columns() -> None:
+    with engine.begin() as connection:
+        inspector = inspect(connection)
+        columns = {column["name"] for column in inspector.get_columns("voting_events")}
+        if "event_date" not in columns:
+            connection.execute(text("ALTER TABLE voting_events ADD COLUMN event_date TIMESTAMP"))
+        if "delegate_deadline" not in columns:
+            connection.execute(
+                text("ALTER TABLE voting_events ADD COLUMN delegate_deadline TIMESTAMP")
+            )
+        if "is_voting_enabled" not in columns:
+            connection.execute(
+                text(
+                    "ALTER TABLE voting_events ADD COLUMN is_voting_enabled BOOLEAN NOT NULL DEFAULT FALSE"
+                )
+            )
+
+
 def _base64url_encode(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).decode("ascii").rstrip("=")
 
@@ -261,6 +282,11 @@ def generate_voting_o2auth_token(
         "last_name": user.last_name,
         "event": event.id,
         "event_title": event.title,
+        "event_date": event.event_date.isoformat() if event.event_date else None,
+        "delegate_deadline": (
+            event.delegate_deadline.isoformat() if event.delegate_deadline else None
+        ),
+        "is_voting_enabled": event.is_voting_enabled,
         "delegate_count": event_delegate_count(event),
     }
     if view and view != "default":
@@ -405,6 +431,9 @@ def active_event_info(event: VotingEvent | None) -> ActiveEventInfo | None:
         id=event.id,
         title=event.title,
         description=event.description,
+        event_date=event.event_date,
+        delegate_deadline=event.delegate_deadline,
+        is_voting_enabled=event.is_voting_enabled,
         delegate_count=event_delegate_count(event),
     )
 
@@ -461,7 +490,10 @@ def build_event_read(event: VotingEvent) -> VotingEventRead:
         id=event.id,
         title=event.title,
         description=event.description,
+        event_date=event.event_date,
+        delegate_deadline=event.delegate_deadline,
         is_active=event.is_active,
+        is_voting_enabled=event.is_voting_enabled,
         created_at=event.created_at,
         delegate_count=delegate_count,
     )
@@ -625,6 +657,22 @@ def authenticate_for_voting(
         delegate_map = delegates_for_event(db, event_id=active_event.id)
         delegate = delegate_map.get(organization_id)
         is_delegate = bool(delegate and delegate.user_id == user.id)
+
+    if active_event is None and not user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Jelenleg nincs aktív szavazási esemény.",
+        )
+
+    if (
+        active_event is not None
+        and not active_event.is_voting_enabled
+        and not user.is_admin
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="A szavazási felület még nem elérhető ehhez az eseményhez.",
+        )
 
     return VotingAuthResponse(
         email=user.email,
@@ -1034,6 +1082,8 @@ def create_voting_event_endpoint(
             db,
             title=payload.title,
             description=payload.description,
+            event_date=payload.event_date,
+            delegate_deadline=payload.delegate_deadline,
             activate=payload.activate,
         )
         db.flush()
@@ -1063,6 +1113,42 @@ def activate_voting_event_endpoint(
     except RegistrationError as exc:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    db.commit()
+    return build_event_read(event)
+
+
+@app.post(
+    "/api/admin/events/{event_id}/access",
+    response_model=VotingEventRead,
+    responses={
+        401: {"model": ErrorResponse},
+        400: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+    },
+)
+def update_event_accessibility(
+    event_id: int,
+    payload: VotingEventAccessUpdate,
+    db: DatabaseDependency,
+    _: Annotated[User, Depends(require_admin)],
+) -> VotingEventRead:
+    try:
+        event = set_voting_event_accessibility(
+            db, event_id=event_id, is_voting_enabled=payload.is_voting_enabled
+        )
+        db.flush()
+        db.refresh(event, attribute_names=["delegates"])
+    except RegistrationError as exc:
+        db.rollback()
+        detail = str(exc)
+        lowered = detail.lower()
+        status_code = (
+            status.HTTP_404_NOT_FOUND
+            if "nem található" in lowered
+            else status.HTTP_400_BAD_REQUEST
+        )
+        raise HTTPException(status_code=status_code, detail=detail) from exc
 
     db.commit()
     return build_event_read(event)

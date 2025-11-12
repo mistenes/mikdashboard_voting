@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Iterable, List, Optional
 
 import httpx
@@ -387,6 +387,12 @@ def _ensure_user_can_delegate(user: User) -> None:
         )
 
 
+def _normalize_datetime(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+
 def list_voting_events(session: Session) -> List[VotingEvent]:
     stmt = (
         select(VotingEvent)
@@ -411,16 +417,29 @@ def create_voting_event(
     *,
     title: str,
     description: Optional[str] = None,
+    event_date: datetime,
+    delegate_deadline: datetime,
     activate: bool = False,
 ) -> VotingEvent:
     cleaned_title = title.strip()
     if len(cleaned_title) < 3:
         raise RegistrationError("Az esemény neve legalább 3 karakter legyen.")
 
+    normalized_event_date = _normalize_datetime(event_date)
+    normalized_delegate_deadline = _normalize_datetime(delegate_deadline)
+
+    if normalized_delegate_deadline > normalized_event_date:
+        raise RegistrationError(
+            "A delegált kijelölési határidő nem lehet a rendezvény dátuma után."
+        )
+
     event = VotingEvent(
         title=cleaned_title,
         description=sanitize_optional_text(description),
+        event_date=normalized_event_date,
+        delegate_deadline=normalized_delegate_deadline,
         is_active=False,
+        is_voting_enabled=False,
     )
     session.add(event)
     session.flush()
@@ -428,6 +447,9 @@ def create_voting_event(
     has_active = get_active_voting_event(session)
     if activate or has_active is None:
         event = set_active_voting_event(session, event.id)
+        if activate:
+            event.is_voting_enabled = True
+            session.flush()
     return event
 
 
@@ -439,8 +461,27 @@ def set_active_voting_event(session: Session, event_id: int) -> VotingEvent:
     stmt = select(VotingEvent)
     for item in session.scalars(stmt):
         item.is_active = item.id == event.id
+        if item.id != event.id and item.is_voting_enabled:
+            item.is_voting_enabled = False
     session.flush()
     synchronize_delegate_flags(session, event)
+    return event
+
+
+def set_voting_event_accessibility(
+    session: Session, event_id: int, *, is_voting_enabled: bool
+) -> VotingEvent:
+    event = session.get(VotingEvent, event_id)
+    if event is None:
+        raise RegistrationError("Nem található szavazási esemény")
+
+    if is_voting_enabled and not event.is_active:
+        raise RegistrationError(
+            "Csak az aktív esemény tehető elérhetővé a szavazási felületen."
+        )
+
+    event.is_voting_enabled = is_voting_enabled
+    session.flush()
     return event
 
 

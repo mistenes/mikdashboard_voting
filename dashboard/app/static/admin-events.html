@@ -69,6 +69,20 @@
                 maxlength="500"
                 placeholder="Foglalja össze röviden az esemény témáját vagy időpontját."
               ></textarea>
+              <label for="event-date">Esemény dátuma</label>
+              <input
+                type="datetime-local"
+                id="event-date"
+                name="event_date"
+                required
+              />
+              <label for="delegate-deadline">Delegált kijelölési határidő</label>
+              <input
+                type="datetime-local"
+                id="delegate-deadline"
+                name="delegate_deadline"
+                required
+              />
             </div>
             <div class="form-row event-form-actions">
               <label class="checkbox">
@@ -98,6 +112,7 @@
           <div class="delegate-controls">
             <label for="event-selector" class="muted">Megjelenített esemény</label>
             <select id="event-selector" class="event-selector"></select>
+            <p id="selected-event-info" class="muted"></p>
           </div>
           <div class="table-scroll">
             <table class="delegate-table">

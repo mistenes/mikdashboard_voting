@@ -84,6 +84,9 @@ class ActiveEventInfo(BaseModel):
     id: int
     title: str
     description: Optional[str] = None
+    event_date: Optional[datetime] = None
+    delegate_deadline: Optional[datetime] = None
+    is_voting_enabled: bool = False
     delegate_count: int = 0
 
 
@@ -161,14 +164,23 @@ class VotingDelegateUpdate(BaseModel):
 class VotingEventCreateRequest(BaseModel):
     title: constr(strip_whitespace=True, min_length=3, max_length=255)
     description: Optional[constr(strip_whitespace=True, max_length=500)] = None
+    event_date: datetime
+    delegate_deadline: datetime
     activate: bool = False
+
+
+class VotingEventAccessUpdate(BaseModel):
+    is_voting_enabled: bool
 
 
 class VotingEventRead(BaseModel):
     id: int
     title: str
     description: Optional[str] = None
+    event_date: Optional[datetime] = None
+    delegate_deadline: Optional[datetime] = None
     is_active: bool
+    is_voting_enabled: bool
     created_at: datetime
     delegate_count: int = 0
 
