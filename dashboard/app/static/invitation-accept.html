@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="hu">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MikDashboard – Meghívó elfogadása</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body class="simple-bg" data-invite-page>
+    <main class="auth-container invite-container">
+      <header class="invite-header">
+        <h1>MikDashboard meghívó</h1>
+        <p class="muted" id="invitation-intro">
+          Töltsd ki az alábbi adatokat a csatlakozáshoz.
+        </p>
+      </header>
+
+      <section class="auth-card invite-card">
+        <div class="invite-summary-card" aria-labelledby="invite-details-title">
+          <h2 id="invite-details-title">Meghívó részletei</h2>
+          <dl class="invite-summary">
+            <div>
+              <dt>Szervezet</dt>
+              <dd id="invite-organization">Betöltés...</dd>
+            </div>
+            <div>
+              <dt>Meghívott e-mail</dt>
+              <dd id="invite-email">Betöltés...</dd>
+            </div>
+            <div>
+              <dt>Szerepkör</dt>
+              <dd id="invite-role">Betöltés...</dd>
+            </div>
+          </dl>
+        </div>
+
+        <div class="invite-form-card" aria-labelledby="invite-form-title">
+          <h2 id="invite-form-title">Fiók létrehozása</h2>
+          <p id="invite-status" class="status" role="status"></p>
+          <form id="invitation-form" class="invite-accept-form">
+            <div class="invite-field">
+              <label for="first-name">Keresztnév</label>
+              <input type="text" id="first-name" name="first_name" required maxlength="100" />
+            </div>
+
+            <div class="invite-field">
+              <label for="last-name">Vezetéknév</label>
+              <input type="text" id="last-name" name="last_name" required maxlength="100" />
+            </div>
+
+            <div class="invite-field">
+              <label for="password">Jelszó</label>
+              <input type="password" id="password" name="password" required minlength="8" />
+            </div>
+
+            <div class="invite-field">
+              <label for="password-confirm">Jelszó megerősítése</label>
+              <input
+                type="password"
+                id="password-confirm"
+                name="password_confirm"
+                required
+                minlength="8"
+              />
+            </div>
+
+            <button type="submit" class="primary-btn invite-submit">Meghívó elfogadása</button>
+          </form>
+          <p class="muted small-print">
+            A meghívó elfogadása után bejelentkezhetsz a MikDashboard felületére az imént megadott
+            jelszóval.
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="/static/invitation.js"></script>
+  </body>
+</html>

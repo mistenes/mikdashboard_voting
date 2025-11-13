@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="hu">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MikDashboard – Felhasználókezelés</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body class="simple-bg" data-admin-page="users">
+    <div class="admin-shell">
+      <aside class="admin-sidebar">
+        <div class="sidebar-brand">
+          <h1>MikDashboard</h1>
+          <p>Admin vezérlőpult</p>
+        </div>
+        <nav class="sidebar-nav" aria-label="Admin menü">
+          <a href="/admin" class="sidebar-link">Áttekintés</a>
+          <a href="/admin/szervezetek" class="sidebar-link">Szervezetek</a>
+          <a href="/admin/jelentkezok" class="sidebar-link">Függő regisztrációk</a>
+          <a href="/admin/esemenyek" class="sidebar-link">Szavazási események</a>
+          <a href="/admin/felhasznalok" class="sidebar-link active">Felhasználókezelés</a>
+          <span class="sidebar-divider" aria-hidden="true"></span>
+          <span class="sidebar-link placeholder" aria-disabled="true">Riportok (hamarosan)</span>
+          <a href="/admin/beallitasok" class="sidebar-link">Beállítások</a>
+        </nav>
+        <div class="sidebar-footer">
+          <button id="admin-sign-out" type="button" class="ghost-btn sidebar-logout">
+            Kijelentkezés
+          </button>
+        </div>
+      </aside>
+      <main class="admin-container">
+        <header class="admin-header">
+          <div>
+            <h1>Felhasználókezelés</h1>
+            <p class="lead">
+              Hozz létre új adminisztrátorokat és kövesd nyomon a meglévő fiókok állapotát.
+            </p>
+          </div>
+        </header>
+        <p id="admin-status" class="status" role="status"></p>
+
+        <section class="auth-card" aria-labelledby="create-admin-title">
+          <div class="section-header">
+            <h2 id="create-admin-title">Új adminisztrátor létrehozása</h2>
+            <p class="muted">
+              Az itt létrehozott felhasználók azonnal adminisztrátori jogosultságot kapnak, és az első belépéskor jelszócserére lesz szükségük.
+            </p>
+          </div>
+          <form id="create-admin-form" class="form-grid admin-user-form" autocomplete="off">
+            <div class="form-field">
+              <label for="admin-first-name">Keresztnév</label>
+              <input id="admin-first-name" name="first_name" type="text" required maxlength="100" />
+            </div>
+            <div class="form-field">
+              <label for="admin-last-name">Vezetéknév</label>
+              <input id="admin-last-name" name="last_name" type="text" required maxlength="100" />
+            </div>
+            <div class="form-field">
+              <label for="admin-email">E-mail cím</label>
+              <input id="admin-email" name="email" type="email" required maxlength="255" />
+            </div>
+            <div class="form-field">
+              <label for="admin-password">Ideiglenes jelszó</label>
+              <input
+                id="admin-password"
+                name="password"
+                type="password"
+                required
+                minlength="8"
+                autocomplete="new-password"
+              />
+              <span class="hint">Legalább 8 karakter, egy nagybetű és speciális karakter szükséges.</span>
+            </div>
+            <div class="form-field">
+              <label for="admin-password-confirm">Jelszó megerősítése</label>
+              <input
+                id="admin-password-confirm"
+                name="password_confirm"
+                type="password"
+                required
+                minlength="8"
+                autocomplete="new-password"
+              />
+            </div>
+            <div class="form-actions">
+              <button type="submit" class="primary-btn">Admin létrehozása</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="auth-card" aria-labelledby="admin-list-title">
+          <div class="section-header">
+            <h2 id="admin-list-title">Adminisztrátorok</h2>
+            <p class="muted">
+              Jelenleg <span data-admin-count>0</span> aktív adminisztrátori fiók van a rendszerben.
+            </p>
+          </div>
+          <div class="table-scroll" data-admin-table>
+            <table class="admin-user-table" aria-describedby="admin-list-title">
+              <thead>
+                <tr>
+                  <th scope="col">Név</th>
+                  <th scope="col">E-mail</th>
+                  <th scope="col">Létrehozva</th>
+                  <th scope="col">Állapot</th>
+                </tr>
+              </thead>
+              <tbody data-admin-list></tbody>
+            </table>
+          </div>
+          <p class="muted" data-admin-empty hidden>
+            Jelenleg nincs adminisztrátori fiók. Hozz létre egyet a fenti űrlappal.
+          </p>
+        </section>
+      </main>
+    </div>
+    <script type="module" src="/static/admin.js"></script>
+  </body>
+</html>

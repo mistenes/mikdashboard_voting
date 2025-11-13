@@ -7,36 +7,62 @@
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body class="simple-bg" data-member-page="szavazas">
-    <main class="member-container">
-      <header class="member-header">
-        <div>
+    <div class="member-shell">
+      <aside class="member-sidebar" aria-label="Tagi menü">
+        <div class="member-sidebar-header">
+          <p class="sidebar-eyebrow">Szervezet</p>
           <h1 id="member-organization-name">Szervezet</h1>
           <p id="member-access-status" class="muted"></p>
         </div>
-        <button id="member-sign-out" type="button" class="ghost-btn">Kijelentkezés</button>
-      </header>
-      <p id="member-status" class="status" role="status"></p>
-      <nav class="member-nav" aria-label="Tag menü">
-        <a href="#" data-member-link="tagok" class="member-nav-link">Tagi menü</a>
-        <a href="#" data-member-link="szavazas" class="member-nav-link active">Szavazás</a>
-        <a href="#" data-member-link="penzugyek" class="member-nav-link">Pénzügyek</a>
-      </nav>
+        <nav class="member-nav">
+          <a href="#" data-member-link="tagok" class="member-nav-link">Áttekintés</a>
+          <a
+            href="#"
+            data-member-link="tagkezeles"
+            data-requires-contact="1"
+            class="member-nav-link"
+            >Tagok kezelése</a
+          >
+          <a
+            href="#"
+            data-member-link="szavazas"
+            class="member-nav-link active"
+            aria-current="page"
+            >Szavazás</a
+          >
+          <a href="#" data-member-link="penzugyek" class="member-nav-link">Pénzügyek</a>
+        </nav>
+        <div class="sidebar-footer">
+          <button id="member-sign-out" type="button" class="ghost-btn sidebar-logout">Kijelentkezés</button>
+        </div>
+      </aside>
 
-      <section class="auth-card" aria-labelledby="voting-title">
-        <div class="section-header">
-          <h2 id="voting-title">Szavazási esemény</h2>
-          <p id="current-event-summary" class="muted">
-            A delegált belépéshez válaszd a lenti gombot. Ha nincs aktív esemény, az adminisztrátor értesítést küld a következő szavazásról.
-          </p>
-        </div>
-        <div class="voting-actions">
-          <button id="open-voting" type="button" class="primary-btn">Szavazás megnyitása</button>
-          <button id="open-voting-admin" type="button" class="ghost-btn">Admin nézet megnyitása</button>
-          <button id="open-voting-public" type="button" class="ghost-btn">Nyilvános nézet</button>
-          <p id="voting-helper" class="muted"></p>
-        </div>
-      </section>
-    </main>
+      <main class="member-main">
+        <header class="member-main-header">
+          <div>
+            <p class="eyebrow">Szavazás</p>
+            <h2>Szavazási központ</h2>
+          </div>
+        </header>
+
+        <p id="member-status" class="status" role="status"></p>
+
+        <section class="auth-card" aria-labelledby="voting-title">
+          <div class="section-header">
+            <h2 id="voting-title">Szavazási esemény</h2>
+            <p id="current-event-summary" class="muted">
+              A delegált belépéshez válaszd a lenti gombot. Ha nincs aktív esemény, az adminisztrátor értesítést küld a következő szavazásról.
+            </p>
+          </div>
+          <div class="voting-actions">
+            <button id="open-voting" type="button" class="primary-btn">Szavazás megnyitása</button>
+            <button id="open-voting-admin" type="button" class="ghost-btn">Admin nézet megnyitása</button>
+            <button id="open-voting-public" type="button" class="ghost-btn">Nyilvános nézet</button>
+            <p id="voting-helper" class="muted"></p>
+          </div>
+        </section>
+      </main>
+    </div>
     <script type="module" src="/static/member.js"></script>
   </body>
 </html>

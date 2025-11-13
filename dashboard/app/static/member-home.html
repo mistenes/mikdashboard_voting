@@ -3,56 +3,74 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>MikDashboard – Tagi felület</title>
+    <title>MikDashboard – Kapcsolattartói áttekintés</title>
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body class="simple-bg" data-member-page="tagok">
-    <main class="member-container">
-      <header class="member-header">
-        <div>
+    <div class="member-shell">
+      <aside class="member-sidebar" aria-label="Tagi menü">
+        <div class="member-sidebar-header">
+          <p class="sidebar-eyebrow">Szervezet</p>
           <h1 id="member-organization-name">Szervezet</h1>
           <p id="member-access-status" class="muted"></p>
         </div>
-        <button id="member-sign-out" type="button" class="ghost-btn">Kijelentkezés</button>
-      </header>
-      <p id="member-status" class="status" role="status"></p>
-      <nav class="member-nav" aria-label="Tag menü">
-        <a href="#" data-member-link="tagok" class="member-nav-link active">Tagi menü</a>
-        <a href="#" data-member-link="szavazas" class="member-nav-link">Szavazás</a>
-        <a href="#" data-member-link="penzugyek" class="member-nav-link">Pénzügyek</a>
-      </nav>
-
-      <section class="auth-card" aria-labelledby="member-actions-title">
-        <h2 id="member-actions-title">Mit szeretnél tenni?</h2>
-        <ul class="member-actions">
-          <li>
-            <a href="#" data-member-link="szavazas" class="action-link">Tovább a szavazási felületre</a>
-          </li>
-          <li>
-            <a href="#" data-member-link="penzugyek" class="action-link">Pénzügyi áttekintés és dokumentumok</a>
-          </li>
-        </ul>
-      </section>
-
-      <section class="auth-card" aria-labelledby="member-list-title" id="member-list-card">
-        <div class="section-header">
-          <h2 id="member-list-title">Taglista</h2>
-          <p class="muted">Áttekintés a szervezet jelenlegi tagjairól.</p>
+        <nav class="member-nav">
+          <a href="#" data-member-link="tagok" class="member-nav-link active" aria-current="page"
+            >Áttekintés</a
+          >
+          <a href="#" data-member-link="tagkezeles" data-requires-contact="1" class="member-nav-link"
+            >Tagok kezelése</a
+          >
+          <a href="#" data-member-link="szavazas" class="member-nav-link">Szavazás</a>
+          <a href="#" data-member-link="penzugyek" class="member-nav-link">Pénzügyek</a>
+        </nav>
+        <div class="sidebar-footer">
+          <button id="member-sign-out" type="button" class="ghost-btn sidebar-logout">
+            Kijelentkezés
+          </button>
         </div>
-        <div class="table-wrapper">
-          <table id="member-list-table">
-            <thead>
-              <tr>
-                <th>Név</th>
-                <th>E-mail</th>
-                <th>Státusz</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-        </div>
-      </section>
-    </main>
+      </aside>
+
+      <main class="member-main">
+        <header class="member-main-header">
+          <div>
+            <p class="eyebrow">Kapcsolattartói felület</p>
+            <h2>Áttekintés és közelgő események</h2>
+          </div>
+        </header>
+
+        <p id="member-status" class="status" role="status"></p>
+
+        <section class="auth-card" aria-labelledby="contact-events-title" id="contact-events-card">
+          <div class="section-header">
+            <h2 id="contact-events-title">Közelgő események</h2>
+            <p class="muted">
+              Itt kezelheted, hogy kik képviselik a szervezetet az egyes eseményeken.
+            </p>
+          </div>
+          <div id="contact-events-list" class="event-assignment-list"></div>
+        </section>
+
+        <section class="auth-card" aria-labelledby="member-actions-title" id="member-actions-card">
+          <h2 id="member-actions-title">További lehetőségek</h2>
+          <ul class="member-actions" id="member-action-links">
+            <li>
+              <a href="#" data-member-link="szavazas" class="action-link">Tovább a szavazási felületre</a>
+            </li>
+            <li>
+              <a href="#" data-member-link="penzugyek" class="action-link"
+                >Pénzügyi áttekintés és dokumentumok</a
+              >
+            </li>
+            <li class="contact-only-action is-hidden">
+              <a href="#" data-member-link="tagkezeles" class="action-link"
+                >Tagok kezelése és meghívása</a
+              >
+            </li>
+          </ul>
+        </section>
+      </main>
+    </div>
     <script type="module" src="/static/member.js"></script>
   </body>
 </html>

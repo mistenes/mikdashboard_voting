@@ -31,6 +31,10 @@ interface SessionData {
     voteEndTime: string | null;
     voteDurationSeconds: number;
     serverTimestamp: string | null;
+    eventTitle: string | null;
+    eventDate: string | null;
+    delegateDeadline: string | null;
+    isVotingEnabled: boolean;
 }
 
 interface SessionResponse {
@@ -41,6 +45,10 @@ interface SessionResponse {
     voteEndTime?: string | null;
     voteDurationSeconds?: number;
     serverTimestamp?: string | null;
+    eventTitle?: string | null;
+    eventDate?: string | null;
+    delegateDeadline?: string | null;
+    isVotingEnabled?: boolean;
 }
 
 type UserRole = 'admin' | 'voter';
@@ -55,6 +63,9 @@ interface AuthUser {
     organizationFeePaid?: boolean | null;
     eventId?: number | null;
     eventTitle?: string | null;
+    eventDate?: string | null;
+    delegateDeadline?: string | null;
+    isVotingEnabled?: boolean | null;
     mustChangePassword?: boolean;
     isEventDelegate?: boolean | null;
     source?: string;
@@ -80,6 +91,10 @@ const toSessionData = (response: SessionResponse | null | undefined): SessionDat
     voteEndTime: response?.voteEndTime ?? null,
     voteDurationSeconds: Number(response?.voteDurationSeconds ?? DEFAULT_VOTE_DURATION),
     serverTimestamp: response?.serverTimestamp ?? null,
+    eventTitle: response?.eventTitle ?? null,
+    eventDate: response?.eventDate ?? null,
+    delegateDeadline: response?.delegateDeadline ?? null,
+    isVotingEnabled: Boolean(response?.isVotingEnabled ?? false),
 });
 
 async function jsonRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -141,6 +156,42 @@ const SyncStatus = ({ lastUpdate }: { lastUpdate: Date | null }) => {
     );
 };
 
+const formatDateTime = (value: string | null | undefined) => {
+    if (!value) {
+        return '';
+    }
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+        return '';
+    }
+    return parsed.toLocaleString('hu-HU', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+    });
+};
+
+const getUserDisplayName = (user: AuthUser | null): string => {
+    if (!user) {
+        return '';
+    }
+    const first = (user.firstName || '').trim();
+    const last = (user.lastName || '').trim();
+    const combined = [first, last].filter(Boolean).join(' ');
+    if (combined) {
+        return combined;
+    }
+    if (user.username && user.username.trim()) {
+        return user.username.trim();
+    }
+    if (user.email) {
+        return user.email;
+    }
+    return '';
+};
+
 const ResultsDisplay = ({ results, totalVoters }: { results: SessionData['results'], totalVoters: number }) => {
     const totalVotes = results.igen + results.nem + results.tartozkodott;
     const nemSzavazott = Math.max(0, totalVoters - totalVotes);
@@ -195,14 +246,28 @@ const ResultsDisplay = ({ results, totalVoters }: { results: SessionData['result
 
 const PublicView = ({ sessionData, lastUpdate }: { sessionData: SessionData, lastUpdate: Date | null }) => {
     const statusLabel = STATUS_MESSAGES[sessionData.status];
+    const eventTitle = (sessionData.eventTitle || '').trim();
+    const eventDateLabel = formatDateTime(sessionData.eventDate);
+    const delegateDeadlineLabel = formatDateTime(sessionData.delegateDeadline);
     return (
         <div className="container public-view">
-            <h1>Nyilvános szavazás</h1>
-            <p className="public-caption">Eredmények valós időben frissítve</p>
-            <div className={`public-status-badge public-status-${sessionData.status.toLowerCase()}`}>
-                {statusLabel}
-            </div>
-            <ResultsDisplay results={sessionData.results} totalVoters={sessionData.totalVoters} />
+            <header className="view-header" id="overview">
+                <h1>Nyilvános szavazás</h1>
+                {eventTitle && <p className="event-banner">Esemény: {eventTitle}</p>}
+            </header>
+            <section className="event-meta" id="event-details">
+                {eventDateLabel && <span>Időpont: {eventDateLabel}</span>}
+                {delegateDeadlineLabel && <span>Delegált határidő: {delegateDeadlineLabel}</span>}
+                <span>Szavazási felület: {sessionData.isVotingEnabled ? 'Engedélyezve' : 'Letiltva'}</span>
+            </section>
+            <section className="public-status" id="status">
+                <div className={`public-status-badge public-status-${sessionData.status.toLowerCase()}`}>
+                    {statusLabel}
+                </div>
+            </section>
+            <section className="public-results" id="results">
+                <ResultsDisplay results={sessionData.results} totalVoters={sessionData.totalVoters} />
+            </section>
             <p className="public-note">
                 {lastUpdate
                     ? `Utolsó frissítés: ${lastUpdate.toLocaleTimeString()}`
@@ -232,6 +297,10 @@ const AdminView = ({ sessionData, onLogout, onSessionUpdate, clockOffsetMs }: {
 }) => {
     const [isLoading, setIsLoading] = useState(false);
     const [adminTimeLeft, setAdminTimeLeft] = useState<number | null>(null);
+
+    const eventTitle = (sessionData.eventTitle || '').trim();
+    const eventDateLabel = formatDateTime(sessionData.eventDate);
+    const delegateDeadlineLabel = formatDateTime(sessionData.delegateDeadline);
 
     const voteEndMs = useMemo(() => (
         sessionData.voteEndTime ? new Date(sessionData.voteEndTime).getTime() : null
@@ -311,45 +380,67 @@ const AdminView = ({ sessionData, onLogout, onSessionUpdate, clockOffsetMs }: {
 
     return (
         <div className="container admin-view">
-            <h1>Adminisztrátor</h1>
-            <p>Itt kezelheti a szavazási folyamatot.</p>
-            
-            <div className="admin-info">
-                <span>Regisztrált szavazók:</span>
-                <strong>{sessionData.totalVoters}</strong>
-            </div>
+            <header className="view-header" id="overview">
+                <h1>Adminisztrátor</h1>
+                <p>Itt kezelheti a szavazási folyamatot.</p>
+            </header>
 
-            {sessionData.status === 'WAITING' && (
-                <button onClick={handleStartVote} className="btn btn-primary btn-start-vote" disabled={isLoading}>
-                    Szavazás Indítása
-                </button>
-            )}
-            
-            {sessionData.status === 'IN_PROGRESS' && (
-                <div className="admin-timer-container">
-                    <p>Hátralévő idő: <strong>{adminTimeLeft ?? sessionData.voteDurationSeconds}s</strong></p>
-                    <button onClick={handleFinish} className="btn btn-danger" disabled={isLoading}>
-                        Szavazás Befejezése (most)
-                    </button>
+            <section className="event-overview" id="event-overview">
+                <h2>Aktív esemény</h2>
+                {eventTitle ? (
+                    <div className="event-overview-card">
+                        <p className="event-overview-title">{eventTitle}</p>
+                        <ul>
+                            {eventDateLabel && <li>Esemény időpontja: <strong>{eventDateLabel}</strong></li>}
+                            {delegateDeadlineLabel && <li>Delegált kijelölési határidő: <strong>{delegateDeadlineLabel}</strong></li>}
+                            <li>Szavazási felület: <strong>{sessionData.isVotingEnabled ? 'Engedélyezve' : 'Letiltva'}</strong></li>
+                        </ul>
+                    </div>
+                ) : (
+                    <p className="muted">Nincs aktív szavazási esemény.</p>
+                )}
+            </section>
+
+            <section className="admin-controls" id="controls">
+                <div className="admin-info">
+                    <span>Regisztrált szavazók:</span>
+                    <strong>{sessionData.totalVoters}</strong>
                 </div>
-            )}
 
-            {sessionData.status === 'FINISHED' && (
-                <button onClick={handleReset} className="btn btn-secondary" disabled={isLoading}>
-                    Reset
-                </button>
-            )}
+                {sessionData.status === 'WAITING' && (
+                    <button onClick={handleStartVote} className="btn btn-primary btn-start-vote" disabled={isLoading}>
+                        Szavazás Indítása
+                    </button>
+                )}
 
-            <div className="admin-results">
+                {sessionData.status === 'IN_PROGRESS' && (
+                    <div className="admin-timer-container">
+                        <p>Hátralévő idő: <strong>{adminTimeLeft ?? sessionData.voteDurationSeconds}s</strong></p>
+                        <button onClick={handleFinish} className="btn btn-danger" disabled={isLoading}>
+                            Szavazás Befejezése (most)
+                        </button>
+                    </div>
+                )}
+
+                {sessionData.status === 'FINISHED' && (
+                    <button onClick={handleReset} className="btn btn-secondary" disabled={isLoading}>
+                        Reset
+                    </button>
+                )}
+            </section>
+
+            <section className="admin-results" id="results">
                 <h3>Eredmények</h3>
                 {sessionData.status === 'WAITING' ? (
                     <p>A szavazás még nem kezdődött el.</p>
                 ) : (
                     <ResultsDisplay results={sessionData.results} totalVoters={sessionData.totalVoters} />
                 )}
-            </div>
+            </section>
 
-            <button onClick={onLogout} className="btn btn-secondary logout-button">Kijelentkezés</button>
+            <div className="view-footer" id="logout">
+                <button onClick={onLogout} className="btn btn-secondary logout-button">Kijelentkezés</button>
+            </div>
         </div>
     );
 };
@@ -474,16 +565,22 @@ const VoterView = ({ sessionData, onLogout, eventTitle, clockOffsetMs }: { sessi
         }
     }
 
-    const trimmedTitle = (eventTitle || '').trim();
+    const trimmedTitle = (sessionData.eventTitle || eventTitle || '').trim();
 
     return (
-        <div className="container view-container">
-            <h1>Szavazó</h1>
-            {trimmedTitle && <p className="event-banner">Aktív esemény: {trimmedTitle}</p>}
-            <div className="voter-status-box">
-                {renderContent()}
+        <div className="container view-container voter-view">
+            <header className="view-header" id="overview">
+                <h1>Szavazó</h1>
+                {trimmedTitle && <p className="event-banner">Aktív esemény: {trimmedTitle}</p>}
+            </header>
+            <section className="voter-status-section" id="voting">
+                <div className="voter-status-box">
+                    {renderContent()}
+                </div>
+            </section>
+            <div className="view-footer" id="logout">
+                <button onClick={onLogout} className="btn btn-secondary logout-button">Kijelentkezés</button>
             </div>
-            <button onClick={onLogout} className="btn btn-secondary logout-button">Kijelentkezés</button>
         </div>
     );
 };
@@ -498,7 +595,7 @@ const LoginScreen = ({ onLogin, error }: { onLogin: (email: string, password: st
     };
 
     return (
-        <div className="container">
+        <div className="container login-container" id="login">
             <form onSubmit={handleSubmit}>
                 <h1>Szavazórendszer</h1>
                 <p>Kérjük, jelentkezzen be a folytatáshoz, vagy használja a MikDashboard felületéről érkező egyszeri bejelentkezést.</p>
@@ -675,15 +772,21 @@ const App = () => {
     };
 
     return (
-        <>
-            {connectionError && (
-                <div className="connection-error" role="alert">
-                    {connectionError}
+        <div className={`app-shell mode-${mode}`}>
+            <main className="app-main">
+                {connectionError && (
+                    <div className="connection-error" role="alert">
+                        {connectionError}
+                    </div>
+                )}
+                <div className="app-main-content">
+                    {renderView()}
                 </div>
-            )}
-            {renderView()}
-            {(user || mode === 'public') && <SyncStatus lastUpdate={lastUpdate} />}
-        </>
+                <div className="app-main-footer">
+                    {(user || mode === 'public') && <SyncStatus lastUpdate={lastUpdate} />}
+                </div>
+            </main>
+        </div>
     );
 };
 

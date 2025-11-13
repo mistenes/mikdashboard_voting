@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Iterable, List, Optional
+
+import uuid
 
 import httpx
 
-from sqlalchemy import func, select
+from sqlalchemy import case, delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -13,7 +15,9 @@ from .models import (
     ApprovalDecision,
     EventDelegate,
     EmailVerificationToken,
+    InvitationRole,
     Organization,
+    OrganizationInvitation,
     SessionToken,
     VotingEvent,
     User,
@@ -87,6 +91,50 @@ def register_user(
     return token
 
 
+def _normalize_email(value: str) -> str:
+    return value.strip().lower()
+
+
+def list_admin_users(session: Session) -> List[User]:
+    stmt = (
+        select(User)
+        .where(User.is_admin.is_(True))
+        .order_by(User.created_at.asc())
+    )
+    return list(session.scalars(stmt))
+
+
+def create_admin_account(
+    session: Session,
+    *,
+    email: str,
+    first_name: str,
+    last_name: str,
+    password: str,
+) -> User:
+    normalized_email = _normalize_email(email)
+    validate_password_strength(password)
+    _ensure_email_available(session, normalized_email)
+
+    salt, password_hash = hash_password(password)
+    user = User(
+        email=normalized_email,
+        first_name=first_name.strip() if first_name else None,
+        last_name=last_name.strip() if last_name else None,
+        password_hash=password_hash,
+        password_salt=salt,
+        is_admin=True,
+        admin_decision=ApprovalDecision.approved,
+        is_email_verified=True,
+        must_change_password=True,
+        is_voting_delegate=False,
+        is_organization_contact=False,
+    )
+    session.add(user)
+    session.flush()
+    return user
+
+
 def queue_verification_email(
     token: EmailVerificationToken,
     *,
@@ -148,6 +196,71 @@ def queue_verification_email(
         ) from exc
 
     return verification_link
+
+
+def queue_invitation_email(
+    invitation: OrganizationInvitation,
+    *,
+    base_url: str = "",
+    api_key: str | None = None,
+    sender_email: str | None = None,
+    sender_name: str | None = None,
+) -> str:
+    base = base_url.rstrip("/") if base_url else ""
+    accept_path = f"/meghivas/{invitation.token}"
+    accept_link = f"{base}{accept_path}" if base else accept_path
+
+    if not api_key or not sender_email:
+        return accept_link
+
+    role_text = (
+        "kapcsolattartójaként" if invitation.role == InvitationRole.contact else "tagjaként"
+    )
+
+    subject = "MikDashboard meghívó"
+    html_body = (
+        f"<p>Meghívást kaptál a MikDashboard rendszerbe a(z) {invitation.organization.name} "
+        f"szervezet {role_text}.</p>"
+        "<p>A csatlakozáshoz kattints az alábbi gombra, és állítsd be a jelszavad:</p>"
+        f"<p><a href=\"{accept_link}\">Csatlakozás a MikDashboardhoz</a></p>"
+        "<p>Ha nem vártad ezt a meghívót, hagyd figyelmen kívül ezt az üzenetet.</p>"
+    )
+    text_body = (
+        f"Meghívást kaptál a MikDashboard rendszerbe a(z) {invitation.organization.name} "
+        f"szervezet {role_text}.\n"
+        "A csatlakozáshoz másold a böngésződbe az alábbi linket és állítsd be a jelszavad:\n"
+        f"{accept_link}\n"
+        "Ha nem vártad ezt a meghívót, hagyd figyelmen kívül ezt az üzenetet."
+    )
+
+    payload = {
+        "sender": {"email": sender_email, "name": sender_name or sender_email},
+        "to": [{"email": invitation.email, "name": invitation.email}],
+        "subject": subject,
+        "htmlContent": html_body,
+        "textContent": text_body,
+    }
+
+    headers = {
+        "accept": "application/json",
+        "api-key": api_key,
+        "content-type": "application/json",
+    }
+
+    try:
+        response = httpx.post(
+            "https://api.brevo.com/v3/smtp/email",
+            json=payload,
+            headers=headers,
+            timeout=15.0,
+        )
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise RegistrationError(
+            "Nem sikerült elküldeni a meghívó e-mailt. Kérjük, próbáld újra később."
+        ) from exc
+
+    return accept_link
 
 
 def verify_email(session: Session, token_value: str) -> User:
@@ -302,6 +415,9 @@ def organizations_with_members(session: Session) -> List[Organization]:
         .options(
             selectinload(Organization.users),
             selectinload(Organization.event_delegates).selectinload(EventDelegate.user),
+            selectinload(Organization.invitations).selectinload(
+                OrganizationInvitation.invited_by_user
+            ),
         )
         .order_by(Organization.name.asc())
     )
@@ -363,6 +479,9 @@ def organization_with_members(session: Session, organization_id: int) -> Organiz
         .options(
             selectinload(Organization.users),
             selectinload(Organization.event_delegates).selectinload(EventDelegate.user),
+            selectinload(Organization.invitations).selectinload(
+                OrganizationInvitation.invited_by_user
+            ),
         )
     )
     organization = session.scalar(stmt)
@@ -387,11 +506,34 @@ def _ensure_user_can_delegate(user: User) -> None:
         )
 
 
+def _normalize_datetime(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+
 def list_voting_events(session: Session) -> List[VotingEvent]:
     stmt = (
         select(VotingEvent)
-        .options(selectinload(VotingEvent.delegates))
+        .options(
+            selectinload(VotingEvent.delegates).selectinload(EventDelegate.user),
+        )
         .order_by(VotingEvent.created_at.desc())
+    )
+    return list(session.scalars(stmt))
+
+
+def upcoming_voting_events(session: Session) -> List[VotingEvent]:
+    stmt = (
+        select(VotingEvent)
+        .options(
+            selectinload(VotingEvent.delegates).selectinload(EventDelegate.user),
+        )
+        .order_by(
+            case((VotingEvent.event_date.is_(None), 1), else_=0),
+            VotingEvent.event_date.asc(),
+            VotingEvent.created_at.desc(),
+        )
     )
     return list(session.scalars(stmt))
 
@@ -411,16 +553,34 @@ def create_voting_event(
     *,
     title: str,
     description: Optional[str] = None,
+    event_date: datetime,
+    delegate_deadline: datetime,
+    delegate_limit: int,
     activate: bool = False,
 ) -> VotingEvent:
     cleaned_title = title.strip()
     if len(cleaned_title) < 3:
         raise RegistrationError("Az esemény neve legalább 3 karakter legyen.")
 
+    normalized_event_date = _normalize_datetime(event_date)
+    normalized_delegate_deadline = _normalize_datetime(delegate_deadline)
+
+    if normalized_delegate_deadline > normalized_event_date:
+        raise RegistrationError(
+            "A delegált kijelölési határidő nem lehet a rendezvény dátuma után."
+        )
+
+    if delegate_limit < 1:
+        raise RegistrationError("A delegáltak száma legalább 1 kell legyen.")
+
     event = VotingEvent(
         title=cleaned_title,
         description=sanitize_optional_text(description),
+        event_date=normalized_event_date,
+        delegate_deadline=normalized_delegate_deadline,
         is_active=False,
+        is_voting_enabled=False,
+        delegate_limit=delegate_limit,
     )
     session.add(event)
     session.flush()
@@ -428,6 +588,47 @@ def create_voting_event(
     has_active = get_active_voting_event(session)
     if activate or has_active is None:
         event = set_active_voting_event(session, event.id)
+        if activate:
+            event.is_voting_enabled = True
+            session.flush()
+    return event
+
+
+def update_voting_event(
+    session: Session,
+    event_id: int,
+    *,
+    title: str,
+    description: Optional[str] = None,
+    event_date: datetime,
+    delegate_deadline: datetime,
+    delegate_limit: int,
+) -> VotingEvent:
+    event = session.get(VotingEvent, event_id)
+    if event is None:
+        raise RegistrationError("Nem található szavazási esemény")
+
+    cleaned_title = title.strip()
+    if len(cleaned_title) < 3:
+        raise RegistrationError("Az esemény neve legalább 3 karakter legyen.")
+
+    normalized_event_date = _normalize_datetime(event_date)
+    normalized_delegate_deadline = _normalize_datetime(delegate_deadline)
+
+    if normalized_delegate_deadline > normalized_event_date:
+        raise RegistrationError(
+            "A delegált kijelölési határidő nem lehet a rendezvény dátuma után."
+        )
+
+    if delegate_limit < 1:
+        raise RegistrationError("A delegáltak száma legalább 1 kell legyen.")
+
+    event.title = cleaned_title
+    event.description = sanitize_optional_text(description)
+    event.event_date = normalized_event_date
+    event.delegate_deadline = normalized_delegate_deadline
+    event.delegate_limit = delegate_limit
+    session.flush()
     return event
 
 
@@ -439,9 +640,56 @@ def set_active_voting_event(session: Session, event_id: int) -> VotingEvent:
     stmt = select(VotingEvent)
     for item in session.scalars(stmt):
         item.is_active = item.id == event.id
+        if item.id != event.id and item.is_voting_enabled:
+            item.is_voting_enabled = False
     session.flush()
     synchronize_delegate_flags(session, event)
     return event
+
+
+def set_voting_event_accessibility(
+    session: Session, event_id: int, *, is_voting_enabled: bool
+) -> VotingEvent:
+    event = session.get(VotingEvent, event_id)
+    if event is None:
+        raise RegistrationError("Nem található szavazási esemény")
+
+    if is_voting_enabled and not event.is_active:
+        raise RegistrationError(
+            "Csak az aktív esemény tehető elérhetővé a szavazási felületen."
+        )
+
+    event.is_voting_enabled = is_voting_enabled
+    session.flush()
+    return event
+
+
+def delete_voting_event(session: Session, *, event_id: int) -> None:
+    event = session.get(VotingEvent, event_id)
+    if event is None:
+        raise RegistrationError("Nem található szavazási esemény")
+
+    if event.is_active:
+        raise RegistrationError("Az aktív esemény nem törölhető.")
+
+    session.delete(event)
+    session.flush()
+
+
+def reset_voting_events(session: Session) -> int:
+    event_ids = list(session.scalars(select(VotingEvent.id)))
+    if not event_ids:
+        return 0
+
+    session.execute(delete(EventDelegate))
+    session.execute(delete(VotingEvent))
+
+    user_stmt = select(User).where(User.is_voting_delegate.is_(True))
+    for user in session.scalars(user_stmt):
+        user.is_voting_delegate = False
+
+    session.flush()
+    return len(event_ids)
 
 
 def synchronize_delegate_flags(session: Session, active_event: Optional[VotingEvent]) -> None:
@@ -459,13 +707,13 @@ def synchronize_delegate_flags(session: Session, active_event: Optional[VotingEv
         user.is_voting_delegate = user.id in active_delegate_ids
 
 
-def assign_event_delegate(
+def set_event_delegates_for_organization(
     session: Session,
     *,
     event_id: int,
     organization_id: int,
-    user_id: int,
-) -> EventDelegate:
+    user_ids: list[int],
+) -> list[EventDelegate]:
     event = session.get(VotingEvent, event_id)
     if event is None:
         raise RegistrationError("Nem található szavazási esemény")
@@ -474,15 +722,30 @@ def assign_event_delegate(
     if organization is None:
         raise RegistrationError("Nem található szervezet")
 
-    user = session.get(User, user_id)
-    if user is None:
-        raise RegistrationError("Nem található felhasználó")
-    _ensure_user_can_delegate(user)
+    normalized_ids: list[int] = []
+    seen: set[int] = set()
+    for user_id in user_ids:
+        if user_id in seen:
+            continue
+        seen.add(user_id)
+        normalized_ids.append(user_id)
 
-    if user.organization_id != organization.id:
+    if event.delegate_limit is not None and len(normalized_ids) > event.delegate_limit:
         raise RegistrationError(
-            "A kiválasztott felhasználó nem ehhez a szervezethez tartozik."
+            "Egy szervezet legfeljebb a megadott számú delegáltat jelölheti."
         )
+
+    users: dict[int, User] = {}
+    for user_id in normalized_ids:
+        user = session.get(User, user_id)
+        if user is None:
+            raise RegistrationError("Nem található felhasználó")
+        _ensure_user_can_delegate(user)
+        if user.organization_id != organization.id:
+            raise RegistrationError(
+                "A kiválasztott felhasználó nem ehhez a szervezethez tartozik."
+            )
+        users[user_id] = user
 
     stmt = (
         select(EventDelegate)
@@ -492,62 +755,280 @@ def assign_event_delegate(
         )
         .options(selectinload(EventDelegate.user))
     )
-    existing = session.scalar(stmt)
+    existing = list(session.scalars(stmt))
+    existing_by_user = {delegate.user_id: delegate for delegate in existing if delegate.user_id}
 
-    if existing:
-        previous_user = existing.user
-        existing.user = user
-        existing.user_id = user.id
-        if previous_user and previous_user.is_admin is False and event.is_active:
-            previous_user.is_voting_delegate = False
-        delegate = existing
-    else:
-        delegate = EventDelegate(event=event, organization=organization, user=user)
-        session.add(delegate)
+    updated: list[EventDelegate] = []
+
+    for delegate in existing:
+        if delegate.user_id not in seen:
+            session.delete(delegate)
+
+    for user_id in normalized_ids:
+        delegate = existing_by_user.get(user_id)
+        if delegate is None:
+            delegate = EventDelegate(event=event, organization=organization, user=users[user_id])
+            session.add(delegate)
+        updated.append(delegate)
 
     if event.is_active:
         synchronize_delegate_flags(session, event)
 
-    return delegate
-
-
-def remove_event_delegate(
-    session: Session,
-    *,
-    event_id: int,
-    organization_id: int,
-) -> None:
-    stmt = (
-        select(EventDelegate)
-        .where(
-            EventDelegate.event_id == event_id,
-            EventDelegate.organization_id == organization_id,
-        )
-        .options(selectinload(EventDelegate.event), selectinload(EventDelegate.user))
-    )
-    delegate = session.scalar(stmt)
-    if delegate is None:
-        return
-
-    event = delegate.event
-    was_active = event.is_active if event else False
-    session.delete(delegate)
-    if was_active and event is not None:
-        synchronize_delegate_flags(session, event)
+    return updated
 
 
 def delegates_for_event(
     session: Session, *, event_id: int
-) -> dict[int, EventDelegate]:
+) -> dict[int, list[EventDelegate]]:
     stmt = (
         select(EventDelegate)
         .where(EventDelegate.event_id == event_id)
         .options(selectinload(EventDelegate.user), selectinload(EventDelegate.organization))
     )
-    delegates = {}
+    delegates: dict[int, list[EventDelegate]] = {}
     for delegate in session.scalars(stmt):
-        delegates[delegate.organization_id] = delegate
+        delegates.setdefault(delegate.organization_id, []).append(delegate)
+    for delegate_list in delegates.values():
+        delegate_list.sort(key=lambda item: (item.created_at, item.id))
     return delegates
+
+
+def _pending_invitation_query(
+    session: Session,
+    *,
+    organization_id: int,
+    email: str,
+    role: InvitationRole,
+) -> OrganizationInvitation | None:
+    stmt = (
+        select(OrganizationInvitation)
+        .where(OrganizationInvitation.organization_id == organization_id)
+        .where(func.lower(OrganizationInvitation.email) == email.lower())
+        .where(OrganizationInvitation.role == role)
+        .where(OrganizationInvitation.accepted_at.is_(None))
+    )
+    return session.scalar(stmt)
+
+
+def _ensure_email_available(session: Session, email: str) -> None:
+    stmt = select(User).where(func.lower(User.email) == email.lower())
+    existing = session.scalar(stmt)
+    if existing is not None:
+        raise RegistrationError("Ezzel az e-mail címmel már létezik felhasználó")
+
+
+def _create_invitation(
+    session: Session,
+    *,
+    organization: Organization,
+    email: str,
+    role: InvitationRole,
+    invited_by: User | None = None,
+    first_name: Optional[str] = None,
+    last_name: Optional[str] = None,
+) -> OrganizationInvitation:
+    normalized_email = _normalize_email(email)
+    _ensure_email_available(session, normalized_email)
+
+    invitation = _pending_invitation_query(
+        session,
+        organization_id=organization.id,
+        email=normalized_email,
+        role=role,
+    )
+    token = uuid.uuid4().hex
+
+    if invitation is None:
+        invitation = OrganizationInvitation(
+            organization=organization,
+            email=normalized_email,
+            role=role,
+        )
+        session.add(invitation)
+
+    invitation.token = token
+    invitation.invited_by_user = invited_by
+    invitation.created_at = datetime.utcnow()
+    invitation.accepted_at = None
+    invitation.accepted_by_user = None
+    invitation.first_name = first_name.strip() if first_name else None
+    invitation.last_name = last_name.strip() if last_name else None
+
+    session.flush()
+    return invitation
+
+
+def create_contact_invitation(
+    session: Session,
+    *,
+    organization_id: int,
+    email: str,
+    invited_by: User,
+    first_name: Optional[str] = None,
+    last_name: Optional[str] = None,
+) -> OrganizationInvitation:
+    organization = session.get(Organization, organization_id)
+    if organization is None:
+        raise RegistrationError("Nem található szervezet")
+
+    stmt = (
+        select(User)
+        .where(User.organization_id == organization_id)
+        .where(User.is_organization_contact.is_(True))
+    )
+    existing_contact = session.scalar(stmt)
+    if existing_contact is not None:
+        raise RegistrationError("Ehhez a szervezethez már tartozik kapcsolattartó")
+
+    return _create_invitation(
+        session,
+        organization=organization,
+        email=email,
+        role=InvitationRole.contact,
+        invited_by=invited_by,
+        first_name=first_name,
+        last_name=last_name,
+    )
+
+
+def create_member_invitation(
+    session: Session,
+    *,
+    organization_id: int,
+    email: str,
+    invited_by: User,
+    first_name: Optional[str] = None,
+    last_name: Optional[str] = None,
+) -> OrganizationInvitation:
+    organization = session.get(Organization, organization_id)
+    if organization is None:
+        raise RegistrationError("Nem található szervezet")
+
+    if invited_by.organization_id != organization.id and not invited_by.is_admin:
+        raise RegistrationError(
+            "Nincs jogosultság felhasználókat meghívni ehhez a szervezethez"
+        )
+
+    return _create_invitation(
+        session,
+        organization=organization,
+        email=email,
+        role=InvitationRole.member,
+        invited_by=invited_by,
+        first_name=first_name,
+        last_name=last_name,
+    )
+
+
+def pending_invitations(
+    session: Session, *, organization_id: int, role: InvitationRole | None = None
+) -> list[OrganizationInvitation]:
+    stmt = (
+        select(OrganizationInvitation)
+        .where(OrganizationInvitation.organization_id == organization_id)
+        .where(OrganizationInvitation.accepted_at.is_(None))
+        .order_by(OrganizationInvitation.created_at.desc())
+    )
+    if role is not None:
+        stmt = stmt.where(OrganizationInvitation.role == role)
+    return list(session.scalars(stmt))
+
+
+def get_invitation_by_token(
+    session: Session, *, token: str
+) -> OrganizationInvitation | None:
+    stmt = (
+        select(OrganizationInvitation)
+        .where(OrganizationInvitation.token == token)
+        .options(
+            selectinload(OrganizationInvitation.organization),
+            selectinload(OrganizationInvitation.invited_by_user),
+        )
+    )
+    return session.scalar(stmt)
+
+
+def accept_invitation(
+    session: Session,
+    *,
+    token: str,
+    first_name: str,
+    last_name: str,
+    password: str,
+) -> User:
+    invitation = get_invitation_by_token(session, token=token)
+    if invitation is None or invitation.accepted_at is not None:
+        raise RegistrationError("Érvénytelen vagy már felhasznált meghívó")
+
+    organization = invitation.organization
+    if organization is None:
+        raise RegistrationError("Hiányzó szervezeti meghívó")
+
+    normalized_email = _normalize_email(invitation.email)
+    _ensure_email_available(session, normalized_email)
+
+    if invitation.role == InvitationRole.contact:
+        stmt = (
+            select(User)
+            .where(User.organization_id == organization.id)
+            .where(User.is_organization_contact.is_(True))
+        )
+        existing_contact = session.scalar(stmt)
+        if existing_contact is not None:
+            raise RegistrationError("Ehhez a szervezethez már tartozik kapcsolattartó")
+
+    salt, password_hash = hash_password(password)
+
+    user = User(
+        email=normalized_email,
+        first_name=first_name,
+        last_name=last_name,
+        password_hash=password_hash,
+        password_salt=salt,
+        organization=organization,
+        is_email_verified=True,
+        admin_decision=ApprovalDecision.approved,
+        is_admin=False,
+        is_voting_delegate=False,
+    )
+    user.is_organization_contact = invitation.role == InvitationRole.contact
+
+    session.add(user)
+    session.flush()
+
+    invitation.accepted_at = datetime.utcnow()
+    invitation.accepted_by_user = user
+
+    return user
+
+
+def remove_member_from_organization(
+    session: Session,
+    *,
+    organization_id: int,
+    member_id: int,
+) -> None:
+    organization = session.get(Organization, organization_id)
+    if organization is None:
+        raise RegistrationError("Nem található szervezet")
+
+    member = session.get(User, member_id)
+    if member is None or member.organization_id != organization_id:
+        raise RegistrationError("Nem található tag a szervezetben")
+
+    if member.is_admin:
+        raise RegistrationError("Adminisztrátort nem lehet eltávolítani a szervezetből")
+
+    if member.is_organization_contact:
+        raise RegistrationError(
+            "A kapcsolattartót nem lehet eltávolítani ezen a felületen"
+        )
+
+    session.execute(delete(EventDelegate).where(EventDelegate.user_id == member.id))
+
+    member.organization = None
+    member.is_voting_delegate = False
+    member.is_organization_contact = False
 
 
 def delete_user_account(session: Session, *, user_id: int) -> None:

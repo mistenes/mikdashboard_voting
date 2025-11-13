@@ -6,12 +6,33 @@ const eventListContainer = document.querySelector("#event-list");
 const eventSelector = document.querySelector("#event-selector");
 const delegateTableBody = document.querySelector("#delegate-table-body");
 const createEventForm = document.querySelector("#create-event-form");
+const selectedEventInfo = document.querySelector("#selected-event-info");
+const createEventTitle = document.querySelector("#create-event-title");
+const createEventHint = document.querySelector("#create-event-hint");
+const cancelEventEditButton = document.querySelector("#cancel-event-edit");
+const activateWrapper = createEventForm?.querySelector("[data-activate-wrapper]");
+const activateCheckbox = createEventForm?.querySelector('input[name="activate"]');
+const createEventSubmitButton = createEventForm?.querySelector('button[type="submit"]');
+const eventTitleInput = createEventForm?.querySelector("#event-title");
+const eventDescriptionInput = createEventForm?.querySelector("#event-description");
+const eventDateInput = createEventForm?.querySelector("#event-date");
+const delegateDeadlineInput = createEventForm?.querySelector("#delegate-deadline");
+const delegateLimitSelect = createEventForm?.querySelector("#delegate-limit");
+
+const defaultEventFormTitle = createEventTitle?.textContent?.trim() || "";
+const defaultEventFormHint = createEventHint?.textContent?.trim() || "";
+const defaultSubmitLabel = createEventSubmitButton?.textContent?.trim() || "";
+
+const editFormTitle = "Esemény szerkesztése";
+const editFormHint =
+  "Frissítsd az esemény adatait, majd mentsd a módosításokat.";
 
 const eventState = {
   organizations: [],
   events: [],
   delegates: [],
   selectedEventId: null,
+  editingEventId: null,
 };
 
 const eventDateFormatter = new Intl.DateTimeFormat("hu-HU", {
@@ -19,7 +40,210 @@ const eventDateFormatter = new Intl.DateTimeFormat("hu-HU", {
   timeStyle: "short",
 });
 
-function setStatus(message, type = "") {
+const actionStatusAnchors = new WeakMap();
+
+function getActionStatusElement(anchor, create = true) {
+  if (!anchor || !(anchor instanceof HTMLElement)) {
+    return null;
+  }
+
+  let statusEl = actionStatusAnchors.get(anchor);
+  if (statusEl && statusEl.isConnected) {
+    return statusEl;
+  }
+
+  if (!create) {
+    return null;
+  }
+
+  const parent = anchor.parentElement;
+  if (!parent) {
+    return null;
+  }
+
+  statusEl = document.createElement("p");
+  statusEl.classList.add("status", "action-status");
+  statusEl.setAttribute("role", "status");
+  statusEl.hidden = true;
+  anchor.insertAdjacentElement("afterend", statusEl);
+  actionStatusAnchors.set(anchor, statusEl);
+  return statusEl;
+}
+
+function updateActionStatus(anchor, message, type = "") {
+  const shouldCreate = Boolean(message);
+  const statusEl = getActionStatusElement(anchor, shouldCreate);
+  if (!statusEl) {
+    return;
+  }
+
+  statusEl.textContent = message || "";
+  statusEl.classList.remove("error", "success");
+  if (message && type) {
+    statusEl.classList.add(type);
+  }
+  statusEl.hidden = !message;
+}
+
+function getSelectedEvent() {
+  if (!eventState.selectedEventId) {
+    return null;
+  }
+  return (
+    eventState.events.find((item) => item.id === eventState.selectedEventId) || null
+  );
+}
+
+function countAssignedDelegates() {
+  if (!Array.isArray(eventState.delegates)) {
+    return 0;
+  }
+  return eventState.delegates.reduce((count, item) => {
+    if (!item || !Array.isArray(item.delegates)) {
+      return count;
+    }
+    const valid = item.delegates.filter((delegate) => delegate && delegate.user_id);
+    return count + valid.length;
+  }, 0);
+}
+
+function formatDateTime(value) {
+  if (!value) {
+    return null;
+  }
+  try {
+    return eventDateFormatter.format(new Date(value));
+  } catch (_) {
+    return null;
+  }
+}
+
+function toDateTimeLocalValue(value) {
+  if (!value) {
+    return "";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  const pad = (number) => String(number).padStart(2, "0");
+  return (
+    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` +
+    `T${pad(date.getHours())}:${pad(date.getMinutes())}`
+  );
+}
+
+function ensureDelegateLimitOption(limit) {
+  if (!delegateLimitSelect) {
+    return;
+  }
+  if (!Number.isFinite(limit) || limit < 1) {
+    return;
+  }
+  const desiredValue = String(limit);
+  const hasOption = Array.from(delegateLimitSelect.options).some(
+    (option) => option.value === desiredValue,
+  );
+  if (!hasOption) {
+    const option = document.createElement("option");
+    option.value = desiredValue;
+    option.textContent = `${limit} delegált / szervezet`;
+    delegateLimitSelect.appendChild(option);
+  }
+}
+
+function resetEventFormPresentation() {
+  if (createEventTitle) {
+    createEventTitle.textContent = defaultEventFormTitle;
+  }
+  if (createEventHint) {
+    createEventHint.textContent = defaultEventFormHint;
+  }
+  if (createEventSubmitButton) {
+    createEventSubmitButton.textContent = defaultSubmitLabel ||
+      createEventSubmitButton.textContent;
+  }
+  if (activateWrapper) {
+    activateWrapper.classList.remove("is-hidden");
+  }
+  if (activateCheckbox) {
+    activateCheckbox.disabled = false;
+  }
+  cancelEventEditButton?.classList.add("is-hidden");
+}
+
+function exitEventEditMode(options = {}) {
+  const { resetForm = true } = options;
+  eventState.editingEventId = null;
+  if (resetForm && createEventForm) {
+    createEventForm.reset();
+  }
+  resetEventFormPresentation();
+  clearStatus(createEventSubmitButton);
+}
+
+function enterEventEditMode(eventId) {
+  if (!createEventForm) {
+    return;
+  }
+  const event = eventState.events.find((item) => item.id === eventId);
+  if (!event) {
+    return;
+  }
+
+  eventState.editingEventId = eventId;
+
+  if (eventTitleInput) {
+    eventTitleInput.value = event.title || "";
+  }
+  if (eventDescriptionInput) {
+    eventDescriptionInput.value = event.description || "";
+  }
+  if (eventDateInput) {
+    eventDateInput.value = toDateTimeLocalValue(event.event_date);
+  }
+  if (delegateDeadlineInput) {
+    delegateDeadlineInput.value = toDateTimeLocalValue(event.delegate_deadline);
+  }
+  ensureDelegateLimitOption(event.delegate_limit);
+  if (delegateLimitSelect && Number.isFinite(event.delegate_limit)) {
+    delegateLimitSelect.value = String(event.delegate_limit);
+  }
+
+  if (activateCheckbox) {
+    activateCheckbox.checked = false;
+    activateCheckbox.disabled = true;
+  }
+  if (activateWrapper) {
+    activateWrapper.classList.add("is-hidden");
+  }
+
+  cancelEventEditButton?.classList.remove("is-hidden");
+  if (createEventSubmitButton) {
+    createEventSubmitButton.textContent = "Változtatások mentése";
+  }
+  if (createEventTitle) {
+    createEventTitle.textContent = editFormTitle;
+  }
+  if (createEventHint) {
+    createEventHint.textContent = editFormHint;
+  }
+
+  setStatus(`"${event.title}" szerkesztése folyamatban.`, "", createEventSubmitButton);
+  if (eventTitleInput) {
+    eventTitleInput.focus();
+    eventTitleInput.select();
+  }
+  if (typeof window?.scrollTo === "function") {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+}
+
+function setStatus(message, type = "", anchor = null) {
+  if (anchor) {
+    updateActionStatus(anchor, message, type);
+    return;
+  }
   if (!adminStatus) {
     return;
   }
@@ -30,8 +254,8 @@ function setStatus(message, type = "") {
   }
 }
 
-function clearStatus() {
-  setStatus("");
+function clearStatus(anchor = null) {
+  setStatus("", "", anchor);
 }
 
 function getAuthHeaders(options = {}) {
@@ -95,9 +319,9 @@ function ensureAdminSession(silent = false) {
   return true;
 }
 
-function handleAuthError(error) {
+function handleAuthError(error, anchor = null) {
   const message = error?.message || "Ismeretlen hiba történt.";
-  setStatus(message, "error");
+  setStatus(message, "error", anchor);
   if (error?.status === 401 || error?.status === 403) {
     sessionStorage.clear();
     setTimeout(() => {
@@ -114,9 +338,40 @@ function formatDisplayName(firstName, lastName, fallback = "") {
   return display || fallback;
 }
 
+function uniqueIdList(values) {
+  if (!Array.isArray(values)) {
+    return [];
+  }
+  const seen = new Set();
+  const result = [];
+  values.forEach((value) => {
+    const parsed = Number.parseInt(value, 10);
+    if (!Number.isFinite(parsed) || seen.has(parsed)) {
+      return;
+    }
+    seen.add(parsed);
+    result.push(parsed);
+  });
+  return result;
+}
+
+function normalizeIdList(values) {
+  return uniqueIdList(values).sort((a, b) => a - b);
+}
+
+function sameIdSet(first, second) {
+  if (first.length !== second.length) {
+    return false;
+  }
+  return first.every((value, index) => value === second[index]);
+}
+
 function memberStatus(member, organizationPaid) {
   if (member.is_admin) {
     return "Adminisztrátor";
+  }
+  if (member.is_contact) {
+    return "Kapcsolattartó";
   }
   if (!member.is_email_verified) {
     return "E-mail megerősítésre vár";
@@ -266,10 +521,10 @@ function renderOrganizations(items) {
           method: "POST",
           body: JSON.stringify({ fee_paid: !org.fee_paid }),
         });
-        setStatus("Tagsági díj státusz frissítve.", "success");
+        setStatus("Tagsági díj státusz frissítve.", "success", toggleButton);
         await loadOrganizations();
       } catch (error) {
-        handleAuthError(error);
+        handleAuthError(error, toggleButton);
       }
     });
 
@@ -347,14 +602,160 @@ function renderOrganizations(items) {
             payment_instructions: instructionsInput.value,
           }),
         });
-        setStatus("Banki adatok frissítve.", "success");
+        setStatus("Banki adatok frissítve.", "success", saveButton);
         await loadOrganizations();
       } catch (error) {
-        handleAuthError(error);
+        handleAuthError(error, saveButton);
       }
     });
 
     bankSection.appendChild(bankForm);
+
+    const contactSection = document.createElement("section");
+    contactSection.classList.add("organization-contact");
+
+    const contactTitle = document.createElement("h4");
+    contactTitle.textContent = "Kapcsolattartó";
+    contactSection.appendChild(contactTitle);
+
+    const contactStatus = org.contact?.status || "missing";
+    if (contactStatus === "assigned" && org.contact?.user) {
+      const contactUser = org.contact.user;
+      const contactInfo = document.createElement("p");
+      contactInfo.innerHTML = `${formatDisplayName(
+        contactUser.first_name,
+        contactUser.last_name,
+        contactUser.email,
+      )} <span class="muted">(${contactUser.email})</span>`;
+      contactSection.appendChild(contactInfo);
+
+      const contactHint = document.createElement("p");
+      contactHint.classList.add("muted");
+      contactHint.textContent =
+        "Új kapcsolattartó meghívásához először töröld a meglévő felhasználót.";
+      contactSection.appendChild(contactHint);
+    } else {
+      const contactMessage = document.createElement("p");
+      contactMessage.classList.add("muted");
+      if (contactStatus === "invited" && org.contact?.invitation) {
+        const created = formatDateTime(org.contact.invitation.created_at);
+        contactMessage.textContent = created
+          ? `Folyamatban lévő meghívó: ${org.contact.invitation.email} (${created}).`
+          : `Folyamatban lévő meghívó: ${org.contact.invitation.email}.`;
+      } else {
+        contactMessage.textContent = "Még nincs kapcsolattartó hozzárendelve ehhez a szervezethez.";
+      }
+      contactSection.appendChild(contactMessage);
+
+      const contactForm = document.createElement("form");
+      contactForm.classList.add("organization-contact-form");
+
+      const contactEmailLabel = document.createElement("label");
+      contactEmailLabel.setAttribute("for", `contact-email-${org.id}`);
+      contactEmailLabel.textContent = "Kapcsolattartó e-mail címe";
+      const contactEmailInput = document.createElement("input");
+      contactEmailInput.id = `contact-email-${org.id}`;
+      contactEmailInput.type = "email";
+      contactEmailInput.required = true;
+      contactEmailInput.placeholder = "pelda@email.hu";
+
+      const contactFirstLabel = document.createElement("label");
+      contactFirstLabel.setAttribute("for", `contact-first-${org.id}`);
+      contactFirstLabel.textContent = "Keresztnév (opcionális)";
+      const contactFirstInput = document.createElement("input");
+      contactFirstInput.id = `contact-first-${org.id}`;
+      contactFirstInput.type = "text";
+
+      const contactLastLabel = document.createElement("label");
+      contactLastLabel.setAttribute("for", `contact-last-${org.id}`);
+      contactLastLabel.textContent = "Vezetéknév (opcionális)";
+      const contactLastInput = document.createElement("input");
+      contactLastInput.id = `contact-last-${org.id}`;
+      contactLastInput.type = "text";
+
+      const contactActions = document.createElement("div");
+      contactActions.classList.add("organization-contact-actions");
+      const contactSubmit = document.createElement("button");
+      contactSubmit.type = "submit";
+      contactSubmit.classList.add("primary-btn");
+      contactSubmit.textContent =
+        contactStatus === "invited" ? "Meghívó újraküldése" : "Kapcsolattartó meghívása";
+      contactActions.appendChild(contactSubmit);
+
+      contactForm.appendChild(contactEmailLabel);
+      contactForm.appendChild(contactEmailInput);
+      contactForm.appendChild(contactFirstLabel);
+      contactForm.appendChild(contactFirstInput);
+      contactForm.appendChild(contactLastLabel);
+      contactForm.appendChild(contactLastInput);
+      contactForm.appendChild(contactActions);
+
+      contactForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        try {
+          await requestJSON(`/api/admin/organizations/${org.id}/contact-invitations`, {
+            method: "POST",
+            body: JSON.stringify({
+              email: contactEmailInput.value,
+              first_name: contactFirstInput.value,
+              last_name: contactLastInput.value,
+              role: "contact",
+            }),
+          });
+          setStatus("Kapcsolattartó meghívó elküldve.", "success", contactSubmit);
+          await loadOrganizations();
+        } catch (error) {
+          handleAuthError(error, contactSubmit);
+        }
+      });
+
+      contactSection.appendChild(contactForm);
+    }
+
+    const invitationSection = document.createElement("section");
+    invitationSection.classList.add("organization-invitations");
+
+    const invitationTitle = document.createElement("h4");
+    invitationTitle.textContent = "Függő meghívók";
+    invitationSection.appendChild(invitationTitle);
+
+    const pendingInvites = Array.isArray(org.pending_invitations)
+      ? org.pending_invitations
+      : [];
+    if (!pendingInvites.length) {
+      const emptyInvites = document.createElement("p");
+      emptyInvites.classList.add("muted");
+      emptyInvites.textContent = "Nincs folyamatban lévő tagmeghívó.";
+      invitationSection.appendChild(emptyInvites);
+    } else {
+      const inviteTable = document.createElement("table");
+      inviteTable.classList.add("organization-invitations-table");
+      inviteTable.innerHTML = `
+        <thead>
+          <tr>
+            <th>E-mail</th>
+            <th>Szerepkör</th>
+            <th>Meghívva</th>
+          </tr>
+        </thead>
+      `;
+      const inviteBody = document.createElement("tbody");
+      pendingInvites.forEach((invite) => {
+        const row = document.createElement("tr");
+        const emailCell = document.createElement("td");
+        emailCell.textContent = invite.email;
+        const roleCell = document.createElement("td");
+        roleCell.textContent = invite.role === "contact" ? "Kapcsolattartó" : "Tag";
+        const createdCell = document.createElement("td");
+        createdCell.textContent = formatDateTime(invite.created_at) || "";
+        row.appendChild(emailCell);
+        row.appendChild(roleCell);
+        row.appendChild(createdCell);
+        inviteBody.appendChild(row);
+      });
+      inviteTable.appendChild(inviteBody);
+      invitationSection.appendChild(inviteTable);
+    }
 
     const membersSection = document.createElement("section");
     membersSection.classList.add("organization-members");
@@ -416,10 +817,10 @@ function renderOrganizations(items) {
               method: "POST",
               body: JSON.stringify({ is_delegate: !member.is_voting_delegate }),
             });
-            setStatus("Szavazási jogosultság frissítve.", "success");
+            setStatus("Szavazási jogosultság frissítve.", "success", delegateButton);
             await loadOrganizations();
           } catch (error) {
-            handleAuthError(error);
+            handleAuthError(error, delegateButton);
           }
         });
 
@@ -435,10 +836,10 @@ function renderOrganizations(items) {
             await requestJSON(`/api/admin/users/${member.id}`, {
               method: "DELETE",
             });
-            setStatus("Felhasználó törölve.", "success");
+            setStatus("Felhasználó törölve.", "success", deleteButton);
             await loadOrganizations();
           } catch (error) {
-            handleAuthError(error);
+            handleAuthError(error, deleteButton);
           }
         });
         actionsCell.appendChild(delegateButton);
@@ -471,10 +872,10 @@ function renderOrganizations(items) {
         await requestJSON(`/api/admin/organizations/${org.id}`, {
           method: "DELETE",
         });
-        setStatus("Szervezet törölve.", "success");
+        setStatus("Szervezet törölve.", "success", deleteButton);
         await loadOrganizations();
       } catch (error) {
-        handleAuthError(error);
+        handleAuthError(error, deleteButton);
       }
     });
 
@@ -482,6 +883,8 @@ function renderOrganizations(items) {
 
     card.appendChild(header);
     card.appendChild(bankSection);
+    card.appendChild(contactSection);
+    card.appendChild(invitationSection);
     card.appendChild(membersSection);
     card.appendChild(footer);
 
@@ -527,6 +930,19 @@ async function confirmUserDeletion(email) {
   return third !== null && third.trim().toUpperCase() === "TÖRLÉS";
 }
 
+async function confirmEventDeletion(title) {
+  const first = window.confirm(
+    `${title} esemény törlésére készülsz. Biztosan folytatod?`,
+  );
+  if (!first) {
+    return false;
+  }
+  const second = window.prompt(
+    "A törlés végleges. A folytatáshoz írd be: ESEMÉNY TÖRLÉSE",
+  );
+  return second !== null && second.trim().toUpperCase() === "ESEMÉNY TÖRLÉSE";
+}
+
 async function initOrganizationsPage() {
   if (!ensureAdminSession()) {
     return;
@@ -541,6 +957,9 @@ async function initOrganizationsPage() {
     if (!ensureAdminSession(true)) {
       return;
     }
+    const submitButton = addOrganizationForm.querySelector(
+      'button[type="submit"]',
+    );
     const formData = new FormData(addOrganizationForm);
     const payload = {
       name: formData.get("name"),
@@ -553,11 +972,11 @@ async function initOrganizationsPage() {
         method: "POST",
         body: JSON.stringify(payload),
       });
-      setStatus("Új szervezet hozzáadva.", "success");
+      setStatus("Új szervezet hozzáadva.", "success", submitButton);
       addOrganizationForm.reset();
       await loadOrganizations();
     } catch (error) {
-      handleAuthError(error);
+      handleAuthError(error, submitButton);
     }
   });
 
@@ -624,7 +1043,7 @@ function renderPending(users) {
     approveButton.classList.add("primary-btn");
     approveButton.textContent = "Jóváhagyás";
     approveButton.addEventListener("click", async () => {
-      await decideRegistration(user.id, true);
+      await decideRegistration(user.id, true, approveButton);
     });
 
     const rejectButton = document.createElement("button");
@@ -632,7 +1051,7 @@ function renderPending(users) {
     rejectButton.classList.add("ghost-btn");
     rejectButton.textContent = "Elutasítás";
     rejectButton.addEventListener("click", async () => {
-      await decideRegistration(user.id, false);
+      await decideRegistration(user.id, false, rejectButton);
     });
 
     actionsCell.appendChild(approveButton);
@@ -648,7 +1067,7 @@ function renderPending(users) {
   });
 }
 
-async function decideRegistration(userId, approve) {
+async function decideRegistration(userId, approve, anchor) {
   try {
     await requestJSON(`/api/admin/users/${userId}/decision`, {
       method: "POST",
@@ -659,10 +1078,11 @@ async function decideRegistration(userId, approve) {
         ? "Felhasználó jóváhagyva és megerősítve."
         : "Felhasználó elutasítva.",
       "success",
+      anchor,
     );
     await loadPending();
   } catch (error) {
-    handleAuthError(error);
+    handleAuthError(error, anchor);
   }
 }
 
@@ -717,8 +1137,9 @@ function renderEventsList(events) {
 
     const badge = document.createElement("span");
     badge.classList.add("badge");
-    badge.classList.add(event.is_active ? "badge-success" : "badge-muted");
-    badge.textContent = event.is_active ? "Aktív" : "Inaktív";
+    const votingEnabled = Boolean(event.is_voting_enabled);
+    badge.classList.add(votingEnabled ? "badge-success" : "badge-muted");
+    badge.textContent = votingEnabled ? "Aktív" : "Inaktív";
     header.appendChild(badge);
 
     const description = document.createElement("p");
@@ -730,10 +1151,65 @@ function renderEventsList(events) {
     const createdLabel = event.created_at
       ? eventDateFormatter.format(new Date(event.created_at))
       : "Ismeretlen időpont";
-    meta.textContent = `Létrehozva: ${createdLabel} • Delegáltak: ${event.delegate_count}`;
+    const delegateSummary = event.delegate_limit
+      ? `Összes delegált: ${event.delegate_count} • ${event.delegate_limit}/szervezet`
+      : `Összes delegált: ${event.delegate_count}`;
+    meta.textContent = `Létrehozva: ${createdLabel} • ${delegateSummary}`;
+
+    const details = document.createElement("ul");
+    details.classList.add("event-details");
+    const eventDateLabel = formatDateTime(event.event_date);
+    if (eventDateLabel) {
+      const item = document.createElement("li");
+      item.textContent = `Esemény időpontja: ${eventDateLabel}`;
+      details.appendChild(item);
+    }
+    const deadlineLabel = formatDateTime(event.delegate_deadline);
+    if (deadlineLabel) {
+      const item = document.createElement("li");
+      item.textContent = `Delegált határidő: ${deadlineLabel}`;
+      details.appendChild(item);
+    }
+    const accessItem = document.createElement("li");
+    accessItem.textContent = event.is_voting_enabled
+      ? "Szavazási felület engedélyezve"
+      : "Szavazási felület letiltva";
+    details.appendChild(accessItem);
+    const limitItem = document.createElement("li");
+    limitItem.textContent = event.delegate_limit
+      ? `Delegált keret: szervezetenként legfeljebb ${event.delegate_limit}`
+      : "Delegált keret: nincs felső határ";
+    details.appendChild(limitItem);
 
     const actions = document.createElement("div");
     actions.classList.add("event-actions");
+
+    const editButton = document.createElement("button");
+    editButton.type = "button";
+    editButton.classList.add("ghost-btn");
+    editButton.textContent = "Szerkesztés";
+    editButton.addEventListener("click", () => {
+      enterEventEditMode(event.id);
+    });
+    actions.appendChild(editButton);
+
+    const toggleWrapper = document.createElement("label");
+    toggleWrapper.classList.add("event-toggle");
+    const toggle = document.createElement("input");
+    toggle.type = "checkbox";
+    toggle.checked = Boolean(event.is_voting_enabled);
+    toggle.disabled = !event.is_active;
+    toggle.title = event.is_active
+      ? "A szavazási felület engedélyezése vagy letiltása."
+      : "Csak az aktív esemény érhető el a szavazási felületen.";
+    toggle.addEventListener("change", async () => {
+      await handleVotingAccessToggle(event, toggle);
+    });
+    const toggleLabel = document.createElement("span");
+    toggleLabel.textContent = "Szavazási felület engedélyezése";
+    toggleWrapper.appendChild(toggle);
+    toggleWrapper.appendChild(toggleLabel);
+    actions.appendChild(toggleWrapper);
 
     if (!event.is_active) {
       const activateButton = document.createElement("button");
@@ -741,19 +1217,35 @@ function renderEventsList(events) {
       activateButton.classList.add("primary-btn");
       activateButton.textContent = "Aktiválás";
       activateButton.addEventListener("click", async () => {
-        await handleEventActivation(event.id);
+        await handleEventActivation(event.id, activateButton);
       });
       actions.appendChild(activateButton);
     } else {
       const activeLabel = document.createElement("span");
       activeLabel.classList.add("muted");
-      activeLabel.textContent = "Ez az esemény jelenleg aktív.";
+      activeLabel.textContent = event.is_voting_enabled
+        ? "Ez az esemény jelenleg aktív."
+        : "Ez az esemény jelenleg inaktív a szavazási felületen.";
       actions.appendChild(activeLabel);
     }
+
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.classList.add("danger-btn");
+    deleteButton.textContent = "Esemény törlése";
+    deleteButton.disabled = !event.can_delete;
+    if (!event.can_delete) {
+      deleteButton.title = "Az aktív esemény nem törölhető.";
+    }
+    deleteButton.addEventListener("click", async () => {
+      await handleEventDeletion(event, deleteButton);
+    });
+    actions.appendChild(deleteButton);
 
     card.appendChild(header);
     card.appendChild(description);
     card.appendChild(meta);
+    card.appendChild(details);
     card.appendChild(actions);
 
     eventListContainer.appendChild(card);
@@ -772,6 +1264,9 @@ function renderEventSelectorControl(events) {
     option.textContent = "Nincs elérhető esemény";
     eventSelector.appendChild(option);
     eventSelector.disabled = true;
+    if (selectedEventInfo) {
+      selectedEventInfo.textContent = "Még nincs elérhető esemény.";
+    }
     return;
   }
 
@@ -779,9 +1274,12 @@ function renderEventSelectorControl(events) {
   events.forEach((event) => {
     const option = document.createElement("option");
     option.value = String(event.id);
-    option.textContent = event.is_active
-      ? `${event.title} (aktív)`
-      : event.title;
+    const labels = [event.title];
+    if (event.is_active) {
+      labels.push("(aktív)");
+    }
+    labels.push(event.is_voting_enabled ? "• szavazás engedélyezve" : "• szavazás letiltva");
+    option.textContent = labels.join(" ");
     eventSelector.appendChild(option);
   });
 
@@ -790,10 +1288,42 @@ function renderEventSelectorControl(events) {
       ? String(eventState.selectedEventId)
       : String(events[0].id);
   eventSelector.value = desiredValue;
+  renderSelectedEventInfo();
 }
 
 function currentDelegateInfo(organizationId) {
   return eventState.delegates.find((item) => item.organization_id === organizationId) || null;
+}
+
+function renderSelectedEventInfo() {
+  if (!selectedEventInfo) {
+    return;
+  }
+  if (!eventState.selectedEventId) {
+    selectedEventInfo.textContent = "Válassz ki egy eseményt.";
+    return;
+  }
+  const event = getSelectedEvent();
+  if (!event) {
+    selectedEventInfo.textContent = "Válassz ki egy eseményt.";
+    return;
+  }
+  const parts = [];
+  const eventDateLabel = formatDateTime(event.event_date);
+  if (eventDateLabel) {
+    parts.push(`Időpont: ${eventDateLabel}`);
+  }
+  const deadlineLabel = formatDateTime(event.delegate_deadline);
+  if (deadlineLabel) {
+    parts.push(`Delegált határidő: ${deadlineLabel}`);
+  }
+  parts.push(event.is_voting_enabled ? "Szavazási felület engedélyezve" : "Szavazási felület letiltva");
+  const assignedCount = countAssignedDelegates();
+  parts.push(`Összes delegált: ${assignedCount}`);
+  if (event.delegate_limit) {
+    parts.push(`Keret: ${event.delegate_limit}/szervezet`);
+  }
+  selectedEventInfo.textContent = parts.join(" • ");
 }
 
 function renderDelegateTable() {
@@ -824,6 +1354,9 @@ function renderDelegateTable() {
     return;
   }
 
+  const selectedEvent = getSelectedEvent();
+  const delegateLimit = selectedEvent?.delegate_limit ?? null;
+
   eventState.organizations.forEach((organization) => {
     const info = currentDelegateInfo(organization.id);
     const row = document.createElement("tr");
@@ -832,47 +1365,70 @@ function renderDelegateTable() {
     nameCell.textContent = organization.name;
 
     const delegateCell = document.createElement("td");
-    if (info && info.user_id) {
-      delegateCell.textContent = formatDisplayName(
-        info.user_first_name,
-        info.user_last_name,
-        info.user_email,
-      );
+    const delegateNames = info?.delegates?.map((delegate) =>
+      formatDisplayName(
+        delegate.user_first_name,
+        delegate.user_last_name,
+        delegate.user_email,
+      ),
+    ).filter(Boolean);
+    if (delegateNames && delegateNames.length) {
+      delegateCell.textContent = delegateNames.join(", ");
     } else {
       delegateCell.classList.add("muted");
       delegateCell.textContent = "Nincs kijelölt delegált";
     }
 
     const selectCell = document.createElement("td");
-    const select = document.createElement("select");
-    select.dataset.organizationId = String(organization.id);
+    const selector = document.createElement("div");
+    selector.classList.add("delegate-selector");
+    selector.dataset.delegateSelector = "1";
+    selector.dataset.organizationId = String(organization.id);
 
-    const emptyOption = document.createElement("option");
-    emptyOption.value = "";
-    emptyOption.textContent = "Nincs delegált";
-    select.appendChild(emptyOption);
+    const selectedIds = uniqueIdList(
+      (info?.delegates || []).map((delegate) => delegate.user_id),
+    );
+    selector.dataset.previousSelection = JSON.stringify(selectedIds);
+
+    if (delegateLimit) {
+      const hint = document.createElement("p");
+      hint.classList.add("delegate-limit-hint", "muted");
+      hint.textContent = `Max. ${delegateLimit} delegált / szervezet`;
+      selector.appendChild(hint);
+    }
 
     const eligibleMembers = eligibleDelegatesForOrganization(organization);
-    eligibleMembers.forEach((member) => {
-      const option = document.createElement("option");
-      option.value = String(member.id);
-      option.textContent = formatDisplayName(
-        member.first_name,
-        member.last_name,
-        member.email,
-      );
-      if (info && info.user_id === member.id) {
-        option.selected = true;
-      }
-      select.appendChild(option);
-    });
+    if (!eligibleMembers.length) {
+      const empty = document.createElement("p");
+      empty.classList.add("muted");
+      empty.textContent = "Nincs kijelölhető tag";
+      selector.appendChild(empty);
+    } else {
+      eligibleMembers.forEach((member) => {
+        const label = document.createElement("label");
+        label.classList.add("delegate-checkbox");
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.value = String(member.id);
+        checkbox.checked = selectedIds.includes(member.id);
+        checkbox.addEventListener("change", async () => {
+          await handleDelegateSelection(organization.id, checkbox);
+        });
 
-    select.value = info && info.user_id ? String(info.user_id) : "";
-    select.addEventListener("change", async () => {
-      await handleDelegateChange(organization.id, select);
-    });
+        const span = document.createElement("span");
+        span.textContent = formatDisplayName(
+          member.first_name,
+          member.last_name,
+          member.email,
+        );
 
-    selectCell.appendChild(select);
+        label.appendChild(checkbox);
+        label.appendChild(span);
+        selector.appendChild(label);
+      });
+    }
+
+    selectCell.appendChild(selector);
 
     row.appendChild(nameCell);
     row.appendChild(delegateCell);
@@ -899,13 +1455,16 @@ async function refreshEventDelegates() {
     eventState.delegates = [];
     handleAuthError(error);
   }
+  renderSelectedEventInfo();
 }
 
-async function refreshEventData(refreshOrganizations = false) {
+async function refreshEventData(refreshOrganizations = false, preserveStatus = false) {
   if (!ensureAdminSession(true)) {
     return;
   }
-  clearStatus();
+  if (!preserveStatus) {
+    clearStatus();
+  }
   try {
     if (refreshOrganizations || !eventState.organizations.length) {
       const organizations = await requestJSON("/api/admin/organizations");
@@ -913,6 +1472,13 @@ async function refreshEventData(refreshOrganizations = false) {
     }
     const events = await requestJSON("/api/admin/events");
     eventState.events = Array.isArray(events) ? events : [];
+
+    if (
+      eventState.editingEventId &&
+      !eventState.events.some((event) => event.id === eventState.editingEventId)
+    ) {
+      exitEventEditMode();
+    }
 
     if (!eventState.events.length) {
       eventState.selectedEventId = null;
@@ -941,7 +1507,7 @@ async function refreshEventData(refreshOrganizations = false) {
   }
 }
 
-async function handleEventActivation(eventId) {
+async function handleEventActivation(eventId, anchor) {
   if (!ensureAdminSession(true)) {
     return;
   }
@@ -950,37 +1516,132 @@ async function handleEventActivation(eventId) {
       method: "POST",
     });
     eventState.selectedEventId = eventId;
-    setStatus("Az esemény aktívvá vált.", "success");
+    setStatus("Az esemény aktívvá vált.", "success", anchor);
     await refreshEventData();
   } catch (error) {
-    handleAuthError(error);
+    handleAuthError(error, anchor);
   }
 }
 
-async function handleDelegateChange(organizationId, selectElement) {
+async function handleEventDeletion(event, anchor) {
   if (!ensureAdminSession(true)) {
     return;
   }
-  const value = selectElement.value;
-  const userId = value ? Number.parseInt(value, 10) : null;
+  if (!(await confirmEventDeletion(event.title))) {
+    return;
+  }
+  try {
+    await requestJSON(`/api/admin/events/${event.id}`, {
+      method: "DELETE",
+    });
+    if (eventState.selectedEventId === event.id) {
+      eventState.selectedEventId = null;
+    }
+    setStatus("Szavazási esemény törölve.", "success", anchor);
+    await refreshEventData();
+  } catch (error) {
+    handleAuthError(error, anchor);
+  }
+}
+
+async function handleVotingAccessToggle(event, toggleElement) {
+  if (!ensureAdminSession(true)) {
+    toggleElement.checked = !toggleElement.checked;
+    return;
+  }
+  const desired = toggleElement.checked;
+  try {
+    await requestJSON(`/api/admin/events/${event.id}/access`, {
+      method: "POST",
+      body: JSON.stringify({ is_voting_enabled: desired }),
+    });
+    setStatus(
+      desired
+        ? "A szavazási felület engedélyezve ezen az eseményen."
+        : "A szavazási felület letiltva ezen az eseményen.",
+      "success",
+      toggleElement,
+    );
+    await refreshEventData();
+  } catch (error) {
+    toggleElement.checked = !desired;
+    handleAuthError(error, toggleElement);
+  }
+}
+
+async function handleDelegateSelection(organizationId, checkboxElement) {
+  if (!ensureAdminSession(true)) {
+    checkboxElement.checked = !checkboxElement.checked;
+    return;
+  }
+
+  const selector = checkboxElement.closest("[data-delegate-selector]");
+  if (!selector) {
+    return;
+  }
+
+  const selectedValues = Array.from(
+    selector.querySelectorAll('input[type="checkbox"]:checked'),
+  ).map((input) => input.value);
+  const desiredIds = uniqueIdList(selectedValues);
+  const normalizedDesired = normalizeIdList(desiredIds);
+
+  const selectedEvent = getSelectedEvent();
+  const delegateLimit = selectedEvent?.delegate_limit ?? null;
+  if (
+    delegateLimit !== null &&
+    delegateLimit > 0 &&
+    desiredIds.length > delegateLimit
+  ) {
+    checkboxElement.checked = false;
+    setStatus(
+      `Legfeljebb ${delegateLimit} delegált jelölhető szervezetenként.`,
+      "error",
+      selector,
+    );
+    return;
+  }
+
   const previous = currentDelegateInfo(organizationId);
+  const previousIds = uniqueIdList(
+    (previous?.delegates || []).map((delegate) => delegate.user_id),
+  );
+  const normalizedPrevious = normalizeIdList(previousIds);
+
+  if (sameIdSet(normalizedPrevious, normalizedDesired)) {
+    return;
+  }
+
+  const payload = { user_ids: desiredIds };
+  selector.dataset.previousSelection = JSON.stringify(previousIds);
+
   try {
     await requestJSON(
-      `/api/admin/events/${eventState.selectedEventId}/organizations/${organizationId}/delegate`,
+      `/api/admin/events/${eventState.selectedEventId}/organizations/${organizationId}/delegates`,
       {
         method: "POST",
-        body: JSON.stringify({ user_id: userId }),
+        body: JSON.stringify(payload),
       },
     );
-    setStatus("A delegált sikeresen frissítve.", "success");
+    selector.dataset.previousSelection = JSON.stringify(desiredIds);
+    setStatus("A delegáltlista frissítve.", "success", selector);
     await refreshEventDelegates();
     renderDelegateTable();
+    renderSelectedEventInfo();
   } catch (error) {
-    handleAuthError(error);
-    const fallback = previous && previous.user_id ? String(previous.user_id) : "";
-    selectElement.value = fallback;
+    handleAuthError(error, selector);
+    const fallback = uniqueIdList(
+      JSON.parse(selector.dataset.previousSelection || "[]"),
+    );
+    selector
+      .querySelectorAll('input[type="checkbox"]')
+      .forEach((input) => {
+        const id = Number.parseInt(input.value, 10);
+        input.checked = fallback.includes(id);
+      });
     await refreshEventDelegates();
     renderDelegateTable();
+    renderSelectedEventInfo();
   }
 }
 
@@ -999,7 +1660,18 @@ async function initEventsPage() {
     const selected = Number.parseInt(event.target.value, 10);
     eventState.selectedEventId = Number.isFinite(selected) ? selected : null;
     await refreshEventDelegates();
+    renderSelectedEventInfo();
     renderDelegateTable();
+  });
+
+  cancelEventEditButton?.addEventListener("click", () => {
+    if (!eventState.editingEventId) {
+      createEventForm?.reset();
+      resetEventFormPresentation();
+      return;
+    }
+    exitEventEditMode();
+    setStatus("Az esemény szerkesztése megszakítva.", "", cancelEventEditButton);
   });
 
   createEventForm?.addEventListener("submit", async (event) => {
@@ -1008,9 +1680,68 @@ async function initEventsPage() {
       return;
     }
     const formData = new FormData(createEventForm);
+    const titleValue = String(formData.get("title") || "").trim();
+    if (titleValue.length < 3) {
+      setStatus(
+        "Kérjük, adj meg legalább 3 karakter hosszú eseménynevet.",
+        "error",
+        createEventSubmitButton,
+      );
+      return;
+    }
+    const eventDateValue = formData.get("event_date");
+    const deadlineValue = formData.get("delegate_deadline");
+    const limitValue = formData.get("delegate_limit");
+    if (!eventDateValue || !deadlineValue) {
+      setStatus(
+        "Kérjük, add meg az esemény dátumát és a delegált határidejét.",
+        "error",
+        createEventSubmitButton,
+      );
+      return;
+    }
+    const delegateLimit = limitValue ? Number.parseInt(String(limitValue), 10) : NaN;
+    if (!Number.isFinite(delegateLimit) || delegateLimit < 1) {
+      setStatus(
+        "Kérjük, válaszd ki a delegáltak maximális számát.",
+        "error",
+        createEventSubmitButton,
+      );
+      return;
+    }
+    const descriptionValue = formData.get("description");
+    const normalizedDescription = descriptionValue
+      ? String(descriptionValue).trim() || null
+      : null;
+
+    const basePayload = {
+      title: titleValue,
+      description: normalizedDescription,
+      event_date: String(eventDateValue),
+      delegate_deadline: String(deadlineValue),
+      delegate_limit: delegateLimit,
+    };
+
+    if (eventState.editingEventId) {
+      try {
+        const updated = await requestJSON(`/api/admin/events/${eventState.editingEventId}`, {
+          method: "PATCH",
+          body: JSON.stringify(basePayload),
+        });
+        setStatus("Az esemény adatai frissítve.", "success", createEventSubmitButton);
+        exitEventEditMode();
+        if (updated?.id) {
+          eventState.selectedEventId = updated.id;
+        }
+        await refreshEventData(false, true);
+      } catch (error) {
+        handleAuthError(error, createEventSubmitButton);
+      }
+      return;
+    }
+
     const payload = {
-      title: formData.get("title"),
-      description: formData.get("description") || null,
+      ...basePayload,
       activate: formData.get("activate") === "on",
     };
     try {
@@ -1018,14 +1749,214 @@ async function initEventsPage() {
         method: "POST",
         body: JSON.stringify(payload),
       });
-      setStatus("Új szavazási esemény létrehozva.", "success");
+      setStatus("Új szavazási esemény létrehozva.", "success", createEventSubmitButton);
       createEventForm.reset();
+      resetEventFormPresentation();
       if (created?.id) {
         eventState.selectedEventId = created.id;
       }
-      await refreshEventData();
+      await refreshEventData(false, true);
+    } catch (error) {
+      handleAuthError(error, createEventSubmitButton);
+    }
+  });
+}
+
+async function initUsersPage() {
+  if (!ensureAdminSession()) {
+    return;
+  }
+
+  const form = document.querySelector("#create-admin-form");
+  const submitButton = form?.querySelector('button[type="submit"]');
+  const adminListBody = document.querySelector("[data-admin-list]");
+  const emptyState = document.querySelector("[data-admin-empty]");
+  const tableWrapper = document.querySelector("[data-admin-table]");
+  const countElement = document.querySelector("[data-admin-count]");
+  const firstNameInput = document.querySelector("#admin-first-name");
+
+  function updateCount(count) {
+    if (countElement) {
+      countElement.textContent = String(count);
+    }
+  }
+
+  function renderAdmins(admins) {
+    if (!adminListBody) {
+      return;
+    }
+
+    adminListBody.innerHTML = "";
+    const items = Array.isArray(admins) ? admins : [];
+    const hasAdmins = items.length > 0;
+
+    if (tableWrapper) {
+      tableWrapper.hidden = !hasAdmins;
+    }
+    if (emptyState) {
+      emptyState.hidden = hasAdmins;
+    }
+    updateCount(items.length);
+
+    items.forEach((admin) => {
+      const row = document.createElement("tr");
+
+      const nameCell = document.createElement("td");
+      nameCell.textContent = formatDisplayName(
+        admin.first_name,
+        admin.last_name,
+        admin.email || "–",
+      );
+      row.appendChild(nameCell);
+
+      const emailCell = document.createElement("td");
+      emailCell.textContent = admin.email || "–";
+      row.appendChild(emailCell);
+
+      const createdCell = document.createElement("td");
+      createdCell.textContent = formatDateTime(admin.created_at) || "–";
+      row.appendChild(createdCell);
+
+      const statusCell = document.createElement("td");
+      const statusBadge = document.createElement("span");
+      if (admin.must_change_password) {
+        statusBadge.className = "badge badge-warning";
+        statusBadge.textContent = "Jelszócsere szükséges";
+      } else {
+        statusBadge.className = "badge badge-success";
+        statusBadge.textContent = "Aktív";
+      }
+      statusCell.appendChild(statusBadge);
+      if (admin.must_change_password) {
+        const note = document.createElement("div");
+        note.className = "muted muted-note";
+        note.textContent = "Az első bejelentkezéskor új jelszó megadása kötelező.";
+        statusCell.appendChild(note);
+      }
+      row.appendChild(statusCell);
+
+      adminListBody.appendChild(row);
+    });
+  }
+
+  async function refreshAdmins() {
+    try {
+      const admins = await requestJSON("/api/admin/admins");
+      renderAdmins(admins);
     } catch (error) {
       handleAuthError(error);
+    }
+  }
+
+  if (form) {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (!ensureAdminSession(true)) {
+        return;
+      }
+
+      const formData = new FormData(form);
+      const firstName = String(formData.get("first_name") || "").trim();
+      const lastName = String(formData.get("last_name") || "").trim();
+      const email = String(formData.get("email") || "").trim();
+      const password = String(formData.get("password") || "");
+      const confirmPassword = String(formData.get("password_confirm") || "");
+
+      if (!firstName || !lastName || !email || !password) {
+        setStatus(
+          "Kérjük, tölts ki minden mezőt az admin létrehozásához.",
+          "error",
+          submitButton,
+        );
+        return;
+      }
+      if (password !== confirmPassword) {
+        setStatus("A megadott jelszavak nem egyeznek.", "error", submitButton);
+        return;
+      }
+
+      const payload = {
+        first_name: firstName,
+        last_name: lastName,
+        email: email.toLowerCase(),
+        password,
+      };
+
+      if (submitButton) {
+        submitButton.disabled = true;
+      }
+
+      try {
+        setStatus("Új adminisztrátor létrehozása folyamatban...", "", submitButton);
+        const response = await requestJSON("/api/admin/admins", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+        const message =
+          response?.message || "Új adminisztrátor létrehozva. Első belépéskor jelszócsere szükséges.";
+        setStatus(message, "success", submitButton);
+        form.reset();
+        await refreshAdmins();
+        if (firstNameInput instanceof HTMLElement) {
+          firstNameInput.focus();
+        }
+      } catch (error) {
+        handleAuthError(error, submitButton);
+      } finally {
+        if (submitButton) {
+          submitButton.disabled = false;
+        }
+      }
+    });
+  }
+
+  await refreshAdmins();
+}
+
+async function initSettingsPage() {
+  if (!ensureAdminSession()) {
+    return;
+  }
+
+  const resetButton = document.querySelector("[data-reset-events]");
+  if (!resetButton) {
+    return;
+  }
+
+  resetButton.addEventListener("click", async () => {
+    if (!ensureAdminSession(true)) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "Biztosan törölni szeretnéd az összes szavazási eseményt? Ez a művelet végleges.",
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    const keyword = window.prompt(
+      "A folytatáshoz írd be a következő kulcsszót: TÖRLÉS",
+    );
+    if (!keyword || keyword.trim().toUpperCase() !== "TÖRLÉS") {
+      setStatus(
+        "A művelet megszakítva. A megerősítő kulcsszó nem egyezett.",
+        "error",
+        resetButton,
+      );
+      return;
+    }
+
+    resetButton.disabled = true;
+    try {
+      setStatus("Szavazási események törlése folyamatban...", "", resetButton);
+      const response = await requestJSON("/api/admin/events/reset", { method: "POST" });
+      const message = response?.message || "Az események törlése megtörtént.";
+      setStatus(message, "success", resetButton);
+    } catch (error) {
+      handleAuthError(error, resetButton);
+    } finally {
+      resetButton.disabled = false;
     }
   });
 }
@@ -1041,6 +1972,12 @@ switch (pageType) {
     break;
   case "events":
     initEventsPage();
+    break;
+  case "users":
+    initUsersPage();
+    break;
+  case "settings":
+    initSettingsPage();
     break;
   default:
     initOverviewPage();

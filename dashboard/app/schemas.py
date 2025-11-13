@@ -5,7 +5,7 @@ from typing import Literal, Optional
 
 from pydantic import AnyHttpUrl, BaseModel, EmailStr, Field, constr
 
-from .models import ApprovalDecision
+from .models import ApprovalDecision, InvitationRole
 
 
 class OrganizationRead(BaseModel):
@@ -50,6 +50,7 @@ class LoginResponse(BaseModel):
     organization_id: Optional[int] = None
     organization_fee_paid: Optional[bool] = None
     must_change_password: bool = False
+    is_organization_contact: bool = False
 
 
 class PendingUser(BaseModel):
@@ -64,6 +65,30 @@ class PendingUser(BaseModel):
     class Config:
         allow_population_by_field_name = True
         orm_mode = True
+
+
+class AdminUserRead(BaseModel):
+    id: int
+    email: EmailStr
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    created_at: datetime
+    must_change_password: bool = False
+
+    class Config:
+        orm_mode = True
+
+
+class AdminUserCreateRequest(BaseModel):
+    email: EmailStr
+    first_name: constr(strip_whitespace=True, min_length=1, max_length=100)
+    last_name: constr(strip_whitespace=True, min_length=1, max_length=100)
+    password: constr(min_length=8)
+
+
+class AdminUserCreateResponse(BaseModel):
+    message: str
+    admin: AdminUserRead
 
 
 class AdminDecisionRequest(BaseModel):
@@ -84,7 +109,11 @@ class ActiveEventInfo(BaseModel):
     id: int
     title: str
     description: Optional[str] = None
+    event_date: Optional[datetime] = None
+    delegate_deadline: Optional[datetime] = None
+    is_voting_enabled: bool = False
     delegate_count: int = 0
+    delegate_limit: Optional[int] = None
 
 
 class OrganizationMember(BaseModel):
@@ -97,6 +126,48 @@ class OrganizationMember(BaseModel):
     admin_decision: ApprovalDecision
     has_access: bool
     is_voting_delegate: bool
+    is_contact: bool = False
+
+
+class OrganizationInvitationRead(BaseModel):
+    id: int
+    email: EmailStr
+    role: InvitationRole
+    created_at: datetime
+    invited_by_user_id: Optional[int] = None
+    accepted_at: Optional[datetime] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    organization_id: int
+    organization_name: str
+
+
+class OrganizationContactInfo(BaseModel):
+    status: constr(strip_whitespace=True, min_length=1)
+    user: Optional[OrganizationMember] = None
+    invitation: Optional[OrganizationInvitationRead] = None
+
+
+class OrganizationEventDelegate(BaseModel):
+    user_id: int
+    email: EmailStr
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+
+
+class OrganizationEventAssignment(BaseModel):
+    event_id: int
+    title: str
+    description: Optional[str] = None
+    event_date: Optional[datetime] = None
+    delegate_deadline: Optional[datetime] = None
+    is_active: bool = False
+    is_voting_enabled: bool = False
+    delegate_limit: Optional[int] = None
+    delegate_count: int = 0
+    delegate_user_ids: list[int] = Field(default_factory=list)
+    delegates: list[OrganizationEventDelegate] = Field(default_factory=list)
+    can_manage_delegates: bool = False
 
 
 class OrganizationDetail(BaseModel):
@@ -110,6 +181,10 @@ class OrganizationDetail(BaseModel):
     payment_instructions: Optional[str] = None
     active_event: Optional[ActiveEventInfo] = None
     active_event_delegate_user_id: Optional[int] = None
+    active_event_delegate_user_ids: list[int] = Field(default_factory=list)
+    contact: Optional[OrganizationContactInfo] = None
+    pending_invitations: list[OrganizationInvitationRead] = Field(default_factory=list)
+    upcoming_events: list[OrganizationEventAssignment] = Field(default_factory=list)
 
 
 class OrganizationFeeUpdate(BaseModel):
@@ -152,6 +227,7 @@ class SessionUser(BaseModel):
     organization: Optional[OrganizationMembershipInfo]
     is_voting_delegate: Optional[bool] = None
     active_event: Optional[ActiveEventInfo] = None
+    is_organization_contact: bool = False
 
 
 class VotingDelegateUpdate(BaseModel):
@@ -161,29 +237,66 @@ class VotingDelegateUpdate(BaseModel):
 class VotingEventCreateRequest(BaseModel):
     title: constr(strip_whitespace=True, min_length=3, max_length=255)
     description: Optional[constr(strip_whitespace=True, max_length=500)] = None
+    event_date: datetime
+    delegate_deadline: datetime
+    delegate_limit: int = Field(..., ge=1, le=500)
     activate: bool = False
+
+
+class VotingEventUpdateRequest(BaseModel):
+    title: constr(strip_whitespace=True, min_length=3, max_length=255)
+    description: Optional[constr(strip_whitespace=True, max_length=500)] = None
+    event_date: datetime
+    delegate_deadline: datetime
+    delegate_limit: int = Field(..., ge=1, le=500)
+
+
+class VotingEventAccessUpdate(BaseModel):
+    is_voting_enabled: bool
 
 
 class VotingEventRead(BaseModel):
     id: int
     title: str
     description: Optional[str] = None
+    event_date: Optional[datetime] = None
+    delegate_deadline: Optional[datetime] = None
     is_active: bool
+    is_voting_enabled: bool
+    delegate_limit: Optional[int] = None
     created_at: datetime
     delegate_count: int = 0
+    can_delete: bool = False
+
+
+class InvitationCreateRequest(BaseModel):
+    email: EmailStr
+    first_name: Optional[constr(strip_whitespace=True, max_length=100)] = None
+    last_name: Optional[constr(strip_whitespace=True, max_length=100)] = None
+    role: InvitationRole
+
+
+class InvitationAcceptRequest(BaseModel):
+    first_name: constr(strip_whitespace=True, min_length=1, max_length=100)
+    last_name: constr(strip_whitespace=True, min_length=1, max_length=100)
+    password: constr(min_length=8)
+
+
+class EventDelegateMember(BaseModel):
+    user_id: int
+    user_email: EmailStr
+    user_first_name: Optional[str]
+    user_last_name: Optional[str]
 
 
 class EventDelegateInfo(BaseModel):
     organization_id: int
     organization_name: str
-    user_id: Optional[int]
-    user_email: Optional[EmailStr]
-    user_first_name: Optional[str]
-    user_last_name: Optional[str]
+    delegates: list[EventDelegateMember] = Field(default_factory=list)
 
 
 class EventDelegateAssignmentRequest(BaseModel):
-    user_id: Optional[int]
+    user_ids: list[int] = Field(default_factory=list)
 
 
 class SimpleMessageResponse(BaseModel):

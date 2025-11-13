@@ -18,9 +18,10 @@
           <a href="/admin/szervezetek" class="sidebar-link">Szervezetek</a>
           <a href="/admin/jelentkezok" class="sidebar-link">Függő regisztrációk</a>
           <a href="/admin/esemenyek" class="sidebar-link active">Szavazási események</a>
+          <a href="/admin/felhasznalok" class="sidebar-link">Felhasználókezelés</a>
           <span class="sidebar-divider" aria-hidden="true"></span>
           <span class="sidebar-link placeholder" aria-disabled="true">Riportok (hamarosan)</span>
-          <span class="sidebar-link placeholder" aria-disabled="true">Beállítások (hamarosan)</span>
+          <a href="/admin/beallitasok" class="sidebar-link">Beállítások</a>
         </nav>
         <div class="sidebar-footer">
           <button id="admin-sign-out" type="button" class="ghost-btn sidebar-logout">
@@ -45,7 +46,7 @@
         <section class="auth-card" aria-labelledby="create-event-title">
           <div class="section-header">
             <h2 id="create-event-title">Új esemény létrehozása</h2>
-            <p class="muted">
+            <p id="create-event-hint" class="muted">
               Adj nevet és opcionális leírást a szavazási eseményhez. Szükség esetén azonnal aktiválhatod.
             </p>
           </div>
@@ -69,12 +70,45 @@
                 maxlength="500"
                 placeholder="Foglalja össze röviden az esemény témáját vagy időpontját."
               ></textarea>
+              <label for="event-date">Esemény dátuma</label>
+              <input
+                type="datetime-local"
+                id="event-date"
+                name="event_date"
+                required
+              />
+              <label for="delegate-deadline">Delegált kijelölési határidő</label>
+              <input
+                type="datetime-local"
+                id="delegate-deadline"
+                name="delegate_deadline"
+                required
+              />
+              <label for="delegate-limit">Szervezetenként kijelölhető delegáltak száma</label>
+              <select id="delegate-limit" name="delegate_limit" required>
+                <option value="1">1 delegált / szervezet</option>
+                <option value="2">2 delegált / szervezet</option>
+                <option value="3">3 delegált / szervezet</option>
+                <option value="4">4 delegált / szervezet</option>
+                <option value="5" selected>5 delegált / szervezet</option>
+                <option value="6">6 delegált / szervezet</option>
+                <option value="8">8 delegált / szervezet</option>
+                <option value="10">10 delegált / szervezet</option>
+              </select>
+              <small class="field-hint">Minden szervezet legfeljebb ennyi delegáltat jelölhet ki az eseményre.</small>
             </div>
             <div class="form-row event-form-actions">
-              <label class="checkbox">
+              <label class="checkbox" data-activate-wrapper>
                 <input type="checkbox" name="activate" />
                 <span>Az esemény legyen azonnal aktív</span>
               </label>
+              <button
+                type="button"
+                class="ghost-btn is-hidden"
+                id="cancel-event-edit"
+              >
+                Szerkesztés megszakítása
+              </button>
               <button type="submit" class="primary-btn">Esemény létrehozása</button>
             </div>
           </form>
@@ -92,20 +126,21 @@
           <div class="section-header">
             <h2 id="delegate-title">Delegáltak kezelése</h2>
             <p class="muted">
-              Válaszd ki az eseményt, majd rendelj minden szervezethez egy szavazásra jogosult személyt.
+              Válaszd ki az eseményt, majd állítsd be szervezetenként, hogy kik képviselhetik a tagságot a szavazás során.
             </p>
           </div>
           <div class="delegate-controls">
             <label for="event-selector" class="muted">Megjelenített esemény</label>
             <select id="event-selector" class="event-selector"></select>
+            <p id="selected-event-info" class="muted"></p>
           </div>
           <div class="table-scroll">
             <table class="delegate-table">
               <thead>
                 <tr>
                   <th>Szervezet</th>
-                  <th>Jelenlegi delegált</th>
-                  <th>Delegált kijelölése</th>
+                  <th>Jelenlegi delegáltak</th>
+                  <th>Delegáltak kiválasztása</th>
                 </tr>
               </thead>
               <tbody id="delegate-table-body"></tbody>
