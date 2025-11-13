@@ -249,7 +249,7 @@ def _sync_voting_service(event: VotingEvent | None) -> None:
     try:
         response = httpx.post(
             url,
-            json=payload,
+            content=canonical,
             headers=headers,
             timeout=VOTING_SYNC_TIMEOUT_SECONDS,
         )
