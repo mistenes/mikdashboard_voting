@@ -12,12 +12,6 @@ const STATUS_MESSAGES: Record<SessionStatus, string> = {
     FINISHED: 'A szavazás lezárult.',
 };
 
-const MODE_LABELS: Record<AppMode, string> = {
-    default: 'Szavazói felület',
-    admin: 'Admin felület',
-    public: 'Nyilvános nézet',
-};
-
 const detectAppMode = (): AppMode => {
     const path = window.location.pathname.toLowerCase();
     if (path.startsWith('/admin')) {
@@ -196,102 +190,6 @@ const getUserDisplayName = (user: AuthUser | null): string => {
         return user.email;
     }
     return '';
-};
-
-const SidebarContent = ({ mode, user, sessionData }: { mode: AppMode, user: AuthUser | null, sessionData: SessionData | null }) => {
-    const navItems = (() => {
-        if (mode === 'public') {
-            return [
-                { href: '#overview', label: 'Áttekintés' },
-                { href: '#results', label: 'Eredmények' },
-            ];
-        }
-        if (user?.role === 'admin') {
-            return [
-                { href: '#overview', label: 'Áttekintés' },
-                { href: '#event-overview', label: 'Esemény' },
-                { href: '#controls', label: 'Szavazás kezelése' },
-                { href: '#results', label: 'Eredmények' },
-                { href: '#logout', label: 'Kijelentkezés' },
-            ];
-        }
-        if (user?.role === 'voter') {
-            return [
-                { href: '#overview', label: 'Áttekintés' },
-                { href: '#voting', label: 'Szavazás' },
-                { href: '#logout', label: 'Kijelentkezés' },
-            ];
-        }
-        return [
-            { href: '#login', label: 'Bejelentkezés' },
-        ];
-    })();
-
-    const eventTitle = (sessionData?.eventTitle ?? user?.eventTitle ?? '').trim();
-    const eventDateValue = sessionData?.eventDate ?? user?.eventDate ?? null;
-    const delegateDeadlineValue = sessionData?.delegateDeadline ?? user?.delegateDeadline ?? null;
-    const eventDateLabel = formatDateTime(eventDateValue);
-    const delegateDeadlineLabel = formatDateTime(delegateDeadlineValue);
-    const status = sessionData?.status ?? null;
-    const statusLabel = status ? STATUS_MESSAGES[status] : null;
-    const isVotingEnabled = sessionData?.isVotingEnabled ?? user?.isVotingEnabled ?? false;
-    const totalVoters = sessionData?.totalVoters ?? null;
-    const roleLabel = user?.role === 'admin' ? 'Admin' : user?.role === 'voter' ? 'Delegált' : null;
-
-    return (
-        <div className="sidebar-inner">
-            <div className="sidebar-header">
-                <div className="sidebar-title">MIK Szavazás</div>
-                <div className="sidebar-subtitle">{MODE_LABELS[mode]}</div>
-            </div>
-            <nav className="sidebar-nav" aria-label="Oldal navigáció">
-                <ul>
-                    {navItems.map((item) => (
-                        <li key={item.href}>
-                            <a href={item.href}>{item.label}</a>
-                        </li>
-                    ))}
-                </ul>
-            </nav>
-            <div className="sidebar-card">
-                <p className="sidebar-card-label">Aktuális esemény</p>
-                {eventTitle ? (
-                    <>
-                        <p className="sidebar-event-title">{eventTitle}</p>
-                        <ul className="sidebar-event-meta">
-                            {eventDateLabel && <li><span>Időpont</span><strong>{eventDateLabel}</strong></li>}
-                            {delegateDeadlineLabel && <li><span>Delegált határidő</span><strong>{delegateDeadlineLabel}</strong></li>}
-                            <li><span>Szavazási felület</span><strong>{isVotingEnabled ? 'Engedélyezve' : 'Letiltva'}</strong></li>
-                        </ul>
-                    </>
-                ) : (
-                    <p className="sidebar-empty">Jelenleg nincs aktív esemény.</p>
-                )}
-            </div>
-            {statusLabel && (
-                <div className="sidebar-card sidebar-status">
-                    <p className="sidebar-card-label">Szavazás állapota</p>
-                    <p className="sidebar-status-line">
-                        <span className={`status-indicator status-${status.toLowerCase()}`} aria-hidden="true" />
-                        <span>{statusLabel}</span>
-                    </p>
-                    {typeof totalVoters === 'number' && totalVoters >= 0 && (
-                        <p className="sidebar-status-meta">Delegáltak száma: <strong>{totalVoters}</strong></p>
-                    )}
-                </div>
-            )}
-            {user && (
-                <div className="sidebar-card sidebar-user">
-                    <p className="sidebar-card-label">Bejelentkezve</p>
-                    <p className="sidebar-user-name">{getUserDisplayName(user)}</p>
-                    {user.organizationId && (
-                        <p className="sidebar-user-organization">Szervezet azonosító: {user.organizationId}</p>
-                    )}
-                    {roleLabel && <span className="sidebar-badge">{roleLabel}</span>}
-                </div>
-            )}
-        </div>
-    );
 };
 
 const ResultsDisplay = ({ results, totalVoters }: { results: SessionData['results'], totalVoters: number }) => {
@@ -875,9 +773,6 @@ const App = () => {
 
     return (
         <div className={`app-shell mode-${mode}`}>
-            <aside className="app-sidebar">
-                <SidebarContent mode={mode} user={user} sessionData={sessionData} />
-            </aside>
             <main className="app-main">
                 {connectionError && (
                     <div className="connection-error" role="alert">

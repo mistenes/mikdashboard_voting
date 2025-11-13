@@ -41,30 +41,20 @@ body {
 }
 
 .app-shell {
-    display: flex;
     min-height: 100vh;
     width: 100%;
-    background-color: var(--primary-bg);
-}
-
-.app-sidebar {
-    width: 300px;
-    background: linear-gradient(180deg, rgba(15, 23, 42, 0.85), rgba(15, 23, 42, 0.65));
-    color: #f8fafc;
-    padding: 2rem 1.75rem;
     display: flex;
-    flex-direction: column;
-    gap: 2rem;
-    border-right: 1px solid rgba(148, 163, 184, 0.2);
+    justify-content: center;
+    padding: 2.5rem 1.5rem;
+    background: linear-gradient(145deg, rgba(241, 245, 249, 0.6), rgba(226, 232, 240, 0.4));
 }
 
 .app-main {
-    flex: 1;
+    width: 100%;
+    max-width: 1100px;
     display: flex;
     flex-direction: column;
     gap: 1.5rem;
-    padding: 2rem 3rem;
-    background: linear-gradient(145deg, rgba(241, 245, 249, 0.6), rgba(226, 232, 240, 0.4));
 }
 
 .app-main-content {
@@ -119,159 +109,6 @@ p {
     color: var(--text-secondary);
     margin-bottom: 1.5rem;
     line-height: 1.6;
-}
-
-.sidebar-inner {
-    display: flex;
-    flex-direction: column;
-    gap: 1.5rem;
-    height: 100%;
-}
-
-.sidebar-header {
-    display: flex;
-    flex-direction: column;
-    gap: 0.35rem;
-}
-
-.sidebar-title {
-    font-size: 1.5rem;
-    font-weight: 700;
-    letter-spacing: 0.02em;
-}
-
-.sidebar-subtitle {
-    font-size: 0.95rem;
-    font-weight: 500;
-    color: rgba(226, 232, 240, 0.85);
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-}
-
-.sidebar-nav ul {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-}
-
-.sidebar-nav a {
-    display: block;
-    padding: 0.65rem 0.85rem;
-    border-radius: 10px;
-    color: rgba(226, 232, 240, 0.9);
-    text-decoration: none;
-    font-weight: 600;
-    transition: background-color 0.2s ease, color 0.2s ease;
-}
-
-.sidebar-nav a:hover,
-.sidebar-nav a:focus {
-    background: rgba(255, 255, 255, 0.1);
-    color: #ffffff;
-}
-
-.sidebar-card {
-    background: rgba(15, 23, 42, 0.45);
-    border: 1px solid rgba(148, 163, 184, 0.25);
-    border-radius: 14px;
-    padding: 1.25rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-}
-
-.sidebar-card-label {
-    text-transform: uppercase;
-    font-size: 0.75rem;
-    letter-spacing: 0.12em;
-    color: rgba(148, 163, 184, 0.8);
-}
-
-.sidebar-event-title {
-    font-size: 1.1rem;
-    font-weight: 600;
-    color: #fff;
-}
-
-.sidebar-event-meta {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 0.35rem;
-    font-size: 0.9rem;
-    color: rgba(226, 232, 240, 0.85);
-}
-
-.sidebar-event-meta li {
-    display: flex;
-    justify-content: space-between;
-    gap: 0.5rem;
-}
-
-.sidebar-event-meta span {
-    color: rgba(148, 163, 184, 0.9);
-}
-
-.sidebar-event-meta strong {
-    color: #f8fafc;
-}
-
-.sidebar-empty {
-    color: rgba(226, 232, 240, 0.75);
-    margin: 0;
-}
-
-.sidebar-status-line {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    color: #f1f5f9;
-    font-weight: 600;
-}
-
-.sidebar-status-meta {
-    color: rgba(226, 232, 240, 0.9);
-    margin: 0;
-}
-
-.status-indicator {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    display: inline-block;
-}
-
-.status-waiting { background: rgba(148, 163, 184, 0.8); }
-.status-in_progress { background: #38bdf8; }
-.status-finished { background: #34d399; }
-
-.sidebar-user-name {
-    color: #ffffff;
-    font-weight: 600;
-    margin: 0;
-}
-
-.sidebar-user-organization {
-    color: rgba(226, 232, 240, 0.85);
-    font-size: 0.9rem;
-    margin: 0;
-}
-
-.sidebar-badge {
-    align-self: flex-start;
-    background: rgba(59, 130, 246, 0.25);
-    color: #bfdbfe;
-    padding: 0.35rem 0.75rem;
-    border-radius: 999px;
-    font-size: 0.75rem;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    font-weight: 600;
 }
 
 .form-group {
@@ -693,23 +530,19 @@ input[type="text"]:focus, input[type="password"]:focus, input[type="number"]:foc
 
 @media (max-width: 1100px) {
     .app-shell {
-        flex-direction: column;
-    }
-
-    .app-sidebar {
-        width: 100%;
-        flex-direction: column;
-        padding: 1.5rem;
-        border-right: none;
-        border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+        padding: 2rem 1rem;
     }
 
     .app-main {
-        padding: 1.5rem;
+        gap: 1.25rem;
     }
 }
 
 @media (max-width: 720px) {
+    .app-shell {
+        padding: 1.5rem 0.75rem;
+    }
+
     .container {
         padding: 1.5rem;
     }
