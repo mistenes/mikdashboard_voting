@@ -1002,6 +1002,168 @@ button:disabled {
   gap: 20px;
 }
 
+#contact-events-card {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.event-assignment-list {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.event-assignment-card {
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 18px;
+  padding: 20px;
+  background: rgba(248, 250, 252, 0.92);
+  box-shadow: 0 16px 32px rgba(15, 23, 42, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.event-assignment-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.event-assignment-header h3 {
+  margin: 0;
+  font-size: 1.2rem;
+  color: #0f172a;
+}
+
+.event-status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  background: rgba(148, 163, 184, 0.3);
+  color: #475569;
+}
+
+.event-status-badge.is-active {
+  background: rgba(34, 197, 94, 0.18);
+  color: #166534;
+}
+
+.event-description {
+  margin: 0;
+  color: #475569;
+}
+
+.event-meta {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+  color: #475569;
+  font-size: 0.9rem;
+}
+
+.event-meta li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.event-meta li::before {
+  content: "•";
+  color: rgba(99, 102, 241, 0.7);
+  font-weight: bold;
+}
+
+.delegate-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.delegate-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.delegate-option {
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 14px;
+  padding: 12px 14px;
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  background: rgba(248, 250, 252, 0.85);
+  transition: border 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+
+.delegate-option input {
+  margin-top: 6px;
+}
+
+.delegate-option-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.delegate-option-name {
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.delegate-option-subtitle {
+  font-size: 0.85rem;
+  color: #475569;
+}
+
+.delegate-warning {
+  font-size: 0.75rem;
+  color: #dc2626;
+  font-weight: 600;
+}
+
+.delegate-option.is-selected {
+  border-color: rgba(59, 130, 246, 0.55);
+  box-shadow: 0 14px 28px rgba(59, 130, 246, 0.15);
+  background: rgba(191, 219, 254, 0.4);
+}
+
+.delegate-option.is-disabled {
+  opacity: 0.65;
+  border-style: dashed;
+}
+
+.delegate-option input:disabled {
+  cursor: not-allowed;
+}
+
+.delegate-limit-helper {
+  font-size: 0.85rem;
+  color: #475569;
+  margin: 0;
+}
+
+.delegate-status {
+  margin: 0;
+}
+
+.delegate-status.error {
+  color: #dc2626;
+}
+
+.delegate-status.success {
+  color: #15803d;
+}
+
 #member-invitations-card .member-invite-form {
   display: grid;
   gap: 12px;

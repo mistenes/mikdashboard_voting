@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import time
+from datetime import datetime
 from typing import Annotated, List
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
@@ -46,6 +47,8 @@ from .schemas import (
     OrganizationContactInfo,
     OrganizationCreateRequest,
     OrganizationDetail,
+    OrganizationEventAssignment,
+    OrganizationEventDelegate,
     OrganizationFeeUpdate,
     OrganizationInvitationRead,
     OrganizationMembershipInfo,
@@ -88,6 +91,7 @@ from .services import (
     get_active_voting_event,
     get_invitation_by_token,
     list_voting_events,
+    upcoming_voting_events,
     list_admin_users,
     organization_with_members,
     organizations_with_members,
@@ -620,8 +624,61 @@ def build_invitation_payload(invitation: OrganizationInvitation) -> dict:
     }
 
 
+def build_organization_event_assignment(
+    organization: Organization,
+    event: VotingEvent,
+    *,
+    current_time: datetime,
+) -> OrganizationEventAssignment | None:
+    event_date = getattr(event, "event_date", None)
+    if event_date and event_date < current_time and not event.is_active:
+        return None
+
+    entries: list[OrganizationEventDelegate] = []
+    delegate_user_ids: list[int] = []
+    for delegate in getattr(event, "delegates", []) or []:
+        if delegate.organization_id != organization.id or not delegate.user_id:
+            continue
+        user = delegate.user
+        if user is None:
+            continue
+        entries.append(
+            OrganizationEventDelegate(
+                user_id=user.id,
+                email=user.email,
+                first_name=user.first_name,
+                last_name=user.last_name,
+            )
+        )
+        delegate_user_ids.append(user.id)
+
+    can_manage = bool(
+        event.is_active
+        or event.delegate_deadline is None
+        or event.delegate_deadline >= current_time
+    )
+
+    return OrganizationEventAssignment(
+        event_id=event.id,
+        title=event.title,
+        description=event.description,
+        event_date=event.event_date,
+        delegate_deadline=event.delegate_deadline,
+        is_active=event.is_active,
+        is_voting_enabled=event.is_voting_enabled,
+        delegate_limit=event.delegate_limit,
+        delegate_count=len(delegate_user_ids),
+        delegate_user_ids=delegate_user_ids,
+        delegates=entries,
+        can_manage_delegates=can_manage,
+    )
+
+
 def build_organization_detail(
-    organization: Organization, *, active_event: VotingEvent | None
+    organization: Organization,
+    *,
+    active_event: VotingEvent | None,
+    events: list[VotingEvent] | None = None,
 ) -> OrganizationDetail:
     members = [build_member_payload(member, organization) for member in organization.users]
     active_delegate_user_ids: list[int] = []
@@ -655,6 +712,17 @@ def build_organization_detail(
         for invitation in getattr(organization, "invitations", []) or []
         if invitation.role == InvitationRole.member and invitation.accepted_at is None
     ]
+    upcoming_assignments: list[OrganizationEventAssignment] = []
+    if events is not None:
+        now = datetime.utcnow()
+        for event in events:
+            assignment = build_organization_event_assignment(
+                organization, event, current_time=now
+            )
+            if assignment is None:
+                continue
+            upcoming_assignments.append(assignment)
+
     return OrganizationDetail(
         id=organization.id,
         name=organization.name,
@@ -669,6 +737,7 @@ def build_organization_detail(
         active_event_delegate_user_ids=active_delegate_user_ids,
         contact=contact_info,
         pending_invitations=pending_member_invites,
+        upcoming_events=upcoming_assignments,
     )
 
 
@@ -770,6 +839,11 @@ def organization_unpaid_page(organization_id: int) -> FileResponse:
 @app.get("/szervezetek/{organization_id}/tagok", response_class=FileResponse)
 def organization_member_page(organization_id: int) -> FileResponse:
     return FileResponse("app/static/member-home.html")
+
+
+@app.get("/szervezetek/{organization_id}/tagkezeles", response_class=FileResponse)
+def organization_member_manage_page(organization_id: int) -> FileResponse:
+    return FileResponse("app/static/member-members.html")
 
 
 @app.get("/szervezetek/{organization_id}/szavazas", response_class=FileResponse)
@@ -1783,7 +1857,10 @@ def organization_detail_endpoint(
     except RegistrationError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     active_event = get_active_voting_event(db)
-    return build_organization_detail(organization, active_event=active_event)
+    events = upcoming_voting_events(db)
+    return build_organization_detail(
+        organization, active_event=active_event, events=events
+    )
 
 
 @app.post(
@@ -1838,7 +1915,10 @@ def create_member_invitation_endpoint(
         db.flush()
         organization = organization_with_members(db, organization_id)
         active_event = get_active_voting_event(db)
-        detail = build_organization_detail(organization, active_event=active_event)
+        events = upcoming_voting_events(db)
+        detail = build_organization_detail(
+            organization, active_event=active_event, events=events
+        )
         link = queue_invitation_email(
             invitation,
             base_url=PUBLIC_BASE_URL,
@@ -1867,4 +1947,56 @@ def create_member_invitation_endpoint(
             "sent_via": "brevo" if BREVO_API_KEY and BREVO_SENDER_EMAIL else "noop",
         }
     )
+    return detail
+
+
+@app.post(
+    "/api/organizations/{organization_id}/events/{event_id}/delegates",
+    response_model=OrganizationDetail,
+    responses={
+        401: {"model": ErrorResponse},
+        403: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+        400: {"model": ErrorResponse},
+    },
+)
+def set_organization_event_delegates(
+    organization_id: int,
+    event_id: int,
+    payload: EventDelegateAssignmentRequest,
+    db: DatabaseDependency,
+    user: Annotated[User, Depends(get_session_user)],
+) -> OrganizationDetail:
+    ensure_organization_membership(user, organization_id)
+    if not (user.is_admin or user.is_organization_contact):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Csak a szervezet kapcsolattartója jelölhet ki delegáltakat.",
+        )
+
+    try:
+        set_event_delegates_for_organization(
+            db,
+            event_id=event_id,
+            organization_id=organization_id,
+            user_ids=payload.user_ids,
+        )
+        db.flush()
+        organization = organization_with_members(db, organization_id)
+        active_event = get_active_voting_event(db)
+        events = upcoming_voting_events(db)
+        detail = build_organization_detail(
+            organization, active_event=active_event, events=events
+        )
+    except RegistrationError as exc:
+        db.rollback()
+        detail = str(exc)
+        lowered = detail.lower()
+        if "nem található" in lowered:
+            status_code = status.HTTP_404_NOT_FOUND
+        else:
+            status_code = status.HTTP_400_BAD_REQUEST
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+
+    db.commit()
     return detail

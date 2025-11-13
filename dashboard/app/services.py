@@ -7,7 +7,7 @@ import uuid
 
 import httpx
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import case, delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -515,8 +515,25 @@ def _normalize_datetime(value: datetime) -> datetime:
 def list_voting_events(session: Session) -> List[VotingEvent]:
     stmt = (
         select(VotingEvent)
-        .options(selectinload(VotingEvent.delegates))
+        .options(
+            selectinload(VotingEvent.delegates).selectinload(EventDelegate.user),
+        )
         .order_by(VotingEvent.created_at.desc())
+    )
+    return list(session.scalars(stmt))
+
+
+def upcoming_voting_events(session: Session) -> List[VotingEvent]:
+    stmt = (
+        select(VotingEvent)
+        .options(
+            selectinload(VotingEvent.delegates).selectinload(EventDelegate.user),
+        )
+        .order_by(
+            case((VotingEvent.event_date.is_(None), 1), else_=0),
+            VotingEvent.event_date.asc(),
+            VotingEvent.created_at.desc(),
+        )
     )
     return list(session.scalars(stmt))
 

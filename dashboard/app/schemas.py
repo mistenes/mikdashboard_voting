@@ -148,6 +148,28 @@ class OrganizationContactInfo(BaseModel):
     invitation: Optional[OrganizationInvitationRead] = None
 
 
+class OrganizationEventDelegate(BaseModel):
+    user_id: int
+    email: EmailStr
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+
+
+class OrganizationEventAssignment(BaseModel):
+    event_id: int
+    title: str
+    description: Optional[str] = None
+    event_date: Optional[datetime] = None
+    delegate_deadline: Optional[datetime] = None
+    is_active: bool = False
+    is_voting_enabled: bool = False
+    delegate_limit: Optional[int] = None
+    delegate_count: int = 0
+    delegate_user_ids: list[int] = Field(default_factory=list)
+    delegates: list[OrganizationEventDelegate] = Field(default_factory=list)
+    can_manage_delegates: bool = False
+
+
 class OrganizationDetail(BaseModel):
     id: int
     name: str
@@ -162,6 +184,7 @@ class OrganizationDetail(BaseModel):
     active_event_delegate_user_ids: list[int] = Field(default_factory=list)
     contact: Optional[OrganizationContactInfo] = None
     pending_invitations: list[OrganizationInvitationRead] = Field(default_factory=list)
+    upcoming_events: list[OrganizationEventAssignment] = Field(default_factory=list)
 
 
 class OrganizationFeeUpdate(BaseModel):
