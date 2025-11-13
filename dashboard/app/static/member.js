@@ -12,7 +12,7 @@ const eventSummary = document.querySelector("#current-event-summary");
 const invitationCard = document.querySelector("#member-invitations-card");
 const invitationForm = document.querySelector("#member-invite-form");
 const invitationStatus = document.querySelector("#member-invite-status");
-const invitationTableBody = document.querySelector("#member-invitations-table tbody");
+const invitationList = document.querySelector("#member-invitation-list");
 const contactEventsCard = document.querySelector("#contact-events-card");
 const contactEventsList = document.querySelector("#contact-events-list");
 const contactActionItems = document.querySelectorAll(".contact-only-action");
@@ -363,7 +363,7 @@ function clearInvitationStatus() {
 }
 
 function renderInvitations(detail, sessionUser) {
-  if (!invitationCard || !invitationTableBody) {
+  if (!invitationCard || !invitationList) {
     return;
   }
   const isContact = hasContactPrivileges(detail, sessionUser);
@@ -378,30 +378,44 @@ function renderInvitations(detail, sessionUser) {
   const pending = Array.isArray(detail.pending_invitations)
     ? detail.pending_invitations
     : [];
-  invitationTableBody.innerHTML = "";
+  invitationList.innerHTML = "";
   if (!pending.length) {
-    const row = document.createElement("tr");
-    const emptyCell = document.createElement("td");
-    emptyCell.colSpan = 3;
-    emptyCell.classList.add("muted");
-    emptyCell.textContent = "Nincs folyamatban lévő meghívó.";
-    row.appendChild(emptyCell);
-    invitationTableBody.appendChild(row);
+    const empty = document.createElement("p");
+    empty.classList.add("muted", "pending-invite-empty");
+    empty.textContent = "Nincs folyamatban lévő meghívó.";
+    invitationList.appendChild(empty);
     return;
   }
 
   pending.forEach((invite) => {
-    const row = document.createElement("tr");
-    const emailCell = document.createElement("td");
-    emailCell.textContent = invite.email;
-    const roleCell = document.createElement("td");
-    roleCell.textContent = formatInviteRole(invite.role);
-    const createdCell = document.createElement("td");
-    createdCell.textContent = formatInviteTimestamp(invite.created_at);
-    row.appendChild(emailCell);
-    row.appendChild(roleCell);
-    row.appendChild(createdCell);
-    invitationTableBody.appendChild(row);
+    const card = document.createElement("article");
+    card.classList.add("pending-invite-card");
+    card.setAttribute("role", "listitem");
+
+    const header = document.createElement("div");
+    header.classList.add("pending-invite-header");
+
+    const email = document.createElement("h4");
+    email.classList.add("pending-invite-email");
+    email.textContent = invite.email;
+
+    const role = document.createElement("span");
+    role.classList.add("pending-invite-role");
+    role.textContent = formatInviteRole(invite.role);
+
+    header.appendChild(email);
+    header.appendChild(role);
+
+    const created = document.createElement("p");
+    created.classList.add("pending-invite-meta");
+    const timestamp = formatInviteTimestamp(invite.created_at);
+    created.textContent = timestamp
+      ? `Meghívva: ${timestamp}`
+      : "Meghívás folyamatban";
+
+    card.appendChild(header);
+    card.appendChild(created);
+    invitationList.appendChild(card);
   });
 }
 

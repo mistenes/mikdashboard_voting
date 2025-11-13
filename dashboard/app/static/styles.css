@@ -723,6 +723,10 @@ button:disabled {
   margin: 0;
 }
 
+.section-support-text {
+  max-width: 360px;
+}
+
 .muted-note {
   margin-top: 6px;
   font-size: 0.8rem;
@@ -1048,9 +1052,10 @@ button:disabled {
 }
 
 .member-directory {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 20px;
+  align-items: stretch;
 }
 
 .member-directory-empty {
@@ -1082,6 +1087,7 @@ button:disabled {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  height: 100%;
   transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
 }
 
@@ -1218,6 +1224,114 @@ button:disabled {
   letter-spacing: 0.01em;
 }
 
+.member-directory-card .section-header,
+.member-invite-card .section-header {
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 24px;
+}
+
+.member-directory-card .section-header > div,
+.member-invite-card .section-header > div {
+  max-width: 460px;
+}
+
+.member-directory-card .section-support-text,
+.member-invite-card .section-support-text {
+  max-width: 320px;
+}
+
+.member-invite-layout {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 32px;
+  align-items: start;
+}
+
+.member-invite-form-wrapper {
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 18px;
+  padding: 24px;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 18px 36px rgba(15, 23, 42, 0.06);
+}
+
+.member-invite-form .form-actions {
+  justify-content: flex-start;
+}
+
+.member-invite-pending {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.pending-header h3 {
+  margin: 0;
+  font-size: 1.2rem;
+  color: #0f172a;
+}
+
+.pending-invite-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.pending-invite-card {
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 16px;
+  padding: 18px 20px;
+  background: rgba(248, 250, 252, 0.92);
+  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pending-invite-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.pending-invite-email {
+  margin: 0;
+  font-size: 1.05rem;
+  color: #0f172a;
+  word-break: break-word;
+}
+
+.pending-invite-role {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  background: rgba(59, 130, 246, 0.12);
+  color: #1d4ed8;
+  white-space: nowrap;
+}
+
+.pending-invite-meta {
+  margin: 0;
+  color: #475569;
+  font-size: 0.9rem;
+}
+
+.pending-invite-empty {
+  margin: 0;
+  padding: 24px;
+  border-radius: 16px;
+  border: 1px dashed rgba(148, 163, 184, 0.4);
+  background: rgba(248, 250, 252, 0.6);
+  text-align: center;
+}
+
 @media (max-width: 720px) {
   .member-card {
     padding: 18px;
@@ -1230,6 +1344,19 @@ button:disabled {
 
   .member-status-badge {
     margin-top: 6px;
+  }
+}
+
+@media (max-width: 960px) {
+  .member-directory-card .section-header,
+  .member-invite-card .section-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .member-invite-layout {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -1357,23 +1484,6 @@ button:disabled {
 #member-invitations-card input:focus {
   outline: 2px solid rgba(59, 130, 246, 0.35);
   border-color: rgba(59, 130, 246, 0.35);
-}
-
-#member-invitations-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-#member-invitations-table th,
-#member-invitations-table td {
-  padding: 8px 10px;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
-  text-align: left;
-  font-size: 0.9rem;
-}
-
-#member-invitations-table tbody tr:last-child td {
-  border-bottom: none;
 }
 
 .contact-member {

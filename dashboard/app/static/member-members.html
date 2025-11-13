@@ -44,57 +44,73 @@
 
         <p id="member-status" class="status" role="status"></p>
 
-        <section class="auth-card" aria-labelledby="member-list-title" id="member-list-card">
+        <section
+          class="auth-card member-directory-card"
+          aria-labelledby="member-list-title"
+          id="member-list-card"
+        >
           <div class="section-header">
-            <h2 id="member-list-title">Taglista</h2>
-            <p class="muted">Áttekintés a szervezet jelenlegi tagjairól.</p>
+            <div>
+              <p class="eyebrow">Taglista</p>
+              <h2 id="member-list-title">A szervezet tagjai</h2>
+            </div>
+            <p class="muted section-support-text">
+              Friss áttekintés a tagokról, szerepkörökről és státuszokról.
+            </p>
           </div>
           <div id="member-directory" class="member-directory" role="list"></div>
         </section>
 
         <section
-          class="auth-card"
+          class="auth-card member-invite-card contact-only-action"
           aria-labelledby="member-invite-title"
           id="member-invitations-card"
         >
           <div class="section-header">
-            <h2 id="member-invite-title">Tagok meghívása</h2>
-            <p class="muted">
-              Hívd meg a szervezet további tagjait e-mailben, hogy delegáltként részt vehessenek az
+            <div>
+              <p class="eyebrow">Tagok meghívása</p>
+              <h2 id="member-invite-title">Új tagok csatlakoztatása</h2>
+            </div>
+            <p class="muted section-support-text">
+              Küldj meghívót a kulcsembereknek, hogy delegáltként vagy tagként részt vehessenek az
               eseményeken.
             </p>
           </div>
-          <p id="member-invite-status" class="status" role="status"></p>
-          <form id="member-invite-form" class="member-invite-form">
-            <div class="form-grid">
-              <label for="invite-email">Meghívott e-mail címe</label>
-              <input
-                type="email"
-                id="invite-email"
-                name="email"
-                required
-                placeholder="pelda@email.hu"
-              />
-              <label for="invite-first-name">Keresztnév (opcionális)</label>
-              <input type="text" id="invite-first-name" name="first_name" />
-              <label for="invite-last-name">Vezetéknév (opcionális)</label>
-              <input type="text" id="invite-last-name" name="last_name" />
+          <div class="member-invite-layout">
+            <div class="member-invite-form-wrapper">
+              <form id="member-invite-form" class="member-invite-form">
+                <div class="form-grid">
+                  <label for="invite-email">Meghívott e-mail címe</label>
+                  <input
+                    type="email"
+                    id="invite-email"
+                    name="email"
+                    required
+                    placeholder="pelda@email.hu"
+                  />
+                  <label for="invite-first-name">Keresztnév (opcionális)</label>
+                  <input type="text" id="invite-first-name" name="first_name" />
+                  <label for="invite-last-name">Vezetéknév (opcionális)</label>
+                  <input type="text" id="invite-last-name" name="last_name" />
+                </div>
+                <div class="form-row form-actions">
+                  <button type="submit" class="primary-btn">Meghívó küldése</button>
+                  <p id="member-invite-status" class="status action-status" role="status"></p>
+                </div>
+              </form>
             </div>
-            <div class="form-row">
-              <button type="submit" class="primary-btn">Meghívó küldése</button>
+            <div class="member-invite-pending">
+              <div class="pending-header">
+                <h3>Függő meghívások</h3>
+                <p class="muted">Követheted, kik várnak még a csatlakozásra.</p>
+              </div>
+              <div
+                id="member-invitation-list"
+                class="pending-invite-list"
+                role="list"
+                aria-live="polite"
+              ></div>
             </div>
-          </form>
-          <div class="table-wrapper">
-            <table id="member-invitations-table">
-              <thead>
-                <tr>
-                  <th>E-mail</th>
-                  <th>Szerepkör</th>
-                  <th>Meghívva</th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
           </div>
         </section>
       </main>
