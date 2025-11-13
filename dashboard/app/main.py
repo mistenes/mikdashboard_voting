@@ -100,6 +100,7 @@ from .services import (
     queue_verification_email,
     register_user,
     reset_voting_events,
+    remove_member_from_organization,
     resolve_session_user,
     search_organizations,
     set_active_voting_event,
@@ -1947,6 +1948,58 @@ def create_member_invitation_endpoint(
             "sent_via": "brevo" if BREVO_API_KEY and BREVO_SENDER_EMAIL else "noop",
         }
     )
+    return detail
+
+
+@app.delete(
+    "/api/organizations/{organization_id}/members/{member_id}",
+    response_model=OrganizationDetail,
+    responses={
+        401: {"model": ErrorResponse},
+        403: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+        400: {"model": ErrorResponse},
+    },
+)
+def remove_organization_member_endpoint(
+    organization_id: int,
+    member_id: int,
+    db: DatabaseDependency,
+    user: Annotated[User, Depends(get_session_user)],
+) -> OrganizationDetail:
+    ensure_organization_membership(user, organization_id)
+    if not (user.is_admin or user.is_organization_contact):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Csak a kapcsolattartó távolíthat el tagot a szervezetből.",
+        )
+
+    try:
+        remove_member_from_organization(
+            db,
+            organization_id=organization_id,
+            member_id=member_id,
+        )
+        db.flush()
+        organization = organization_with_members(db, organization_id)
+        active_event = get_active_voting_event(db)
+        events = upcoming_voting_events(db)
+        detail = build_organization_detail(
+            organization,
+            active_event=active_event,
+            events=events,
+        )
+    except RegistrationError as exc:
+        db.rollback()
+        detail = str(exc)
+        lowered = detail.lower()
+        if "nem található" in lowered:
+            status_code = status.HTTP_404_NOT_FOUND
+        else:
+            status_code = status.HTTP_400_BAD_REQUEST
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+
+    db.commit()
     return detail
 
 

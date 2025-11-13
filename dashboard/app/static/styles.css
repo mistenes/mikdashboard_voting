@@ -1224,6 +1224,18 @@ button:disabled {
   letter-spacing: 0.01em;
 }
 
+.member-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.member-card-actions .action-status {
+  margin-left: 0;
+}
+
 .member-directory-card .section-header,
 .member-invite-card .section-header {
   flex-direction: row;

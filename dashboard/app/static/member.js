@@ -13,6 +13,7 @@ const invitationCard = document.querySelector("#member-invitations-card");
 const invitationForm = document.querySelector("#member-invite-form");
 const invitationStatus = document.querySelector("#member-invite-status");
 const invitationList = document.querySelector("#member-invitation-list");
+const memberDirectory = document.querySelector("#member-directory");
 const contactEventsCard = document.querySelector("#contact-events-card");
 const contactEventsList = document.querySelector("#contact-events-list");
 const contactActionItems = document.querySelectorAll(".contact-only-action");
@@ -210,19 +211,22 @@ function ensureNavLinks(orgId, sessionUser, detail) {
   });
 }
 
-function renderMembers(detail) {
-  const directory = document.querySelector("#member-directory");
-  if (!directory) {
+function renderMembers(detail, sessionUser = null) {
+  if (!memberDirectory) {
     return;
   }
-  directory.innerHTML = "";
+  const viewer = sessionUser || cachedSessionUser;
+  const viewerId = viewer ? viewer.id : null;
+  const canManageMembers = hasContactPrivileges(detail, viewer);
+  memberDirectory.innerHTML = "";
+  bindMemberDirectoryActions();
 
   const members = Array.isArray(detail.members) ? detail.members : [];
   if (!members.length) {
     const empty = document.createElement("p");
     empty.classList.add("muted", "member-directory-empty");
     empty.textContent = "Nincs megjeleníthető tag.";
-    directory.appendChild(empty);
+    memberDirectory.appendChild(empty);
     return;
   }
 
@@ -277,8 +281,114 @@ function renderMembers(detail) {
       card.appendChild(metaList);
     }
 
-    directory.appendChild(card);
+    const shouldShowRemove =
+      canManageMembers &&
+      !member.is_admin &&
+      !member.is_contact &&
+      member.id !== viewerId;
+
+    if (shouldShowRemove) {
+      const actions = document.createElement("div");
+      actions.classList.add("member-card-actions");
+
+      const removeButton = document.createElement("button");
+      removeButton.type = "button";
+      removeButton.classList.add("danger-btn");
+      removeButton.dataset.removeMember = "1";
+      removeButton.dataset.memberId = String(member.id);
+      removeButton.dataset.memberName = name.textContent || member.email;
+      removeButton.textContent = "Tag eltávolítása";
+      actions.appendChild(removeButton);
+
+      const statusEl = document.createElement("p");
+      statusEl.classList.add("status", "action-status", "member-remove-status");
+      statusEl.setAttribute("role", "status");
+      actions.appendChild(statusEl);
+
+      card.appendChild(actions);
+    }
+
+    memberDirectory.appendChild(card);
   });
+}
+
+function setActionStatus(statusEl, message, type = "") {
+  if (!statusEl) {
+    return;
+  }
+  statusEl.textContent = message || "";
+  statusEl.classList.remove("error", "success");
+  if (type) {
+    statusEl.classList.add(type);
+  }
+}
+
+function bindMemberDirectoryActions() {
+  if (!memberDirectory || memberDirectory.dataset.actionsBound === "1") {
+    return;
+  }
+
+  memberDirectory.addEventListener("click", async (event) => {
+    const button = event.target.closest("button[data-remove-member]");
+    if (!button || !memberDirectory.contains(button)) {
+      return;
+    }
+
+    event.preventDefault();
+    if (!organizationId) {
+      return;
+    }
+
+    const memberId = Number.parseInt(button.dataset.memberId || "", 10);
+    if (!Number.isInteger(memberId)) {
+      return;
+    }
+
+    const memberName = button.dataset.memberName || "";
+    const confirmMessage = memberName
+      ? `Biztosan eltávolítod ${memberName} tagot a szervezetből?`
+      : "Biztosan eltávolítod a tagot a szervezetből?";
+    if (!window.confirm(confirmMessage)) {
+      return;
+    }
+
+    const actions = button.closest(".member-card-actions");
+    const statusEl = actions
+      ? actions.querySelector(".member-remove-status")
+      : null;
+    setActionStatus(statusEl, "Tag eltávolítása folyamatban...", "");
+    button.disabled = true;
+
+    try {
+      const detail = await requestJSON(
+        `/api/organizations/${organizationId}/members/${memberId}`,
+        { method: "DELETE" },
+      );
+      cachedOrganizationDetail = detail;
+      setActionStatus(statusEl, "Tag eltávolítva a szervezetből.", "success");
+      setTimeout(() => {
+        if (!cachedOrganizationDetail || !cachedSessionUser) {
+          return;
+        }
+        renderMembers(cachedOrganizationDetail, cachedSessionUser);
+        renderInvitations(cachedOrganizationDetail, cachedSessionUser);
+        renderEventAssignments(cachedOrganizationDetail, cachedSessionUser);
+      }, 600);
+    } catch (error) {
+      const message =
+        error?.message || "Nem sikerült eltávolítani a tagot. Próbáld újra később.";
+      setActionStatus(statusEl, message, "error");
+      if (error?.status === 401 || error?.status === 403) {
+        handleAuthError(error);
+      }
+    } finally {
+      if (document.body.contains(button)) {
+        button.disabled = false;
+      }
+    }
+  });
+
+  memberDirectory.dataset.actionsBound = "1";
 }
 
 function getMemberStatus(member, detail) {
@@ -546,7 +656,7 @@ function bindDelegateForm(form, eventDetail, detail, sessionUser) {
       cachedOrganizationDetail = response;
       setStatus("Delegáltak frissítve.", "success");
       renderEventAssignments(response, sessionUser);
-      renderMembers(response);
+      renderMembers(response, sessionUser);
       renderInvitations(response, sessionUser);
     } catch (error) {
       const message =
@@ -775,7 +885,7 @@ function bindInvitationForm(sessionUser) {
       cachedOrganizationDetail = detail;
       setInvitationStatus("Meghívó elküldve.", "success");
       invitationForm.reset();
-      renderMembers(detail);
+      renderMembers(detail, sessionUser);
       renderInvitations(detail, sessionUser);
     } catch (error) {
       setInvitationStatus(error?.message || "Nem sikerült elküldeni a meghívót.", "error");
@@ -1055,7 +1165,7 @@ async function init() {
       renderEventAssignments(detail, sessionUser);
     } else if (pageType === "tagkezeles") {
       bindInvitationForm(sessionUser);
-      renderMembers(detail);
+      renderMembers(detail, sessionUser);
       renderInvitations(detail, sessionUser);
     } else if (pageType === "dij") {
       renderUnpaid(detail);

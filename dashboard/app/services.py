@@ -1002,6 +1002,35 @@ def accept_invitation(
     return user
 
 
+def remove_member_from_organization(
+    session: Session,
+    *,
+    organization_id: int,
+    member_id: int,
+) -> None:
+    organization = session.get(Organization, organization_id)
+    if organization is None:
+        raise RegistrationError("Nem található szervezet")
+
+    member = session.get(User, member_id)
+    if member is None or member.organization_id != organization_id:
+        raise RegistrationError("Nem található tag a szervezetben")
+
+    if member.is_admin:
+        raise RegistrationError("Adminisztrátort nem lehet eltávolítani a szervezetből")
+
+    if member.is_organization_contact:
+        raise RegistrationError(
+            "A kapcsolattartót nem lehet eltávolítani ezen a felületen"
+        )
+
+    session.execute(delete(EventDelegate).where(EventDelegate.user_id == member.id))
+
+    member.organization = None
+    member.is_voting_delegate = False
+    member.is_organization_contact = False
+
+
 def delete_user_account(session: Session, *, user_id: int) -> None:
     user = session.get(User, user_id)
     if user is None:
