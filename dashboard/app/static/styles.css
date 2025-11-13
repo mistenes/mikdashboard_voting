@@ -229,6 +229,7 @@ button.sidebar-link {
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
+  align-items: center;
 }
 
 .organization-form input {
@@ -547,6 +548,7 @@ button.sidebar-link {
   display: flex;
   justify-content: flex-end;
   gap: 12px;
+  align-items: center;
 }
 
 .admin-user-form {
@@ -585,6 +587,13 @@ button.sidebar-link {
     calc(100% - 14px) calc(1rem + 2px);
   background-size: 6px 6px;
   background-repeat: no-repeat;
+}
+
+.event-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
 }
 
 .field-hint {
@@ -688,6 +697,24 @@ button:disabled {
 
 .status.error {
   color: #dc2626;
+}
+
+.action-status {
+  margin: 0;
+  margin-left: 12px;
+  font-size: 0.95rem;
+  align-self: center;
+}
+
+.danger-zone .action-status {
+  margin-left: 0;
+  margin-top: 4px;
+  align-self: flex-start;
+}
+
+.delegate-selector + .action-status {
+  margin-left: 0;
+  margin-top: 8px;
 }
 
 .muted {
@@ -838,6 +865,8 @@ button:disabled {
 .organization-bank-actions {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
 }
 
 .organization-members {
@@ -888,6 +917,8 @@ button:disabled {
 .organization-contact-actions {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
 }
 
 .organization-invitations-table {
@@ -912,6 +943,8 @@ button:disabled {
   margin-top: 16px;
   display: flex;
   justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
 }
 
 .member-shell {

@@ -40,6 +40,51 @@ const eventDateFormatter = new Intl.DateTimeFormat("hu-HU", {
   timeStyle: "short",
 });
 
+const actionStatusAnchors = new WeakMap();
+
+function getActionStatusElement(anchor, create = true) {
+  if (!anchor || !(anchor instanceof HTMLElement)) {
+    return null;
+  }
+
+  let statusEl = actionStatusAnchors.get(anchor);
+  if (statusEl && statusEl.isConnected) {
+    return statusEl;
+  }
+
+  if (!create) {
+    return null;
+  }
+
+  const parent = anchor.parentElement;
+  if (!parent) {
+    return null;
+  }
+
+  statusEl = document.createElement("p");
+  statusEl.classList.add("status", "action-status");
+  statusEl.setAttribute("role", "status");
+  statusEl.hidden = true;
+  anchor.insertAdjacentElement("afterend", statusEl);
+  actionStatusAnchors.set(anchor, statusEl);
+  return statusEl;
+}
+
+function updateActionStatus(anchor, message, type = "") {
+  const shouldCreate = Boolean(message);
+  const statusEl = getActionStatusElement(anchor, shouldCreate);
+  if (!statusEl) {
+    return;
+  }
+
+  statusEl.textContent = message || "";
+  statusEl.classList.remove("error", "success");
+  if (message && type) {
+    statusEl.classList.add(type);
+  }
+  statusEl.hidden = !message;
+}
+
 function getSelectedEvent() {
   if (!eventState.selectedEventId) {
     return null;
@@ -134,6 +179,7 @@ function exitEventEditMode(options = {}) {
     createEventForm.reset();
   }
   resetEventFormPresentation();
+  clearStatus(createEventSubmitButton);
 }
 
 function enterEventEditMode(eventId) {
@@ -183,7 +229,7 @@ function enterEventEditMode(eventId) {
     createEventHint.textContent = editFormHint;
   }
 
-  setStatus(`"${event.title}" szerkesztése folyamatban.`);
+  setStatus(`"${event.title}" szerkesztése folyamatban.`, "", createEventSubmitButton);
   if (eventTitleInput) {
     eventTitleInput.focus();
     eventTitleInput.select();
@@ -193,7 +239,11 @@ function enterEventEditMode(eventId) {
   }
 }
 
-function setStatus(message, type = "") {
+function setStatus(message, type = "", anchor = null) {
+  if (anchor) {
+    updateActionStatus(anchor, message, type);
+    return;
+  }
   if (!adminStatus) {
     return;
   }
@@ -204,8 +254,8 @@ function setStatus(message, type = "") {
   }
 }
 
-function clearStatus() {
-  setStatus("");
+function clearStatus(anchor = null) {
+  setStatus("", "", anchor);
 }
 
 function getAuthHeaders(options = {}) {
@@ -269,9 +319,9 @@ function ensureAdminSession(silent = false) {
   return true;
 }
 
-function handleAuthError(error) {
+function handleAuthError(error, anchor = null) {
   const message = error?.message || "Ismeretlen hiba történt.";
-  setStatus(message, "error");
+  setStatus(message, "error", anchor);
   if (error?.status === 401 || error?.status === 403) {
     sessionStorage.clear();
     setTimeout(() => {
@@ -471,10 +521,10 @@ function renderOrganizations(items) {
           method: "POST",
           body: JSON.stringify({ fee_paid: !org.fee_paid }),
         });
-        setStatus("Tagsági díj státusz frissítve.", "success");
+        setStatus("Tagsági díj státusz frissítve.", "success", toggleButton);
         await loadOrganizations();
       } catch (error) {
-        handleAuthError(error);
+        handleAuthError(error, toggleButton);
       }
     });
 
@@ -552,10 +602,10 @@ function renderOrganizations(items) {
             payment_instructions: instructionsInput.value,
           }),
         });
-        setStatus("Banki adatok frissítve.", "success");
+        setStatus("Banki adatok frissítve.", "success", saveButton);
         await loadOrganizations();
       } catch (error) {
-        handleAuthError(error);
+        handleAuthError(error, saveButton);
       }
     });
 
@@ -652,10 +702,10 @@ function renderOrganizations(items) {
               role: "contact",
             }),
           });
-          setStatus("Kapcsolattartó meghívó elküldve.", "success");
+          setStatus("Kapcsolattartó meghívó elküldve.", "success", contactSubmit);
           await loadOrganizations();
         } catch (error) {
-          handleAuthError(error);
+          handleAuthError(error, contactSubmit);
         }
       });
 
@@ -767,10 +817,10 @@ function renderOrganizations(items) {
               method: "POST",
               body: JSON.stringify({ is_delegate: !member.is_voting_delegate }),
             });
-            setStatus("Szavazási jogosultság frissítve.", "success");
+            setStatus("Szavazási jogosultság frissítve.", "success", delegateButton);
             await loadOrganizations();
           } catch (error) {
-            handleAuthError(error);
+            handleAuthError(error, delegateButton);
           }
         });
 
@@ -786,10 +836,10 @@ function renderOrganizations(items) {
             await requestJSON(`/api/admin/users/${member.id}`, {
               method: "DELETE",
             });
-            setStatus("Felhasználó törölve.", "success");
+            setStatus("Felhasználó törölve.", "success", deleteButton);
             await loadOrganizations();
           } catch (error) {
-            handleAuthError(error);
+            handleAuthError(error, deleteButton);
           }
         });
         actionsCell.appendChild(delegateButton);
@@ -822,10 +872,10 @@ function renderOrganizations(items) {
         await requestJSON(`/api/admin/organizations/${org.id}`, {
           method: "DELETE",
         });
-        setStatus("Szervezet törölve.", "success");
+        setStatus("Szervezet törölve.", "success", deleteButton);
         await loadOrganizations();
       } catch (error) {
-        handleAuthError(error);
+        handleAuthError(error, deleteButton);
       }
     });
 
@@ -907,6 +957,9 @@ async function initOrganizationsPage() {
     if (!ensureAdminSession(true)) {
       return;
     }
+    const submitButton = addOrganizationForm.querySelector(
+      'button[type="submit"]',
+    );
     const formData = new FormData(addOrganizationForm);
     const payload = {
       name: formData.get("name"),
@@ -919,11 +972,11 @@ async function initOrganizationsPage() {
         method: "POST",
         body: JSON.stringify(payload),
       });
-      setStatus("Új szervezet hozzáadva.", "success");
+      setStatus("Új szervezet hozzáadva.", "success", submitButton);
       addOrganizationForm.reset();
       await loadOrganizations();
     } catch (error) {
-      handleAuthError(error);
+      handleAuthError(error, submitButton);
     }
   });
 
@@ -990,7 +1043,7 @@ function renderPending(users) {
     approveButton.classList.add("primary-btn");
     approveButton.textContent = "Jóváhagyás";
     approveButton.addEventListener("click", async () => {
-      await decideRegistration(user.id, true);
+      await decideRegistration(user.id, true, approveButton);
     });
 
     const rejectButton = document.createElement("button");
@@ -998,7 +1051,7 @@ function renderPending(users) {
     rejectButton.classList.add("ghost-btn");
     rejectButton.textContent = "Elutasítás";
     rejectButton.addEventListener("click", async () => {
-      await decideRegistration(user.id, false);
+      await decideRegistration(user.id, false, rejectButton);
     });
 
     actionsCell.appendChild(approveButton);
@@ -1014,7 +1067,7 @@ function renderPending(users) {
   });
 }
 
-async function decideRegistration(userId, approve) {
+async function decideRegistration(userId, approve, anchor) {
   try {
     await requestJSON(`/api/admin/users/${userId}/decision`, {
       method: "POST",
@@ -1025,10 +1078,11 @@ async function decideRegistration(userId, approve) {
         ? "Felhasználó jóváhagyva és megerősítve."
         : "Felhasználó elutasítva.",
       "success",
+      anchor,
     );
     await loadPending();
   } catch (error) {
-    handleAuthError(error);
+    handleAuthError(error, anchor);
   }
 }
 
@@ -1163,7 +1217,7 @@ function renderEventsList(events) {
       activateButton.classList.add("primary-btn");
       activateButton.textContent = "Aktiválás";
       activateButton.addEventListener("click", async () => {
-        await handleEventActivation(event.id);
+        await handleEventActivation(event.id, activateButton);
       });
       actions.appendChild(activateButton);
     } else {
@@ -1184,7 +1238,7 @@ function renderEventsList(events) {
       deleteButton.title = "Az aktív esemény nem törölhető.";
     }
     deleteButton.addEventListener("click", async () => {
-      await handleEventDeletion(event);
+      await handleEventDeletion(event, deleteButton);
     });
     actions.appendChild(deleteButton);
 
@@ -1453,7 +1507,7 @@ async function refreshEventData(refreshOrganizations = false, preserveStatus = f
   }
 }
 
-async function handleEventActivation(eventId) {
+async function handleEventActivation(eventId, anchor) {
   if (!ensureAdminSession(true)) {
     return;
   }
@@ -1462,14 +1516,14 @@ async function handleEventActivation(eventId) {
       method: "POST",
     });
     eventState.selectedEventId = eventId;
-    setStatus("Az esemény aktívvá vált.", "success");
+    setStatus("Az esemény aktívvá vált.", "success", anchor);
     await refreshEventData();
   } catch (error) {
-    handleAuthError(error);
+    handleAuthError(error, anchor);
   }
 }
 
-async function handleEventDeletion(event) {
+async function handleEventDeletion(event, anchor) {
   if (!ensureAdminSession(true)) {
     return;
   }
@@ -1483,10 +1537,10 @@ async function handleEventDeletion(event) {
     if (eventState.selectedEventId === event.id) {
       eventState.selectedEventId = null;
     }
-    setStatus("Szavazási esemény törölve.", "success");
+    setStatus("Szavazási esemény törölve.", "success", anchor);
     await refreshEventData();
   } catch (error) {
-    handleAuthError(error);
+    handleAuthError(error, anchor);
   }
 }
 
@@ -1506,11 +1560,12 @@ async function handleVotingAccessToggle(event, toggleElement) {
         ? "A szavazási felület engedélyezve ezen az eseményen."
         : "A szavazási felület letiltva ezen az eseményen.",
       "success",
+      toggleElement,
     );
     await refreshEventData();
   } catch (error) {
     toggleElement.checked = !desired;
-    handleAuthError(error);
+    handleAuthError(error, toggleElement);
   }
 }
 
@@ -1542,6 +1597,7 @@ async function handleDelegateSelection(organizationId, checkboxElement) {
     setStatus(
       `Legfeljebb ${delegateLimit} delegált jelölhető szervezetenként.`,
       "error",
+      selector,
     );
     return;
   }
@@ -1568,12 +1624,12 @@ async function handleDelegateSelection(organizationId, checkboxElement) {
       },
     );
     selector.dataset.previousSelection = JSON.stringify(desiredIds);
-    setStatus("A delegáltlista frissítve.", "success");
+    setStatus("A delegáltlista frissítve.", "success", selector);
     await refreshEventDelegates();
     renderDelegateTable();
     renderSelectedEventInfo();
   } catch (error) {
-    handleAuthError(error);
+    handleAuthError(error, selector);
     const fallback = uniqueIdList(
       JSON.parse(selector.dataset.previousSelection || "[]"),
     );
@@ -1615,7 +1671,7 @@ async function initEventsPage() {
       return;
     }
     exitEventEditMode();
-    setStatus("Az esemény szerkesztése megszakítva.");
+    setStatus("Az esemény szerkesztése megszakítva.", "", cancelEventEditButton);
   });
 
   createEventForm?.addEventListener("submit", async (event) => {
@@ -1626,19 +1682,31 @@ async function initEventsPage() {
     const formData = new FormData(createEventForm);
     const titleValue = String(formData.get("title") || "").trim();
     if (titleValue.length < 3) {
-      setStatus("Kérjük, adj meg legalább 3 karakter hosszú eseménynevet.", "error");
+      setStatus(
+        "Kérjük, adj meg legalább 3 karakter hosszú eseménynevet.",
+        "error",
+        createEventSubmitButton,
+      );
       return;
     }
     const eventDateValue = formData.get("event_date");
     const deadlineValue = formData.get("delegate_deadline");
     const limitValue = formData.get("delegate_limit");
     if (!eventDateValue || !deadlineValue) {
-      setStatus("Kérjük, add meg az esemény dátumát és a delegált határidejét.", "error");
+      setStatus(
+        "Kérjük, add meg az esemény dátumát és a delegált határidejét.",
+        "error",
+        createEventSubmitButton,
+      );
       return;
     }
     const delegateLimit = limitValue ? Number.parseInt(String(limitValue), 10) : NaN;
     if (!Number.isFinite(delegateLimit) || delegateLimit < 1) {
-      setStatus("Kérjük, válaszd ki a delegáltak maximális számát.", "error");
+      setStatus(
+        "Kérjük, válaszd ki a delegáltak maximális számát.",
+        "error",
+        createEventSubmitButton,
+      );
       return;
     }
     const descriptionValue = formData.get("description");
@@ -1660,14 +1728,14 @@ async function initEventsPage() {
           method: "PATCH",
           body: JSON.stringify(basePayload),
         });
-        setStatus("Az esemény adatai frissítve.", "success");
+        setStatus("Az esemény adatai frissítve.", "success", createEventSubmitButton);
         exitEventEditMode();
         if (updated?.id) {
           eventState.selectedEventId = updated.id;
         }
         await refreshEventData(false, true);
       } catch (error) {
-        handleAuthError(error);
+        handleAuthError(error, createEventSubmitButton);
       }
       return;
     }
@@ -1681,7 +1749,7 @@ async function initEventsPage() {
         method: "POST",
         body: JSON.stringify(payload),
       });
-      setStatus("Új szavazási esemény létrehozva.", "success");
+      setStatus("Új szavazási esemény létrehozva.", "success", createEventSubmitButton);
       createEventForm.reset();
       resetEventFormPresentation();
       if (created?.id) {
@@ -1689,7 +1757,7 @@ async function initEventsPage() {
       }
       await refreshEventData(false, true);
     } catch (error) {
-      handleAuthError(error);
+      handleAuthError(error, createEventSubmitButton);
     }
   });
 }
@@ -1795,11 +1863,15 @@ async function initUsersPage() {
       const confirmPassword = String(formData.get("password_confirm") || "");
 
       if (!firstName || !lastName || !email || !password) {
-        setStatus("Kérjük, tölts ki minden mezőt az admin létrehozásához.", "error");
+        setStatus(
+          "Kérjük, tölts ki minden mezőt az admin létrehozásához.",
+          "error",
+          submitButton,
+        );
         return;
       }
       if (password !== confirmPassword) {
-        setStatus("A megadott jelszavak nem egyeznek.", "error");
+        setStatus("A megadott jelszavak nem egyeznek.", "error", submitButton);
         return;
       }
 
@@ -1815,21 +1887,21 @@ async function initUsersPage() {
       }
 
       try {
-        setStatus("Új adminisztrátor létrehozása folyamatban...");
+        setStatus("Új adminisztrátor létrehozása folyamatban...", "", submitButton);
         const response = await requestJSON("/api/admin/admins", {
           method: "POST",
           body: JSON.stringify(payload),
         });
         const message =
           response?.message || "Új adminisztrátor létrehozva. Első belépéskor jelszócsere szükséges.";
-        setStatus(message, "success");
+        setStatus(message, "success", submitButton);
         form.reset();
         await refreshAdmins();
         if (firstNameInput instanceof HTMLElement) {
           firstNameInput.focus();
         }
       } catch (error) {
-        handleAuthError(error);
+        handleAuthError(error, submitButton);
       } finally {
         if (submitButton) {
           submitButton.disabled = false;
@@ -1867,18 +1939,22 @@ async function initSettingsPage() {
       "A folytatáshoz írd be a következő kulcsszót: TÖRLÉS",
     );
     if (!keyword || keyword.trim().toUpperCase() !== "TÖRLÉS") {
-      setStatus("A művelet megszakítva. A megerősítő kulcsszó nem egyezett.", "error");
+      setStatus(
+        "A művelet megszakítva. A megerősítő kulcsszó nem egyezett.",
+        "error",
+        resetButton,
+      );
       return;
     }
 
     resetButton.disabled = true;
     try {
-      setStatus("Szavazási események törlése folyamatban...");
+      setStatus("Szavazási események törlése folyamatban...", "", resetButton);
       const response = await requestJSON("/api/admin/events/reset", { method: "POST" });
       const message = response?.message || "Az események törlése megtörtént.";
-      setStatus(message, "success");
+      setStatus(message, "success", resetButton);
     } catch (error) {
-      handleAuthError(error);
+      handleAuthError(error, resetButton);
     } finally {
       resetButton.disabled = false;
     }
