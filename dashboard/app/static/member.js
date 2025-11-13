@@ -211,50 +211,140 @@ function ensureNavLinks(orgId, sessionUser, detail) {
 }
 
 function renderMembers(detail) {
-  const tableBody = document.querySelector("#member-list-table tbody");
-  if (!tableBody) {
+  const directory = document.querySelector("#member-directory");
+  if (!directory) {
     return;
   }
-  tableBody.innerHTML = "";
+  directory.innerHTML = "";
 
-  detail.members.forEach((member) => {
-    const row = document.createElement("tr");
-    row.classList.toggle("contact-member", Boolean(member.is_contact));
+  const members = Array.isArray(detail.members) ? detail.members : [];
+  if (!members.length) {
+    const empty = document.createElement("p");
+    empty.classList.add("muted", "member-directory-empty");
+    empty.textContent = "Nincs megjeleníthető tag.";
+    directory.appendChild(empty);
+    return;
+  }
 
-    const nameCell = document.createElement("td");
-    nameCell.textContent = formatDisplayName(
+  members.forEach((member) => {
+    const card = document.createElement("article");
+    card.classList.add("member-card");
+    card.setAttribute("role", "listitem");
+
+    if (member.is_contact) {
+      card.classList.add("is-contact");
+    } else if (member.is_admin) {
+      card.classList.add("is-admin");
+    }
+
+    const header = document.createElement("div");
+    header.classList.add("member-card-header");
+
+    const nameBlock = document.createElement("div");
+    nameBlock.classList.add("member-card-name");
+
+    const name = document.createElement("h3");
+    name.textContent = formatDisplayName(
       member.first_name,
       member.last_name,
       member.email,
     );
 
-    const emailCell = document.createElement("td");
-    emailCell.textContent = member.email;
+    const email = document.createElement("p");
+    email.classList.add("member-card-email");
+    email.textContent = member.email;
 
-    const statusCell = document.createElement("td");
-    if (member.is_contact) {
-      statusCell.textContent = "Kapcsolattartó";
-    } else if (member.is_admin) {
-      statusCell.textContent = "Adminisztrátor";
-    } else if (!member.is_email_verified) {
-      statusCell.textContent = "E-mail megerősítésre vár";
-    } else if (member.admin_decision !== "approved") {
-      statusCell.textContent = "Admin jóváhagyásra vár";
-    } else if (!detail.fee_paid) {
-      statusCell.textContent = "Tagsági díj rendezetlen";
-    } else if (!member.has_access) {
-      statusCell.textContent = "Hozzáférés blokkolva";
-    } else if (member.is_voting_delegate) {
-      statusCell.textContent = "Szavazó delegált";
-    } else {
-      statusCell.textContent = "Aktív";
+    const { label: statusLabel, variant: statusVariant } = getMemberStatus(
+      member,
+      detail,
+    );
+    const status = document.createElement("span");
+    status.classList.add("member-status-badge");
+    if (statusVariant) {
+      status.classList.add(`is-${statusVariant}`);
+    }
+    status.textContent = statusLabel;
+
+    nameBlock.appendChild(name);
+    nameBlock.appendChild(email);
+    header.appendChild(nameBlock);
+    header.appendChild(status);
+
+    const metaList = buildMemberMeta(member, detail);
+
+    card.appendChild(header);
+    if (metaList.children.length) {
+      card.appendChild(metaList);
     }
 
-    row.appendChild(nameCell);
-    row.appendChild(emailCell);
-    row.appendChild(statusCell);
-    tableBody.appendChild(row);
+    directory.appendChild(card);
   });
+}
+
+function getMemberStatus(member, detail) {
+  const feePaid = detail?.fee_paid;
+  const hasAccess = member.has_access ?? true;
+  if (member.is_contact) {
+    return { label: "Kapcsolattartó", variant: "contact" };
+  }
+  if (member.is_admin) {
+    return { label: "Adminisztrátor", variant: "admin" };
+  }
+  if (!member.is_email_verified) {
+    return { label: "E-mail megerősítésre vár", variant: "pending" };
+  }
+  if (member.admin_decision !== "approved") {
+    return { label: "Admin jóváhagyásra vár", variant: "pending" };
+  }
+  if (feePaid === false) {
+    return { label: "Tagsági díj rendezetlen", variant: "alert" };
+  }
+  if (!hasAccess) {
+    return { label: "Hozzáférés blokkolva", variant: "blocked" };
+  }
+  if (member.is_voting_delegate) {
+    return { label: "Szavazó delegált", variant: "delegate" };
+  }
+  return { label: "Aktív", variant: "active" };
+}
+
+function buildMemberMeta(member, detail) {
+  const list = document.createElement("ul");
+  list.classList.add("member-card-meta");
+
+  const metaItems = [];
+  const feePaid = detail?.fee_paid;
+  const hasAccess = member.has_access ?? true;
+
+  if (member.is_contact) {
+    metaItems.push("Elsődleges kapcsolattartó");
+  }
+  if (member.is_admin) {
+    metaItems.push("Admin jogosultság");
+  }
+  if (member.is_voting_delegate) {
+    metaItems.push("Delegálva a szavazásra");
+  }
+  if (!member.is_email_verified) {
+    metaItems.push("E-mail megerősítésre vár");
+  }
+  if (member.admin_decision !== "approved") {
+    metaItems.push("Admin jóváhagyás folyamatban");
+  }
+  if (feePaid === false) {
+    metaItems.push("Tagsági díj rendezetlen");
+  }
+  if (!hasAccess) {
+    metaItems.push("Belépés ideiglenesen blokkolva");
+  }
+
+  metaItems.forEach((text) => {
+    const item = document.createElement("li");
+    item.textContent = text;
+    list.appendChild(item);
+  });
+
+  return list;
 }
 
 function setInvitationStatus(message, type = "") {
