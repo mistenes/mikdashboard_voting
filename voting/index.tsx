@@ -296,6 +296,7 @@ const AdminView = ({ sessionData, onLogout, onSessionUpdate, clockOffsetMs }: {
     clockOffsetMs: number,
 }) => {
     const [isLoading, setIsLoading] = useState(false);
+    const [isUpdatingAvailability, setIsUpdatingAvailability] = useState(false);
     const [adminTimeLeft, setAdminTimeLeft] = useState<number | null>(null);
 
     const eventTitle = (sessionData.eventTitle || '').trim();
@@ -378,6 +379,22 @@ const AdminView = ({ sessionData, onLogout, onSessionUpdate, clockOffsetMs }: {
         }
     };
 
+    const handleToggleAvailability = async () => {
+        setIsUpdatingAvailability(true);
+        try {
+            const updated = await jsonRequest<SessionResponse>('/api/session/availability', {
+                method: 'POST',
+                body: JSON.stringify({ enabled: !sessionData.isVotingEnabled }),
+            });
+            onSessionUpdate(toSessionData(updated));
+        } catch (error) {
+            console.error('Error updating availability:', error);
+            alert('Nem sikerült frissíteni a szavazási felület állapotát.');
+        } finally {
+            setIsUpdatingAvailability(false);
+        }
+    };
+
     return (
         <div className="container admin-view">
             <header className="view-header" id="overview">
@@ -393,7 +410,17 @@ const AdminView = ({ sessionData, onLogout, onSessionUpdate, clockOffsetMs }: {
                         <ul>
                             {eventDateLabel && <li>Esemény időpontja: <strong>{eventDateLabel}</strong></li>}
                             {delegateDeadlineLabel && <li>Delegált kijelölési határidő: <strong>{delegateDeadlineLabel}</strong></li>}
-                            <li>Szavazási felület: <strong>{sessionData.isVotingEnabled ? 'Engedélyezve' : 'Letiltva'}</strong></li>
+                            <li className="event-availability">
+                                <span>Szavazási felület: <strong>{sessionData.isVotingEnabled ? 'Engedélyezve' : 'Letiltva'}</strong></span>
+                                <button
+                                    type="button"
+                                    className={`btn ${sessionData.isVotingEnabled ? 'btn-secondary' : 'btn-primary'} btn-inline`}
+                                    onClick={handleToggleAvailability}
+                                    disabled={isUpdatingAvailability || !eventTitle}
+                                >
+                                    {sessionData.isVotingEnabled ? 'Letiltás' : 'Engedélyezés'}
+                                </button>
+                            </li>
                         </ul>
                     </div>
                 ) : (

@@ -920,6 +920,23 @@ app.get('/api/session', (_req, res) => {
   res.json(snapshotState());
 });
 
+app.post('/api/session/availability', requireRoles(['admin']), (req, res) => {
+  const rawEnabled = req.body?.enabled;
+  let enabled = false;
+
+  if (typeof rawEnabled === 'string') {
+    enabled = ['true', '1', 'yes', 'on'].includes(rawEnabled.toLowerCase());
+  } else {
+    enabled = Boolean(rawEnabled);
+  }
+
+  if (sessionState.isVotingEnabled !== enabled) {
+    setState({ isVotingEnabled: enabled });
+  }
+
+  res.json(snapshotState());
+});
+
 app.post('/api/session/start', requireRoles(['admin']), (req, res) => {
   const totalVoters = Number.parseInt(req.body?.totalVoters, 10);
   const safeTotalVoters = Number.isFinite(totalVoters) && totalVoters > 0 ? totalVoters : sessionState.totalVoters;
