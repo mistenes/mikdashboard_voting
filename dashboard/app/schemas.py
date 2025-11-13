@@ -260,6 +260,24 @@ class VotingAvailabilitySyncRequest(BaseModel):
     is_voting_enabled: bool
 
 
+class VotingStateSyncRequest(BaseModel):
+    event_id: Optional[int] = None
+
+
+class VotingSyncEventPayload(BaseModel):
+    id: int
+    title: Optional[str] = None
+    event_date: Optional[datetime] = None
+    delegate_deadline: Optional[datetime] = None
+    is_voting_enabled: bool
+    delegate_limit: Optional[int] = None
+
+
+class VotingSyncStateResponse(BaseModel):
+    event: Optional[VotingSyncEventPayload] = None
+    delegate_count: int = 0
+
+
 class VotingEventRead(BaseModel):
     id: int
     title: str

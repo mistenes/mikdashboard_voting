@@ -69,6 +69,8 @@ from .schemas import (
     VotingEventCreateRequest,
     VotingEventUpdateRequest,
     VotingEventRead,
+    VotingStateSyncRequest,
+    VotingSyncStateResponse,
     VotingO2AuthLaunchRequest,
     VotingO2AuthResponse,
 )
@@ -1706,6 +1708,23 @@ def sync_voting_availability(
     db.commit()
     _sync_active_event(db)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.post(
+    "/api/internal/voting/state",
+    response_model=VotingSyncStateResponse,
+    responses={401: {"model": ErrorResponse}},
+)
+def fetch_voting_state(
+    request: Request,
+    payload: VotingStateSyncRequest,
+    db: DatabaseDependency,
+) -> VotingSyncStateResponse:
+    _verify_voting_service_signature(request, payload.model_dump())
+
+    active_event = get_active_voting_event(db)
+    payload_data = _build_voting_sync_payload(active_event)
+    return VotingSyncStateResponse(**payload_data)
 
 
 @app.get(
