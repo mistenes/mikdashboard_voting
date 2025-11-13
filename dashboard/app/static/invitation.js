@@ -120,6 +120,9 @@ async function submitInvitation(event, token) {
         element.disabled = true;
       });
     }
+    window.setTimeout(() => {
+      window.location.href = "/";
+    }, 2000);
   } catch (error) {
     setStatus(error.message || "Nem sikerült elfogadni a meghívót.", "error");
   }
