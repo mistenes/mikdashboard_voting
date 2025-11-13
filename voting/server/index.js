@@ -62,6 +62,7 @@ let sessionState = stampState({
   voteStartTime: null,
   voteEndTime: null,
   voteDurationSeconds: VOTE_DURATION_SECONDS,
+  eventId: null,
   eventTitle: null,
   eventDate: null,
   delegateDeadline: null,
@@ -151,6 +152,7 @@ const applyTotalVoters = (value) => {
 };
 
 const applyEventMetadata = ({
+  eventId,
   eventTitle,
   eventDate,
   delegateDeadline,
@@ -158,6 +160,11 @@ const applyEventMetadata = ({
 }) => {
   const updates = {};
   let changed = false;
+
+  if (eventId !== undefined && sessionState.eventId !== eventId) {
+    updates.eventId = eventId;
+    changed = true;
+  }
 
   if (eventTitle !== undefined && sessionState.eventTitle !== eventTitle) {
     updates.eventTitle = eventTitle;
@@ -187,6 +194,130 @@ const applyEventMetadata = ({
   }
 };
 
+const canonicalizeJson = (value) => {
+  if (value === null || value === undefined) {
+    return 'null';
+  }
+
+  if (Array.isArray(value)) {
+    const normalized = value.map((item) => JSON.parse(canonicalizeJson(item)));
+    return JSON.stringify(normalized);
+  }
+
+  if (typeof value === 'object') {
+    const sortedKeys = Object.keys(value).sort();
+    const normalized = {};
+    for (const key of sortedKeys) {
+      normalized[key] = JSON.parse(canonicalizeJson(value[key]));
+    }
+    return JSON.stringify(normalized);
+  }
+
+  return JSON.stringify(value);
+};
+
+const propagateAvailabilityToSessions = (eventId, enabled) => {
+  if (!Number.isFinite(eventId)) {
+    return;
+  }
+
+  for (const [sessionId, record] of sessions.entries()) {
+    if (!record || !record.user) {
+      continue;
+    }
+
+    const userEventId =
+      typeof record.user.eventId === 'number'
+        ? record.user.eventId
+        : record.user.eventId === null || record.user.eventId === undefined
+        ? null
+        : Number.parseInt(record.user.eventId, 10);
+
+    if (!Number.isFinite(userEventId) || userEventId !== eventId) {
+      continue;
+    }
+
+    const nextUser = { ...record.user, isVotingEnabled: Boolean(enabled) };
+    sessions.set(sessionId, { ...record, user: nextUser });
+  }
+};
+
+async function syncDashboardAvailability(eventId, enabled) {
+  if (!normalizedDashboardBaseUrl) {
+    return {
+      ok: false,
+      status: 503,
+      detail: 'A dashboard szolgáltatás nincs konfigurálva.',
+    };
+  }
+
+  if (!Number.isFinite(eventId)) {
+    return {
+      ok: false,
+      status: 409,
+      detail: 'Nincs aktív esemény a szavazási felülethez.',
+    };
+  }
+
+  const payload = {
+    event_id: Number(eventId),
+    is_voting_enabled: Boolean(enabled),
+  };
+  const canonicalBody = canonicalizeJson(payload);
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const signature = crypto
+    .createHmac('sha256', O2AUTH_SECRET)
+    .update(`${timestamp}:${canonicalBody}`)
+    .digest('hex');
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), DASHBOARD_API_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(
+      `${normalizedDashboardBaseUrl}/api/internal/voting/availability`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Voting-Timestamp': timestamp,
+          'X-Voting-Signature': signature,
+        },
+        body: canonicalBody,
+        signal: controller.signal,
+      },
+    );
+
+    if (response.status === 204) {
+      return { ok: true, status: 204 };
+    }
+
+    const data = await response
+      .json()
+      .catch(() => null);
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        status: response.status,
+        detail:
+          (data && (data.detail || data.message)) ||
+          'Nem sikerült frissíteni a dashboard esemény állapotát.',
+      };
+    }
+
+    return { ok: true, status: response.status, data };
+  } catch (error) {
+    const detail =
+      error && error.name === 'AbortError'
+        ? 'A dashboard szinkronizációja túl sokáig tartott.'
+        : 'Nem sikerült elérni a dashboard szolgáltatást.';
+    return { ok: false, status: 503, detail };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 app.use(express.json());
 
 if (!isProduction) {
@@ -211,6 +342,7 @@ app.post('/api/internal/event-sync', (req, res) => {
 
   if (!payload) {
     applyEventMetadata({
+      eventId: null,
       eventTitle: null,
       eventDate: null,
       delegateDeadline: null,
@@ -220,6 +352,13 @@ app.post('/api/internal/event-sync', (req, res) => {
     return;
   }
 
+  const safeId =
+    typeof payload.id === 'number'
+      ? payload.id
+      : payload.id === null || payload.id === undefined
+      ? null
+      : Number.parseInt(payload.id, 10);
+  const normalizedId = Number.isFinite(safeId) ? safeId : null;
   const safeTitle = typeof payload.title === 'string' ? payload.title : null;
   const safeEventDate =
     typeof payload.event_date === 'string' ? payload.event_date : null;
@@ -228,6 +367,7 @@ app.post('/api/internal/event-sync', (req, res) => {
   const safeVotingEnabled = Boolean(payload.is_voting_enabled);
 
   applyEventMetadata({
+    eventId: normalizedId,
     eventTitle: safeTitle,
     eventDate: safeEventDate,
     delegateDeadline: safeDelegateDeadline,
@@ -520,6 +660,7 @@ async function authenticateAgainstDashboard(email, password) {
     const info = signedResult.data || {};
     const delegateCount = normalizeTotalVoters(info.active_event?.delegate_count);
     applyEventMetadata({
+      eventId: info.active_event?.id ?? null,
       eventTitle: info.active_event?.title ?? null,
       eventDate: info.active_event?.event_date ?? null,
       delegateDeadline: info.active_event?.delegate_deadline ?? null,
@@ -564,6 +705,7 @@ async function authenticateAgainstDashboard(email, password) {
   if (loginResult.ok) {
     const payload = loginResult.data || {};
     applyEventMetadata({
+      eventId: null,
       eventTitle: null,
       eventDate: null,
       delegateDeadline: null,
@@ -892,6 +1034,7 @@ function handleO2AuthRequest(req, res) {
   });
   applyTotalVoters(payload.delegate_count ?? payload.total_voters ?? payload.totalVoters);
   applyEventMetadata({
+    eventId: payload.event ?? null,
     eventTitle: payload.event_title ?? null,
     eventDate: payload.event_date ?? null,
     delegateDeadline: payload.delegate_deadline ?? null,
@@ -920,7 +1063,7 @@ app.get('/api/session', (_req, res) => {
   res.json(snapshotState());
 });
 
-app.post('/api/session/availability', requireRoles(['admin']), (req, res) => {
+app.post('/api/session/availability', requireRoles(['admin']), async (req, res) => {
   const rawEnabled = req.body?.enabled;
   let enabled = false;
 
@@ -930,9 +1073,42 @@ app.post('/api/session/availability', requireRoles(['admin']), (req, res) => {
     enabled = Boolean(rawEnabled);
   }
 
-  if (sessionState.isVotingEnabled !== enabled) {
-    setState({ isVotingEnabled: enabled });
+  if (sessionState.isVotingEnabled === enabled) {
+    res.json(snapshotState());
+    return;
   }
+
+  const eventIdCandidate =
+    typeof sessionState.eventId === 'number'
+      ? sessionState.eventId
+      : sessionState.eventId === null || sessionState.eventId === undefined
+      ? null
+      : Number.parseInt(sessionState.eventId, 10);
+  const normalizedEventId =
+    typeof eventIdCandidate === 'number' && Number.isFinite(eventIdCandidate)
+      ? eventIdCandidate
+      : null;
+
+  if (normalizedEventId === null) {
+    res
+      .status(409)
+      .json({ detail: 'Nincs aktív szavazási esemény a dashboard frissítéséhez.' });
+    return;
+  }
+
+  const syncResult = await syncDashboardAvailability(normalizedEventId, enabled);
+  if (!syncResult.ok) {
+    res
+      .status(syncResult.status || 502)
+      .json({
+        detail:
+          syncResult.detail || 'Nem sikerült frissíteni a dashboard esemény állapotát.',
+      });
+    return;
+  }
+
+  setState({ isVotingEnabled: enabled });
+  propagateAvailabilityToSessions(normalizedEventId, enabled);
 
   res.json(snapshotState());
 });

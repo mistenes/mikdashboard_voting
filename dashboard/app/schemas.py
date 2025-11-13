@@ -255,6 +255,11 @@ class VotingEventAccessUpdate(BaseModel):
     is_voting_enabled: bool
 
 
+class VotingAvailabilitySyncRequest(BaseModel):
+    event_id: int
+    is_voting_enabled: bool
+
+
 class VotingEventRead(BaseModel):
     id: int
     title: str

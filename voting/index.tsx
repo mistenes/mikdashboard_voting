@@ -31,6 +31,7 @@ interface SessionData {
     voteEndTime: string | null;
     voteDurationSeconds: number;
     serverTimestamp: string | null;
+    eventId: number | null;
     eventTitle: string | null;
     eventDate: string | null;
     delegateDeadline: string | null;
@@ -45,6 +46,7 @@ interface SessionResponse {
     voteEndTime?: string | null;
     voteDurationSeconds?: number;
     serverTimestamp?: string | null;
+    eventId?: number | string | null;
     eventTitle?: string | null;
     eventDate?: string | null;
     delegateDeadline?: string | null;
@@ -91,6 +93,17 @@ const toSessionData = (response: SessionResponse | null | undefined): SessionDat
     voteEndTime: response?.voteEndTime ?? null,
     voteDurationSeconds: Number(response?.voteDurationSeconds ?? DEFAULT_VOTE_DURATION),
     serverTimestamp: response?.serverTimestamp ?? null,
+    eventId: (() => {
+        const value = response?.eventId;
+        if (value === null || value === undefined) {
+            return null;
+        }
+        if (typeof value === 'number') {
+            return Number.isFinite(value) ? value : null;
+        }
+        const parsed = Number.parseInt(value, 10);
+        return Number.isFinite(parsed) ? parsed : null;
+    })(),
     eventTitle: response?.eventTitle ?? null,
     eventDate: response?.eventDate ?? null,
     delegateDeadline: response?.delegateDeadline ?? null,

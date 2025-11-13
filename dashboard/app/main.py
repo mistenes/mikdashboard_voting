@@ -65,6 +65,7 @@ from .schemas import (
     VotingAuthRequest,
     VotingAuthResponse,
     VotingEventAccessUpdate,
+    VotingAvailabilitySyncRequest,
     VotingEventCreateRequest,
     VotingEventUpdateRequest,
     VotingEventRead,
@@ -148,6 +149,9 @@ BREVO_SENDER_NAME = os.getenv("BREVO_SENDER_NAME", "MikDashboard").strip() or "M
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").strip()
 _VOTING_O2AUTH_SECRET_BYTES = VOTING_O2AUTH_SECRET.encode("utf-8")
 VOTING_SYNC_TIMEOUT_SECONDS = float(os.getenv("VOTING_SYNC_TIMEOUT_SECONDS", "5"))
+VOTING_SERVICE_SYNC_TTL_SECONDS = int(
+    os.getenv("VOTING_SERVICE_SYNC_TTL_SECONDS", "300")
+)
 
 
 def _serialize_datetime(value):
@@ -225,6 +229,47 @@ def _sync_voting_service(event: VotingEvent | None) -> None:
 def _sync_active_event(db: Session) -> None:
     active_event = get_active_voting_event(db)
     _sync_voting_service(active_event)
+
+
+def _verify_voting_service_signature(request: Request, payload: dict) -> None:
+    signature = request.headers.get("x-voting-signature")
+    timestamp_header = request.headers.get("x-voting-timestamp")
+
+    if not signature or not timestamp_header:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Hiányzó aláírás a szavazási szolgáltatástól.",
+        )
+
+    try:
+        timestamp = int(timestamp_header)
+    except (TypeError, ValueError) as exc:  # pragma: no cover - defensive
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Érvénytelen időbélyeg a szavazási kérésben.",
+        ) from exc
+
+    now = int(time.time())
+    tolerance = max(VOTING_SERVICE_SYNC_TTL_SECONDS, 1)
+    if abs(now - timestamp) > tolerance:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Lejárt aláírás a szavazási kérésben.",
+        )
+
+    canonical = json.dumps(payload, separators=(",", ":"), sort_keys=True)
+    expected_signature = hmac.new(
+        _VOTING_O2AUTH_SECRET_BYTES,
+        f"{timestamp}:{canonical}".encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+    provided_signature = signature.strip().lower()
+    if not hmac.compare_digest(expected_signature, provided_signature):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Az aláírás ellenőrzése sikertelen.",
+        )
 
 app = FastAPI(title="MikDashboard Registration Service")
 
@@ -1621,6 +1666,46 @@ def update_event_accessibility(
     db.commit()
     _sync_active_event(db)
     return build_event_read(event)
+
+
+@app.post(
+    "/api/internal/voting/availability",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={
+        401: {"model": ErrorResponse},
+        400: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+    },
+)
+def sync_voting_availability(
+    request: Request,
+    payload: VotingAvailabilitySyncRequest,
+    db: DatabaseDependency,
+) -> Response:
+    _verify_voting_service_signature(request, payload.model_dump())
+
+    try:
+        event = set_voting_event_accessibility(
+            db,
+            event_id=payload.event_id,
+            is_voting_enabled=payload.is_voting_enabled,
+        )
+        db.flush()
+        db.refresh(event, attribute_names=["delegates"])
+    except RegistrationError as exc:
+        db.rollback()
+        detail = str(exc)
+        lowered = detail.lower()
+        status_code = (
+            status.HTTP_404_NOT_FOUND
+            if "nem található" in lowered
+            else status.HTTP_400_BAD_REQUEST
+        )
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+
+    db.commit()
+    _sync_active_event(db)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @app.get(
