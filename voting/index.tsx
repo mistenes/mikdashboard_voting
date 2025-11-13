@@ -619,7 +619,7 @@ const LoginScreen = ({ onLogin, error }: { onLogin: (email: string, password: st
         <div className="container login-container" id="login">
             <form onSubmit={handleSubmit}>
                 <h1>Szavazórendszer</h1>
-                <p>Kérjük, jelentkezzen be a folytatáshoz, vagy használja a MikDashboard felületéről érkező egyszeri bejelentkezést.</p>
+                <p>Kérjük, jelentkezzen be a folytatáshoz, vagy használja a MIK Dashboard felületéről érkező egyszeri bejelentkezést.</p>
                 <div className="form-group">
                     <label htmlFor="email">Email cím</label>
                     <input type="email" id="email" value={email} onChange={(e) => setEmail(e.target.value)} required />

@@ -1,4 +1,4 @@
-# MikDashboard Voting Monorepo
+# MIK Dashboard Voting Monorepo
 
 This repository contains two deployable apps:
 

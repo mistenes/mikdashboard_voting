@@ -1,4 +1,4 @@
-# MikDashboard Registration Prototype
+# MIK Dashboard Registration Prototype
 
 This prototype implements a simple registration flow with organization lookup,
 email verification, and administrator approval gates. It provides a FastAPI

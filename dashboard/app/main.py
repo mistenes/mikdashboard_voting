@@ -144,7 +144,7 @@ VOTING_APP_BASE_URL = (
 VOTING_AUTH_TTL_SECONDS = int(os.getenv("VOTING_AUTH_TTL_SECONDS", "60"))
 BREVO_API_KEY = os.getenv("BREVO_API_KEY", "").strip()
 BREVO_SENDER_EMAIL = os.getenv("BREVO_SENDER_EMAIL", "").strip()
-BREVO_SENDER_NAME = os.getenv("BREVO_SENDER_NAME", "MikDashboard").strip() or "MikDashboard"
+BREVO_SENDER_NAME = os.getenv("BREVO_SENDER_NAME", "MIK Dashboard").strip() or "MIK Dashboard"
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").strip()
 _VOTING_O2AUTH_SECRET_BYTES = VOTING_O2AUTH_SECRET.encode("utf-8")
 VOTING_SYNC_TIMEOUT_SECONDS = float(os.getenv("VOTING_SYNC_TIMEOUT_SECONDS", "5"))
@@ -226,7 +226,7 @@ def _sync_active_event(db: Session) -> None:
     active_event = get_active_voting_event(db)
     _sync_voting_service(active_event)
 
-app = FastAPI(title="MikDashboard Registration Service")
+app = FastAPI(title="MIK Dashboard Registration Service")
 
 
 @app.on_event("startup")
