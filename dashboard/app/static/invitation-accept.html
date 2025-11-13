@@ -15,8 +15,8 @@
         </p>
       </header>
 
-      <div class="invite-layout">
-        <section class="auth-card invite-summary-card" aria-labelledby="invite-details-title">
+      <section class="auth-card invite-card">
+        <div class="invite-summary-card" aria-labelledby="invite-details-title">
           <h2 id="invite-details-title">Meghívó részletei</h2>
           <dl class="invite-summary">
             <div>
@@ -32,9 +32,9 @@
               <dd id="invite-role">Betöltés...</dd>
             </div>
           </dl>
-        </section>
+        </div>
 
-        <section class="auth-card invite-form-card" aria-labelledby="invite-form-title">
+        <div class="invite-form-card" aria-labelledby="invite-form-title">
           <h2 id="invite-form-title">Fiók létrehozása</h2>
           <p id="invite-status" class="status" role="status"></p>
           <form id="invitation-form" class="invite-accept-form">
@@ -70,8 +70,8 @@
             A meghívó elfogadása után bejelentkezhetsz a MikDashboard felületére az imént megadott
             jelszóval.
           </p>
-        </section>
-      </div>
+        </div>
+      </section>
     </main>
 
     <script type="module" src="/static/invitation.js"></script>

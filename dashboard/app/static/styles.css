@@ -1043,25 +1043,32 @@ button:disabled {
 .invite-summary {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 12px;
+  gap: 18px;
   margin: 0;
 }
 
 .invite-summary dt {
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
   color: #64748b;
+  margin: 0;
 }
 
 .invite-summary dd {
-  margin: 4px 0 0;
+  margin: 6px 0 0;
   font-weight: 600;
+  font-size: 1.05rem;
+  color: #0f172a;
+}
+
+body[data-invite-page].simple-bg {
+  background: linear-gradient(135deg, #eff6ff, #f8fafc);
 }
 
 body[data-invite-page] .invite-container {
-  width: min(960px, 100%);
-  padding: clamp(28px, 5vw, 48px);
+  width: min(820px, 100%);
+  padding: clamp(20px, 5vw, 44px);
   display: flex;
   flex-direction: column;
   gap: clamp(24px, 4vw, 36px);
@@ -1071,112 +1078,106 @@ body[data-invite-page] .invite-header {
   text-align: left;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
 body[data-invite-page] .invite-header h1 {
-  font-size: clamp(2rem, 3vw, 2.4rem);
+  font-size: clamp(2.1rem, 3vw, 2.6rem);
   margin: 0;
   color: #0f172a;
 }
 
 body[data-invite-page] .invite-header .muted {
-  font-size: 1rem;
+  font-size: 1.05rem;
   color: #475569;
+  margin: 0;
 }
 
-body[data-invite-page] .invite-layout {
+body[data-invite-page] .invite-card {
   display: grid;
-  gap: clamp(20px, 3vw, 32px);
+  gap: clamp(28px, 4vw, 36px);
+  padding: clamp(28px, 6vw, 44px);
+  border-radius: 24px;
+  background: #ffffff;
+  box-shadow: 0 32px 80px rgba(15, 23, 42, 0.14);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  backdrop-filter: none;
 }
 
-@media (min-width: 900px) {
-  body[data-invite-page] .invite-layout {
-    grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
-  }
+body[data-invite-page] .invite-summary-card {
+  display: grid;
+  gap: clamp(18px, 3vw, 26px);
 }
 
-body[data-invite-page] .invite-summary-card,
+body[data-invite-page] .invite-summary-card h2 {
+  margin: 0;
+  font-size: clamp(1.2rem, 2.2vw, 1.4rem);
+  color: #1e293b;
+}
+
 body[data-invite-page] .invite-form-card {
-  padding: clamp(28px, 4vw, 40px);
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
+  display: grid;
+  gap: clamp(20px, 3vw, 28px);
+  border-top: 1px solid #e2e8f0;
+  padding-top: clamp(20px, 3vw, 32px);
 }
 
-body[data-invite-page] .invite-summary {
-  gap: clamp(14px, 3vw, 22px);
-}
-
-body[data-invite-page] .invite-summary dt {
-  font-size: 0.8rem;
-  letter-spacing: 0.1em;
-  color: #475569;
-}
-
-body[data-invite-page] .invite-summary dd {
-  font-size: clamp(1rem, 2.2vw, 1.15rem);
-  font-weight: 600;
-  color: #0f172a;
+body[data-invite-page] .invite-form-card h2 {
+  margin: 0;
+  font-size: clamp(1.2rem, 2.2vw, 1.4rem);
+  color: #1e293b;
 }
 
 body[data-invite-page] .invite-accept-form {
   display: grid;
-  gap: clamp(14px, 3vw, 20px);
-}
-
-@media (min-width: 640px) {
-  body[data-invite-page] .invite-accept-form {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
+  gap: clamp(16px, 3vw, 22px);
 }
 
 body[data-invite-page] .invite-field {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
 body[data-invite-page] .invite-field label {
   font-weight: 600;
   color: #1e293b;
+  font-size: 0.95rem;
 }
 
 body[data-invite-page] .invite-field input {
-  padding: 14px 16px;
-  border-radius: 14px;
+  padding: 15px 18px;
+  border-radius: 16px;
   border: 1px solid rgba(148, 163, 184, 0.45);
-  background: rgba(255, 255, 255, 0.95);
-  font-size: 1rem;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  background: rgba(255, 255, 255, 0.96);
+  font-size: 1.02rem;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
 }
 
 body[data-invite-page] .invite-field input:focus {
   outline: none;
-  border-color: rgba(59, 130, 246, 0.6);
+  border-color: rgba(59, 130, 246, 0.65);
   box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.18);
 }
 
 body[data-invite-page] .invite-submit {
-  grid-column: 1 / -1;
+  width: 100%;
   margin-top: 4px;
-  padding: 14px 18px;
+  padding: 16px 20px;
   font-size: 1.05rem;
-  border-radius: 14px;
-  box-shadow: 0 10px 30px rgba(59, 130, 246, 0.18);
-}
-
-@media (max-width: 639px) {
-  body[data-invite-page] .invite-submit {
-    grid-column: span 1;
-    width: 100%;
-  }
+  border-radius: 16px;
+  box-shadow: 0 16px 40px rgba(59, 130, 246, 0.22);
 }
 
 body[data-invite-page] .invite-form-card .small-print {
   margin: 0;
-  line-height: 1.5;
+  line-height: 1.6;
   color: #475569;
+  font-size: 0.95rem;
+}
+
+body[data-invite-page] .invite-form-card .status {
+  margin: 0;
 }
 
 .member-main-header {
