@@ -120,6 +120,13 @@ from .security import hash_password
 
 logger = logging.getLogger(__name__)
 
+
+class VotingSyncError(RuntimeError):
+    """Raised when the voting service state cannot be synchronized."""
+
+    def __init__(self, message: str = "Nem sikerült szinkronizálni a szavazási felületet.") -> None:
+        super().__init__(message)
+
 ADMIN_EMAILS = {
     email.strip().lower()
     for email in os.getenv("ADMIN_EMAILS", "").split(",")
@@ -200,6 +207,29 @@ def _build_voting_sync_payload(event: VotingEvent | None) -> dict:
     return payload
 
 
+def _extract_voting_sync_detail(response: httpx.Response | None) -> str | None:
+    if response is None:
+        return None
+
+    try:
+        data = response.json()
+    except ValueError:
+        text = response.text
+        if isinstance(text, str):
+            stripped = text.strip()
+            return stripped or None
+        return None
+
+    if isinstance(data, dict):
+        for key in ("detail", "message", "error"):
+            value = data.get(key)
+            if isinstance(value, str):
+                stripped = value.strip()
+                if stripped:
+                    return stripped
+    return None
+
+
 def _sync_voting_service(event: VotingEvent | None) -> None:
     payload = _build_voting_sync_payload(event)
     canonical = json.dumps(payload, separators=(",", ":"), sort_keys=True)
@@ -224,13 +254,42 @@ def _sync_voting_service(event: VotingEvent | None) -> None:
             timeout=VOTING_SYNC_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
+    except httpx.HTTPStatusError as exc:  # pragma: no cover - network best effort
+        detail = _extract_voting_sync_detail(exc.response)
+        message = detail or "Nem sikerült frissíteni a szavazási felület állapotát."
+        logger.warning("Voting sync returned %s: %s", exc.response.status_code if exc.response else "?", message)
+        raise VotingSyncError(message) from exc
     except Exception as exc:  # pragma: no cover - network best effort
         logger.warning("Failed to synchronize voting metadata: %s", exc)
+        raise VotingSyncError("Nem sikerült elérni a voting szolgáltatást a szinkronizációhoz.") from exc
+
+    if response.status_code != status.HTTP_204_NO_CONTENT:
+        try:
+            body = response.json()
+        except ValueError:  # pragma: no cover - defensive
+            body = None
+        if isinstance(body, dict) and body.get("ok") is False:
+            detail = _extract_voting_sync_detail(response)
+            message = detail or "Nem sikerült frissíteni a szavazási felület állapotát."
+            logger.warning("Voting sync reported failure: %s", message)
+            raise VotingSyncError(message)
 
 
 def _sync_active_event(db: Session) -> None:
     active_event = get_active_voting_event(db)
     _sync_voting_service(active_event)
+
+
+def _sync_active_event_or_error(db: Session) -> None:
+    try:
+        _sync_active_event(db)
+    except VotingSyncError as exc:
+        detail = str(exc).strip() or "Nem sikerült frissíteni a szavazási felület állapotát."
+        logger.warning("Voting sync failed: %s", detail)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=detail,
+        ) from exc
 
 
 def _verify_voting_service_signature(request: Request, payload: dict) -> None:
@@ -1563,7 +1622,7 @@ def create_voting_event_endpoint(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     db.commit()
-    _sync_active_event(db)
+    _sync_active_event_or_error(db)
     return build_event_read(event)
 
 
@@ -1606,7 +1665,7 @@ def update_voting_event_endpoint(
         raise HTTPException(status_code=status_code, detail=detail) from exc
 
     db.commit()
-    _sync_active_event(db)
+    _sync_active_event_or_error(db)
     return build_event_read(event)
 
 
@@ -1629,7 +1688,7 @@ def activate_voting_event_endpoint(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
     db.commit()
-    _sync_active_event(db)
+    _sync_active_event_or_error(db)
     return build_event_read(event)
 
 
@@ -1666,7 +1725,7 @@ def update_event_accessibility(
         raise HTTPException(status_code=status_code, detail=detail) from exc
 
     db.commit()
-    _sync_active_event(db)
+    _sync_active_event_or_error(db)
     return build_event_read(event)
 
 
@@ -1706,7 +1765,7 @@ def sync_voting_availability(
         raise HTTPException(status_code=status_code, detail=detail) from exc
 
     db.commit()
-    _sync_active_event(db)
+    _sync_active_event_or_error(db)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
