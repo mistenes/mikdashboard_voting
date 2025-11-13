@@ -348,6 +348,10 @@ const AdminView = ({ sessionData, onLogout, onSessionUpdate, clockOffsetMs }: {
     }, [sessionData.status, voteEndMs, clockOffsetMs]);
 
     const handleStartVote = async () => {
+        if (!sessionData.isVotingEnabled) {
+            alert('A szavazási felület le van tiltva, ezért nem indítható el a szavazás.');
+            return;
+        }
         setIsLoading(true);
         try {
             const updated = await jsonRequest<SessionResponse>('/api/session/start', {
@@ -408,9 +412,26 @@ const AdminView = ({ sessionData, onLogout, onSessionUpdate, clockOffsetMs }: {
                 </div>
 
                 {sessionData.status === 'WAITING' && (
-                    <button onClick={handleStartVote} className="btn btn-primary btn-start-vote" disabled={isLoading}>
-                        Szavazás Indítása
-                    </button>
+                    <div className="admin-start-controls">
+                        <button
+                            onClick={handleStartVote}
+                            className="btn btn-primary btn-start-vote"
+                            disabled={isLoading || !sessionData.isVotingEnabled}
+                            title={
+                                sessionData.isVotingEnabled
+                                    ? undefined
+                                    : 'A szavazási felület le van tiltva, ezért nem indítható el a szavazás.'
+                            }
+                        >
+                            Szavazás Indítása
+                        </button>
+                        {!sessionData.isVotingEnabled && (
+                            <p className="muted" role="status">
+                                A szavazási felület jelenleg le van tiltva. Engedélyezze a felületet a
+                                szavazás megkezdéséhez.
+                            </p>
+                        )}
+                    </div>
                 )}
 
                 {sessionData.status === 'IN_PROGRESS' && (
