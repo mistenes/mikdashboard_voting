@@ -693,16 +693,24 @@ function renderOrganizations(items) {
       contactForm.addEventListener("submit", async (event) => {
         event.preventDefault();
         try {
-          await requestJSON(`/api/admin/organizations/${org.id}/contact-invitations`, {
-            method: "POST",
-            body: JSON.stringify({
-              email: contactEmailInput.value,
-              first_name: contactFirstInput.value,
-              last_name: contactLastInput.value,
-              role: "contact",
-            }),
-          });
-          setStatus("Kapcsolattartó meghívó elküldve.", "success", contactSubmit);
+          const detail = await requestJSON(
+            `/api/admin/organizations/${org.id}/contact-invitations`,
+            {
+              method: "POST",
+              body: JSON.stringify({
+                email: contactEmailInput.value,
+                first_name: contactFirstInput.value,
+                last_name: contactLastInput.value,
+                role: "contact",
+              }),
+            },
+          );
+          const contactStatus = detail?.contact?.status;
+          const successMessage =
+            contactStatus === "assigned"
+              ? "Kapcsolattartó sikeresen beállítva."
+              : "Kapcsolattartó meghívó elküldve.";
+          setStatus(successMessage, "success", contactSubmit);
           await loadOrganizations();
         } catch (error) {
           handleAuthError(error, contactSubmit);

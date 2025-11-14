@@ -1059,10 +1059,12 @@ def create_contact_invitation(
     invited_by: User,
     first_name: Optional[str] = None,
     last_name: Optional[str] = None,
-) -> OrganizationInvitation:
+) -> tuple[OrganizationInvitation | None, User | None]:
     organization = session.get(Organization, organization_id)
     if organization is None:
         raise RegistrationError("Nem található szervezet")
+
+    normalized_email = _normalize_email(email)
 
     stmt = (
         select(User)
@@ -1071,9 +1073,32 @@ def create_contact_invitation(
     )
     existing_contact = session.scalar(stmt)
     if existing_contact is not None:
+        if existing_contact.email and existing_contact.email.lower() == normalized_email:
+            raise RegistrationError(
+                "Ez a felhasználó már a szervezet kapcsolattartója"
+            )
         raise RegistrationError("Ehhez a szervezethez már tartozik kapcsolattartó")
 
-    return _create_invitation(
+    user_stmt = select(User).where(func.lower(User.email) == normalized_email)
+    existing_user = session.scalar(user_stmt)
+    if existing_user is not None:
+        if existing_user.organization_id != organization.id:
+            raise RegistrationError(
+                "Ezzel az e-mail címmel már létezik felhasználó a rendszerben"
+            )
+        if existing_user.is_organization_contact:
+            raise RegistrationError("Ez a felhasználó már a szervezet kapcsolattartója")
+
+        if first_name and not existing_user.first_name:
+            existing_user.first_name = first_name.strip() or None
+        if last_name and not existing_user.last_name:
+            existing_user.last_name = last_name.strip() or None
+
+        existing_user.is_organization_contact = True
+        session.flush()
+        return None, existing_user
+
+    invitation = _create_invitation(
         session,
         organization=organization,
         email=email,
@@ -1082,6 +1107,8 @@ def create_contact_invitation(
         first_name=first_name,
         last_name=last_name,
     )
+
+    return invitation, None
 
 
 def create_member_invitation(

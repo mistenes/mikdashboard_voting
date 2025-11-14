@@ -1465,13 +1465,15 @@ def create_contact_invitation_endpoint(
     db: DatabaseDependency,
     admin: Annotated[User, Depends(require_admin)],
 ) -> OrganizationDetail:
+    invitation: OrganizationInvitation | None = None
+    promoted_user: User | None = None
     if payload.role != InvitationRole.contact:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="A kapcsolattartó meghívásához a role mezőnek 'contact'-nak kell lennie.",
         )
     try:
-        invitation = create_contact_invitation(
+        invitation, promoted_user = create_contact_invitation(
             db,
             organization_id=organization_id,
             email=payload.email,
@@ -1483,13 +1485,15 @@ def create_contact_invitation_endpoint(
         organization = organization_with_members(db, organization_id)
         active_event = get_active_voting_event(db)
         detail = build_organization_detail(organization, active_event=active_event)
-        link = queue_invitation_email(
-            invitation,
-            base_url=PUBLIC_BASE_URL,
-            api_key=BREVO_API_KEY or None,
-            sender_email=BREVO_SENDER_EMAIL or None,
-            sender_name=BREVO_SENDER_NAME,
-        )
+        link: str | None = None
+        if invitation is not None:
+            link = queue_invitation_email(
+                invitation,
+                base_url=PUBLIC_BASE_URL,
+                api_key=BREVO_API_KEY or None,
+                sender_email=BREVO_SENDER_EMAIL or None,
+                sender_name=BREVO_SENDER_NAME,
+            )
     except RegistrationError as exc:
         db.rollback()
         detail = str(exc)
@@ -1501,16 +1505,30 @@ def create_contact_invitation_endpoint(
         raise HTTPException(status_code=status_code, detail=detail) from exc
 
     db.commit()
-    request.app.state.email_queue.append(
-        {
-            "email": invitation.email,
-            "invitation_id": invitation.id,
-            "token": invitation.token,
-            "role": invitation.role.value,
-            "link": link,
-            "sent_via": "brevo" if BREVO_API_KEY and BREVO_SENDER_EMAIL else "noop",
-        }
-    )
+    if invitation is not None and link is not None:
+        request.app.state.email_queue.append(
+            {
+                "email": invitation.email,
+                "invitation_id": invitation.id,
+                "token": invitation.token,
+                "role": invitation.role.value,
+                "link": link,
+                "sent_via": "brevo"
+                if BREVO_API_KEY and BREVO_SENDER_EMAIL
+                else "noop",
+            }
+        )
+    elif promoted_user is not None:
+        request.app.state.email_queue.append(
+            {
+                "email": promoted_user.email,
+                "invitation_id": None,
+                "token": None,
+                "role": InvitationRole.contact.value,
+                "link": None,
+                "sent_via": "existing-user",
+            }
+        )
     return detail
 
 
@@ -1999,9 +2017,11 @@ def create_member_invitation_endpoint(
             detail="Csak a szervezet kapcsolattartója küldhet tagmeghívót.",
         )
 
+    invitation: OrganizationInvitation | None = None
+    promoted_user: User | None = None
     try:
         if role == InvitationRole.contact:
-            invitation = create_contact_invitation(
+            invitation, promoted_user = create_contact_invitation(
                 db,
                 organization_id=organization_id,
                 email=payload.email,
@@ -2025,13 +2045,15 @@ def create_member_invitation_endpoint(
         detail = build_organization_detail(
             organization, active_event=active_event, events=events
         )
-        link = queue_invitation_email(
-            invitation,
-            base_url=PUBLIC_BASE_URL,
-            api_key=BREVO_API_KEY or None,
-            sender_email=BREVO_SENDER_EMAIL or None,
-            sender_name=BREVO_SENDER_NAME,
-        )
+        link: str | None = None
+        if invitation is not None:
+            link = queue_invitation_email(
+                invitation,
+                base_url=PUBLIC_BASE_URL,
+                api_key=BREVO_API_KEY or None,
+                sender_email=BREVO_SENDER_EMAIL or None,
+                sender_name=BREVO_SENDER_NAME,
+            )
     except RegistrationError as exc:
         db.rollback()
         detail = str(exc)
@@ -2043,16 +2065,30 @@ def create_member_invitation_endpoint(
         raise HTTPException(status_code=status_code, detail=detail) from exc
 
     db.commit()
-    request.app.state.email_queue.append(
-        {
-            "email": invitation.email,
-            "invitation_id": invitation.id,
-            "token": invitation.token,
-            "role": invitation.role.value,
-            "link": link,
-            "sent_via": "brevo" if BREVO_API_KEY and BREVO_SENDER_EMAIL else "noop",
-        }
-    )
+    if invitation is not None and link is not None:
+        request.app.state.email_queue.append(
+            {
+                "email": invitation.email,
+                "invitation_id": invitation.id,
+                "token": invitation.token,
+                "role": invitation.role.value,
+                "link": link,
+                "sent_via": "brevo"
+                if BREVO_API_KEY and BREVO_SENDER_EMAIL
+                else "noop",
+            }
+        )
+    elif promoted_user is not None:
+        request.app.state.email_queue.append(
+            {
+                "email": promoted_user.email,
+                "invitation_id": None,
+                "token": None,
+                "role": InvitationRole.contact.value,
+                "link": None,
+                "sent_via": "existing-user",
+            }
+        )
     return detail
 
 
