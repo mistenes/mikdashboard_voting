@@ -340,3 +340,17 @@ class PasswordChangeResponse(BaseModel):
     message: str
     token: str
     must_change_password: bool
+
+
+class PasswordResetRequest(BaseModel):
+    email: EmailStr
+
+
+class PasswordResetVerifyResponse(BaseModel):
+    email: EmailStr
+    message: str
+
+
+class PasswordResetConfirmRequest(BaseModel):
+    token: constr(strip_whitespace=True, min_length=1)
+    password: constr(min_length=8)

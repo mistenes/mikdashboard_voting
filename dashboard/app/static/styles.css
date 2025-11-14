@@ -214,10 +214,37 @@ body[data-auth-page="password-change"] {
   line-height: 1.6;
 }
 
+.auth-panel__lead.error {
+  color: #dc2626;
+}
+
+.auth-panel__lead.success {
+  color: #16a34a;
+}
+
 .auth-panel__form {
   display: flex;
   flex-direction: column;
   gap: 20px;
+}
+
+.auth-panel__actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.95rem;
+  color: #475569;
+}
+
+.auth-panel__link {
+  color: #4f46e5;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.auth-panel__link:hover,
+.auth-panel__link:focus-visible {
+  text-decoration: underline;
 }
 
 .auth-input {

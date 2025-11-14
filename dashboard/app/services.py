@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Iterable, List, Optional
 
 import uuid
@@ -18,6 +18,7 @@ from .models import (
     InvitationRole,
     Organization,
     OrganizationInvitation,
+    PasswordResetToken,
     SessionToken,
     VotingEvent,
     User,
@@ -31,6 +32,10 @@ class RegistrationError(Exception):
 
 
 class AuthenticationError(Exception):
+    pass
+
+
+class PasswordResetError(Exception):
     pass
 
 
@@ -93,6 +98,86 @@ def register_user(
 
 def _normalize_email(value: str) -> str:
     return value.strip().lower()
+
+
+def issue_password_reset_token(
+    session: Session,
+    *,
+    email: str,
+    ttl_minutes: int = 60,
+) -> PasswordResetToken | None:
+    normalized_email = _normalize_email(email)
+    if not normalized_email:
+        return None
+
+    user = session.scalar(select(User).where(User.email == normalized_email).limit(1))
+    if not user or not user.is_email_verified:
+        return None
+
+    now = datetime.utcnow()
+    existing_tokens = session.scalars(
+        select(PasswordResetToken)
+        .where(
+            PasswordResetToken.user_id == user.id,
+            PasswordResetToken.used_at.is_(None),
+            PasswordResetToken.expires_at > now,
+        )
+        .limit(20)
+    )
+    for token in existing_tokens:
+        token.used_at = now
+
+    reset_token = PasswordResetToken(
+        user=user, expires_at=PasswordResetToken.default_expiration(ttl_minutes)
+    )
+    session.add(reset_token)
+    session.flush()
+    return reset_token
+
+
+def get_active_password_reset_token(
+    session: Session, *, token: str
+) -> PasswordResetToken:
+    value = (token or "").strip()
+    if not value:
+        raise PasswordResetError("Érvénytelen jelszó-visszaállító hivatkozás.")
+
+    reset_token = session.scalar(
+        select(PasswordResetToken)
+        .options(selectinload(PasswordResetToken.user))
+        .where(PasswordResetToken.token == value)
+        .limit(1)
+    )
+    if not reset_token or not reset_token.user:
+        raise PasswordResetError("A jelszó-visszaállító link érvénytelen.")
+
+    now = datetime.utcnow()
+    if reset_token.used_at is not None or reset_token.expires_at < now:
+        raise PasswordResetError("A jelszó-visszaállító link lejárt vagy már felhasználták.")
+
+    return reset_token
+
+
+def complete_password_reset(
+    session: Session,
+    *,
+    token: str,
+    new_password: str,
+) -> User:
+    reset_token = get_active_password_reset_token(session, token=token)
+    validate_password_strength(new_password)
+
+    salt, password_hash = hash_password(new_password)
+    user = reset_token.user
+    if not user:
+        raise PasswordResetError("Nem található a jelszóhoz tartozó felhasználó.")
+
+    user.password_salt = salt
+    user.password_hash = password_hash
+    user.must_change_password = False
+    reset_token.used_at = datetime.utcnow()
+    session.flush()
+    return user
 
 
 def list_admin_users(session: Session) -> List[User]:
@@ -261,6 +346,71 @@ def queue_invitation_email(
         ) from exc
 
     return accept_link
+
+
+def queue_password_reset_email(
+    token: PasswordResetToken,
+    *,
+    base_url: str = "",
+    api_key: str | None = None,
+    sender_email: str | None = None,
+    sender_name: str | None = None,
+) -> str:
+    base = base_url.rstrip("/") if base_url else ""
+    reset_path = f"/elfelejtett-jelszo/{token.token}"
+    reset_link = f"{base}{reset_path}" if base else reset_path
+
+    if not api_key or not sender_email:
+        return reset_link
+
+    user = token.user
+    recipient_name_parts = [user.first_name or "", user.last_name or ""]
+    recipient_name = " ".join(part for part in recipient_name_parts if part).strip()
+    if not recipient_name:
+        recipient_name = user.email
+
+    subject = "MIK Dashboard jelszó visszaállítás"
+    html_body = (
+        "<p>Jelszó-visszaállítást kezdeményeztél a MIK Dashboard felületén.</p>"
+        "<p>A folyamat befejezéséhez kattints az alábbi gombra, és állíts be új jelszót:</p>"
+        f"<p><a href=\"{reset_link}\">Új jelszó beállítása</a></p>"
+        "<p>Ha nem te kérted a jelszó módosítását, hagyd figyelmen kívül ezt az üzenetet.</p>"
+    )
+    text_body = (
+        "Jelszó-visszaállítást kezdeményeztél a MIK Dashboard felületén.\n"
+        "A folyamat befejezéséhez másold a böngésződbe az alábbi linket és állíts be új jelszót:\n"
+        f"{reset_link}\n"
+        "Ha nem te kérted a jelszó módosítását, hagyd figyelmen kívül ezt az üzenetet."
+    )
+
+    payload = {
+        "sender": {"email": sender_email, "name": sender_name or sender_email},
+        "to": [{"email": user.email, "name": recipient_name}],
+        "subject": subject,
+        "htmlContent": html_body,
+        "textContent": text_body,
+    }
+
+    headers = {
+        "accept": "application/json",
+        "api-key": api_key,
+        "content-type": "application/json",
+    }
+
+    try:
+        response = httpx.post(
+            "https://api.brevo.com/v3/smtp/email",
+            json=payload,
+            headers=headers,
+            timeout=15.0,
+        )
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise RegistrationError(
+            "Nem sikerült elküldeni a jelszó-visszaállító e-mailt. Kérjük, próbáld újra később."
+        ) from exc
+
+    return reset_link
 
 
 def verify_email(session: Session, token_value: str) -> User:
