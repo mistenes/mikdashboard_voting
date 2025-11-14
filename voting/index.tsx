@@ -609,28 +609,116 @@ const VoterView = ({ sessionData, onLogout, eventTitle, clockOffsetMs }: { sessi
 const LoginScreen = ({ onLogin, error }: { onLogin: (email: string, password: string) => Promise<void> | void, error: string }) => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [showPassword, setShowPassword] = useState(false);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [localError, setLocalError] = useState('');
 
     const handleSubmit = async (e: FormEvent) => {
         e.preventDefault();
-        await onLogin(email, password);
+        setLocalError('');
+
+        const trimmedEmail = email.trim();
+        if (!trimmedEmail) {
+            setLocalError('Kérjük, adja meg az email címét.');
+            return;
+        }
+        if (!password) {
+            setLocalError('Kérjük, adja meg a jelszavát.');
+            return;
+        }
+
+        if (trimmedEmail !== email) {
+            setEmail(trimmedEmail);
+        }
+
+        setIsSubmitting(true);
+        try {
+            await onLogin(trimmedEmail, password);
+        } finally {
+            setIsSubmitting(false);
+        }
     };
+
+    const feedback = localError || error;
 
     return (
         <div className="container login-container" id="login">
-            <form onSubmit={handleSubmit}>
-                <h1>Szavazórendszer</h1>
-                <p>Kérjük, jelentkezzen be a folytatáshoz, vagy használja a MIK Dashboard felületéről érkező egyszeri bejelentkezést.</p>
-                <div className="form-group">
-                    <label htmlFor="email">Email cím</label>
-                    <input type="email" id="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+            <div className="login-card">
+                <div className="login-illustration">
+                    <div className="login-brand" aria-hidden="true">
+                        <span className="brand-mark">MIK</span>
+                        <span className="brand-text">Dashboard</span>
+                    </div>
+                    <h1>Üdvözöljük a MIK szavazáson</h1>
+                    <p>A belépést követően valós időben követheti a közgyűlés szavazásait, delegált státuszát és részvételi adatait.</p>
+                    <ul className="login-highlights">
+                        <li>Biztonságos hitelesítés a MIK rendszerével</li>
+                        <li>Átlátható eredmények és részvételi statisztikák</li>
+                        <li>Delegáltak és tagok számára optimalizálva</li>
+                    </ul>
                 </div>
-                <div className="form-group">
-                    <label htmlFor="password">Jelszó</label>
-                    <input type="password" id="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+                <div className="login-form-panel">
+                    <div className="login-header">
+                        <span className="login-badge">Szavazórendszer</span>
+                        <h2>Jelentkezzen be a részvételhez</h2>
+                        <p>Használja a MIK Dashboardon regisztrált fiókját, vagy térjen vissza a MIK Dashboard felületére az egyszeri bejelentkezési hivatkozásért.</p>
+                    </div>
+                    <form onSubmit={handleSubmit} className="login-form" noValidate>
+                        <div className={`input-field ${email ? 'has-value' : ''}`}>
+                            <label htmlFor="email">Email cím</label>
+                            <input
+                                type="email"
+                                id="email"
+                                name="email"
+                                autoComplete="email"
+                                inputMode="email"
+                                placeholder="nev@example.com"
+                                value={email}
+                                onChange={(e) => setEmail(e.target.value)}
+                                required
+                                aria-describedby={feedback ? 'login-error' : undefined}
+                            />
+                        </div>
+                        <div className={`input-field ${password ? 'has-value' : ''}`}>
+                            <label htmlFor="password">Jelszó</label>
+                            <div className="input-with-action">
+                                <input
+                                    type={showPassword ? 'text' : 'password'}
+                                    id="password"
+                                    name="password"
+                                    autoComplete="current-password"
+                                    value={password}
+                                    onChange={(e) => setPassword(e.target.value)}
+                                    required
+                                    aria-describedby={feedback ? 'login-error' : undefined}
+                                />
+                                <button
+                                    type="button"
+                                    className="toggle-password"
+                                    onClick={() => setShowPassword((value) => !value)}
+                                    aria-pressed={showPassword}
+                                >
+                                    {showPassword ? 'Elrejtés' : 'Mutatás'}
+                                </button>
+                            </div>
+                        </div>
+                        <div className="login-actions">
+                            <button type="submit" className="btn btn-primary" disabled={isSubmitting}>
+                                {isSubmitting ? 'Bejelentkezés folyamatban…' : 'Bejelentkezés'}
+                            </button>
+                            <a className="btn btn-link" href="https://dashboard.mikegyesulet.hu" target="_blank" rel="noreferrer">
+                                Megnyitom a MIK Dashboardot
+                            </a>
+                        </div>
+                        <p className="login-meta">
+                            Tipp: ha a MIK Dashboard felületéről érkezett, ellenőrizze a böngészőjében az egyszeri bejelentkezési lapot is.
+                        </p>
+                        <p id="login-error" className={`error-message ${feedback ? 'is-visible' : ''}`} role="alert" aria-live="polite">
+                            {feedback}
+                        </p>
+                    </form>
                 </div>
-                <button type="submit" className="btn btn-primary">Bejelentkezés</button>
-                {error && <p className="error-message">{error}</p>}
-            </form>
+            </div>
         </div>
     );
 };
