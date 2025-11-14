@@ -83,12 +83,12 @@ class AdminUserCreateRequest(BaseModel):
     email: EmailStr
     first_name: constr(strip_whitespace=True, min_length=1, max_length=100)
     last_name: constr(strip_whitespace=True, min_length=1, max_length=100)
-    password: constr(min_length=8)
 
 
 class AdminUserCreateResponse(BaseModel):
     message: str
     admin: AdminUserRead
+    temporary_password: constr(strip_whitespace=True, min_length=8)
 
 
 class AdminDecisionRequest(BaseModel):

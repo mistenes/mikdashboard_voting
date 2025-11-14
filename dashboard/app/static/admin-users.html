@@ -60,33 +60,14 @@
               <label for="admin-email">E-mail cím</label>
               <input id="admin-email" name="email" type="email" required maxlength="255" />
             </div>
-            <div class="form-field">
-              <label for="admin-password">Ideiglenes jelszó</label>
-              <input
-                id="admin-password"
-                name="password"
-                type="password"
-                required
-                minlength="8"
-                autocomplete="new-password"
-              />
-              <span class="hint">Legalább 8 karakter, egy nagybetű és speciális karakter szükséges.</span>
-            </div>
-            <div class="form-field">
-              <label for="admin-password-confirm">Jelszó megerősítése</label>
-              <input
-                id="admin-password-confirm"
-                name="password_confirm"
-                type="password"
-                required
-                minlength="8"
-                autocomplete="new-password"
-              />
-            </div>
             <div class="form-actions">
               <button type="submit" class="primary-btn">Admin létrehozása</button>
             </div>
           </form>
+          <p class="muted">
+            A rendszer automatikusan generál egy ideiglenes jelszót, amelyet a mentés után látsz, és továbbíthatsz az új
+            adminnak. Az első bejelentkezéskor kötelező lesz jelszót cserélnie.
+          </p>
         </section>
 
         <section class="auth-card" aria-labelledby="admin-list-title">

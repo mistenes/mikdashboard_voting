@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Iterable, List, Optional
 
+import secrets
+import string
 import uuid
 
 import httpx
@@ -189,18 +191,32 @@ def list_admin_users(session: Session) -> List[User]:
     return list(session.scalars(stmt))
 
 
+def _generate_admin_password(length: int = 12) -> str:
+    alphabet = string.ascii_letters + string.digits + "!@#$%^&*()-_=+"
+    while True:
+        password = "".join(secrets.choice(alphabet) for _ in range(length))
+        try:
+            validate_password_strength(password)
+        except RegistrationError:
+            continue
+        if not any(character.islower() for character in password):
+            continue
+        if not any(character.isdigit() for character in password):
+            continue
+        return password
+
+
 def create_admin_account(
     session: Session,
     *,
     email: str,
     first_name: str,
     last_name: str,
-    password: str,
-) -> User:
+) -> tuple[User, str]:
     normalized_email = _normalize_email(email)
-    validate_password_strength(password)
     _ensure_email_available(session, normalized_email)
 
+    password = _generate_admin_password()
     salt, password_hash = hash_password(password)
     user = User(
         email=normalized_email,
@@ -217,7 +233,7 @@ def create_admin_account(
     )
     session.add(user)
     session.flush()
-    return user
+    return user, password
 
 
 def queue_verification_email(

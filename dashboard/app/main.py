@@ -1867,12 +1867,11 @@ def create_admin_account_endpoint(
     _: Annotated[User, Depends(require_admin)],
 ) -> AdminUserCreateResponse:
     try:
-        admin_user = create_admin_account(
+        admin_user, temporary_password = create_admin_account(
             db,
             email=payload.email,
             first_name=payload.first_name,
             last_name=payload.last_name,
-            password=payload.password,
         )
         db.commit()
     except RegistrationError as exc:
@@ -1883,7 +1882,9 @@ def create_admin_account_endpoint(
     message = (
         "Új adminisztrátor sikeresen létrehozva. Az első bejelentkezéskor jelszócsere szükséges."
     )
-    return AdminUserCreateResponse(message=message, admin=admin_user)
+    return AdminUserCreateResponse(
+        message=message, admin=admin_user, temporary_password=temporary_password
+    )
 
 
 @app.delete(
