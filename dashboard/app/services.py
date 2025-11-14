@@ -383,6 +383,7 @@ def queue_password_reset_email(
     if not api_key or not sender_email:
         logger.error(
             "Password reset email attempted without Brevo configuration; email will not be sent",
+            extra={"user_email": getattr(token.user, 'email', None)},
         )
         raise PasswordResetError(
             "A jelszó-visszaállító e-mailek küldése jelenleg nem elérhető. Vedd fel a kapcsolatot az adminisztrátorral."
@@ -430,6 +431,22 @@ def queue_password_reset_email(
             timeout=15.0,
         )
         response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        logger.exception("Brevo password reset email request failed with status error")
+        error_detail = "Nem sikerült elküldeni a jelszó-visszaállító e-mailt. Kérjük, próbáld újra később."
+        try:
+            response_json = exc.response.json()
+            message = response_json.get("message")
+            if isinstance(message, str) and message.strip():
+                error_detail = f"{error_detail} (Brevo: {message.strip()})"
+        except Exception:  # pragma: no cover - defensive JSON parsing
+            try:
+                response_text = exc.response.text
+                if response_text:
+                    error_detail = f"{error_detail} (Brevo: {response_text.strip()})"
+            except Exception:  # pragma: no cover - defensive response handling
+                pass
+        raise PasswordResetError(error_detail) from exc
     except httpx.HTTPError as exc:
         logger.exception("Brevo password reset email request failed")
         raise PasswordResetError(

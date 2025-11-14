@@ -3,6 +3,43 @@ const statusEl = document.querySelector('#password-reset-request-status');
 const emailInput = document.querySelector('#password-reset-email');
 const emailError = document.querySelector('#password-reset-email-error');
 
+function setStatus(message = '', state = 'idle') {
+  if (!statusEl) {
+    return;
+  }
+
+  statusEl.textContent = message;
+  statusEl.dataset.state = state;
+  statusEl.hidden = !message;
+  statusEl.classList.remove('pending', 'success', 'error');
+
+  if (state === 'pending' || state === 'success' || state === 'error') {
+    statusEl.classList.add(state);
+  }
+
+  if (state === 'error') {
+    statusEl.setAttribute('role', 'alert');
+  } else {
+    statusEl.setAttribute('role', 'status');
+  }
+
+  if (state === 'error' && !statusEl.hasAttribute('tabindex')) {
+    statusEl.setAttribute('tabindex', '-1');
+  }
+
+  if (state === 'error') {
+    try {
+      statusEl.focus({ preventScroll: true });
+    } catch (focusError) {
+      try {
+        statusEl.focus();
+      } catch (fallbackError) {
+        // ignore focus issues in older browsers
+      }
+    }
+  }
+}
+
 function setFieldValidity(inputEl, errorEl, message = '') {
   const wrapper = inputEl?.closest('.auth-input');
   if (!wrapper || !errorEl) {
@@ -53,8 +90,7 @@ emailInput?.addEventListener('input', () => {
 
 form?.addEventListener('submit', async (event) => {
   event.preventDefault();
-  statusEl.textContent = '';
-  statusEl.classList.remove('error', 'success', 'pending');
+  setStatus('', 'idle');
 
   if (!emailInput) {
     return;
@@ -62,15 +98,13 @@ form?.addEventListener('submit', async (event) => {
 
   if (!emailInput.value) {
     setFieldValidity(emailInput, emailError, 'Add meg az e-mail címedet.');
-    statusEl.textContent = 'Ellenőrizd a kiemelt mezőt.';
-    statusEl.classList.add('error');
+    setStatus('Ellenőrizd a kiemelt mezőt.', 'error');
     return;
   }
 
   if (!emailInput.checkValidity()) {
     setFieldValidity(emailInput, emailError, 'Érvényes e-mail címet adj meg.');
-    statusEl.textContent = 'Ellenőrizd a kiemelt mezőt.';
-    statusEl.classList.add('error');
+    setStatus('Ellenőrizd a kiemelt mezőt.', 'error');
     return;
   }
 
@@ -79,8 +113,7 @@ form?.addEventListener('submit', async (event) => {
   const submitButton = form.querySelector('button[type="submit"]');
   submitButton?.setAttribute('disabled', 'true');
   submitButton?.setAttribute('aria-busy', 'true');
-  statusEl.textContent = 'Kérés feldolgozása…';
-  statusEl.classList.add('pending');
+  setStatus('Kérés feldolgozása…', 'pending');
 
   try {
     const payload = { email: emailInput.value };
@@ -89,22 +122,25 @@ form?.addEventListener('submit', async (event) => {
       body: JSON.stringify(payload),
     });
 
-    statusEl.textContent = response?.message ||
-      'Ha a megadott e-mail címmel létezik fiók, hamarosan levelet küldünk a folytatáshoz.';
-    statusEl.classList.remove('pending');
-    statusEl.classList.add('success');
+    setStatus(
+      response?.message ||
+        'Ha a megadott e-mail címmel létezik fiók, hamarosan levelet küldünk a folytatáshoz.',
+      'success',
+    );
     form.setAttribute('data-complete', 'true');
     emailInput.setAttribute('readonly', 'true');
   } catch (error) {
     submitButton?.removeAttribute('disabled');
     submitButton?.removeAttribute('aria-busy');
-    statusEl.classList.remove('pending');
 
-    if (error.message.toLowerCase().includes('e-mail')) {
+    const errorMessage =
+      (typeof error?.message === 'string' && error.message.trim()) ||
+      'Nem sikerült elküldeni a kérést.';
+
+    if (errorMessage.toLowerCase().includes('e-mail')) {
       setFieldValidity(emailInput, emailError, 'Ellenőrizd az e-mail címet.');
     }
-    statusEl.textContent = error.message || 'Nem sikerült elküldeni a kérést.';
-    statusEl.classList.add('error');
+    setStatus(errorMessage, 'error');
     return;
   }
 
