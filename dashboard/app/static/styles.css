@@ -329,6 +329,10 @@ body[data-auth-page="password-change"] {
   font-weight: 500;
 }
 
+.auth-panel__status.pending {
+  color: #2563eb;
+}
+
 .auth-panel__status.success {
   color: #16a34a;
 }

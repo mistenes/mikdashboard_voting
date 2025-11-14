@@ -54,7 +54,7 @@ emailInput?.addEventListener('input', () => {
 form?.addEventListener('submit', async (event) => {
   event.preventDefault();
   statusEl.textContent = '';
-  statusEl.classList.remove('error', 'success');
+  statusEl.classList.remove('error', 'success', 'pending');
 
   if (!emailInput) {
     return;
@@ -79,6 +79,8 @@ form?.addEventListener('submit', async (event) => {
   const submitButton = form.querySelector('button[type="submit"]');
   submitButton?.setAttribute('disabled', 'true');
   submitButton?.setAttribute('aria-busy', 'true');
+  statusEl.textContent = 'Kérés feldolgozása…';
+  statusEl.classList.add('pending');
 
   try {
     const payload = { email: emailInput.value };
@@ -89,12 +91,14 @@ form?.addEventListener('submit', async (event) => {
 
     statusEl.textContent = response?.message ||
       'Ha a megadott e-mail címmel létezik fiók, hamarosan levelet küldünk a folytatáshoz.';
+    statusEl.classList.remove('pending');
     statusEl.classList.add('success');
     form.setAttribute('data-complete', 'true');
     emailInput.setAttribute('readonly', 'true');
   } catch (error) {
     submitButton?.removeAttribute('disabled');
     submitButton?.removeAttribute('aria-busy');
+    statusEl.classList.remove('pending');
 
     if (error.message.toLowerCase().includes('e-mail')) {
       setFieldValidity(emailInput, emailError, 'Ellenőrizd az e-mail címet.');

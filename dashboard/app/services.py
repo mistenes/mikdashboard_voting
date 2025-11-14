@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Iterable, List, Optional
 
+import logging
 import secrets
 import string
 import uuid
@@ -27,6 +28,9 @@ from .models import (
     VerificationStatus,
 )
 from .security import hash_password, verify_password
+
+
+logger = logging.getLogger(__name__)
 
 
 class RegistrationError(Exception):
@@ -377,7 +381,12 @@ def queue_password_reset_email(
     reset_link = f"{base}{reset_path}" if base else reset_path
 
     if not api_key or not sender_email:
-        return reset_link
+        logger.error(
+            "Password reset email attempted without Brevo configuration; email will not be sent",
+        )
+        raise PasswordResetError(
+            "A jelszó-visszaállító e-mailek küldése jelenleg nem elérhető. Vedd fel a kapcsolatot az adminisztrátorral."
+        )
 
     user = token.user
     recipient_name_parts = [user.first_name or "", user.last_name or ""]
@@ -422,7 +431,8 @@ def queue_password_reset_email(
         )
         response.raise_for_status()
     except httpx.HTTPError as exc:
-        raise RegistrationError(
+        logger.exception("Brevo password reset email request failed")
+        raise PasswordResetError(
             "Nem sikerült elküldeni a jelszó-visszaállító e-mailt. Kérjük, próbáld újra később."
         ) from exc
 

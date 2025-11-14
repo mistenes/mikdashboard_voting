@@ -1182,7 +1182,7 @@ def request_password_reset(
             sender_name=BREVO_SENDER_NAME,
         )
         db.commit()
-    except RegistrationError as exc:
+    except (RegistrationError, PasswordResetError) as exc:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
