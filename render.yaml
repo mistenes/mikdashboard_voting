@@ -28,7 +28,7 @@ services:
       - key: PUBLIC_BASE_URL
         value: https://dashboard.mikegyesulet.hu/
       - key: BREVO_API_KEY
-        value: ""
+        sync: false
       - key: BREVO_SENDER_EMAIL
         value: noreply@mikdashboard.hu
       - key: BREVO_SENDER_NAME
