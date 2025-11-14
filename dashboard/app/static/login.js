@@ -1,5 +1,76 @@
 const loginForm = document.querySelector("#login-form");
 const loginStatus = document.querySelector("#login-status");
+const emailInput = document.querySelector("#login-email");
+const passwordInput = document.querySelector("#login-password");
+const emailError = document.querySelector("#login-email-error");
+const passwordError = document.querySelector("#login-password-error");
+const passwordToggle = document.querySelector(".auth-input__toggle");
+
+function setFieldValidity(inputEl, errorEl, message = "") {
+  const wrapper = inputEl?.closest(".auth-input");
+  if (!wrapper || !errorEl) {
+    return;
+  }
+
+  if (message) {
+    wrapper.dataset.invalid = "true";
+    errorEl.textContent = message;
+  } else {
+    delete wrapper.dataset.invalid;
+    errorEl.textContent = "";
+  }
+}
+
+function validateFields() {
+  let isValid = true;
+
+  if (emailInput && emailError) {
+    if (!emailInput.value) {
+      setFieldValidity(emailInput, emailError, "Add meg az e-mail címedet.");
+      isValid = false;
+    } else if (!emailInput.checkValidity()) {
+      setFieldValidity(emailInput, emailError, "Érvényes e-mail címet adj meg.");
+      isValid = false;
+    } else {
+      setFieldValidity(emailInput, emailError);
+    }
+  }
+
+  if (passwordInput && passwordError) {
+    if (!passwordInput.value) {
+      setFieldValidity(passwordInput, passwordError, "Add meg a jelszavadat.");
+      isValid = false;
+    } else {
+      setFieldValidity(passwordInput, passwordError);
+    }
+  }
+
+  return isValid;
+}
+
+passwordToggle?.addEventListener("click", () => {
+  if (!passwordInput) {
+    return;
+  }
+
+  const isHidden = passwordInput.type === "password";
+  passwordInput.type = isHidden ? "text" : "password";
+  passwordToggle.setAttribute("aria-pressed", String(isHidden));
+  passwordToggle.textContent = isHidden ? "Elrejt" : "Mutat";
+  passwordInput.focus();
+});
+
+emailInput?.addEventListener("input", () => {
+  if (emailInput.value) {
+    setFieldValidity(emailInput, emailError);
+  }
+});
+
+passwordInput?.addEventListener("input", () => {
+  if (passwordInput.value) {
+    setFieldValidity(passwordInput, passwordError);
+  }
+});
 
 async function requestJSON(url, options = {}) {
   const response = await fetch(url, {
@@ -58,6 +129,12 @@ loginForm?.addEventListener("submit", async (event) => {
   loginStatus.textContent = "";
   loginStatus.classList.remove("error", "success");
 
+  if (!validateFields()) {
+    loginStatus.textContent = "Ellenőrizd a kiemelt mezőket.";
+    loginStatus.classList.add("error");
+    return;
+  }
+
   const formData = new FormData(loginForm);
   const payload = {
     email: formData.get("email"),
@@ -65,6 +142,9 @@ loginForm?.addEventListener("submit", async (event) => {
   };
 
   sessionStorage.clear();
+  const submitButton = loginForm.querySelector('button[type="submit"]');
+  submitButton?.setAttribute("disabled", "true");
+  submitButton?.setAttribute("aria-busy", "true");
 
   try {
     const response = await requestJSON("/api/login", {
@@ -98,7 +178,16 @@ loginForm?.addEventListener("submit", async (event) => {
       : "/";
     window.location.href = response.redirect || fallbackRedirect;
   } catch (error) {
+    if (error.message.includes("e-mail") && emailInput) {
+      setFieldValidity(emailInput, emailError, "Ellenőrizd az e-mail címet.");
+    }
+    if (error.message.toLowerCase().includes("jelsz")) {
+      setFieldValidity(passwordInput, passwordError, "Ellenőrizd a jelszót.");
+    }
     loginStatus.textContent = translateLoginError(error.message);
     loginStatus.classList.add("error");
+  } finally {
+    submitButton?.removeAttribute("disabled");
+    submitButton?.removeAttribute("aria-busy");
   }
 });
