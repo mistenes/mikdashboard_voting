@@ -137,7 +137,10 @@ def issue_password_reset_token(
         return None
 
     user = session.scalar(select(User).where(User.email == normalized_email).limit(1))
-    if not user or not user.is_email_verified:
+    if not user:
+        return None
+
+    if user.admin_decision == ApprovalDecision.denied:
         return None
 
     now = datetime.utcnow()
@@ -201,6 +204,15 @@ def complete_password_reset(
     user.password_salt = salt
     user.password_hash = password_hash
     user.must_change_password = False
+
+    if not user.is_email_verified:
+        user.is_email_verified = True
+        now = datetime.utcnow()
+        for token in getattr(user, "verification_tokens", []) or []:
+            token.status = VerificationStatus.confirmed
+            if token.confirmed_at is None:
+                token.confirmed_at = now
+
     reset_token.used_at = datetime.utcnow()
     session.flush()
     return user
