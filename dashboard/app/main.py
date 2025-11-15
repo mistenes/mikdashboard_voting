@@ -1173,20 +1173,15 @@ def request_password_reset(
     payload: PasswordResetRequest, request: Request, db: DatabaseDependency
 ) -> SimpleMessageResponse:
     email_delivery_available = bool(BREVO_API_KEY and BREVO_SENDER_EMAIL)
-    if not email_delivery_available:
-        logger.error(
-            "Password reset requested but Brevo configuration is missing",
-            extra={"request_ip": request.client.host if request.client else None},
+    confirmation = (
+        "Ha a megadott e-mail címmel létezik fiók, elküldtük a jelszó-"
+        "visszaállító e-mailt."
+        if email_delivery_available
+        else (
+            "Ha a megadott e-mail címmel létezik fiók, az adminisztrátor "
+            "hamarosan felveszi veled a kapcsolatot a jelszó visszaállításához."
         )
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=(
-                "Jelenleg nem tudjuk elküldeni a jelszó-visszaállító e-mailt. "
-                "Kérjük, vedd fel a kapcsolatot az adminisztrátorral."
-            ),
-        )
-
-    confirmation = "Ha a megadott e-mail címmel létezik fiók, hamarosan levelet küldünk a folytatáshoz."
+    )
     reset_token = issue_password_reset_token(
         db,
         email=payload.email,
@@ -1197,13 +1192,25 @@ def request_password_reset(
         return SimpleMessageResponse(message=confirmation)
 
     try:
-        link = queue_password_reset_email(
-            reset_token,
-            base_url=PUBLIC_BASE_URL,
-            api_key=BREVO_API_KEY or None,
-            sender_email=BREVO_SENDER_EMAIL or None,
-            sender_name=BREVO_SENDER_NAME,
-        )
+        if email_delivery_available:
+            link = queue_password_reset_email(
+                reset_token,
+                base_url=PUBLIC_BASE_URL,
+                api_key=BREVO_API_KEY or None,
+                sender_email=BREVO_SENDER_EMAIL or None,
+                sender_name=BREVO_SENDER_NAME,
+            )
+        else:
+            logger.warning(
+                "Password reset email queued for manual follow-up",
+                extra={
+                    "request_ip": request.client.host if request.client else None,
+                    "user_email": getattr(reset_token.user, "email", None),
+                },
+            )
+            base = PUBLIC_BASE_URL.rstrip("/") if PUBLIC_BASE_URL else ""
+            reset_path = f"/elfelejtett-jelszo/{reset_token.token}"
+            link = f"{base}{reset_path}" if base else reset_path
         db.commit()
     except (RegistrationError, PasswordResetError) as exc:
         db.rollback()
@@ -1214,7 +1221,7 @@ def request_password_reset(
             "email": reset_token.user.email,
             "token": reset_token.token,
             "reset_link": link,
-            "sent_via": "brevo",
+            "sent_via": "brevo" if email_delivery_available else "manual",
         }
     )
     return SimpleMessageResponse(message=confirmation)
