@@ -1173,14 +1173,20 @@ def request_password_reset(
     payload: PasswordResetRequest, request: Request, db: DatabaseDependency
 ) -> SimpleMessageResponse:
     email_delivery_available = bool(BREVO_API_KEY and BREVO_SENDER_EMAIL)
-    confirmation = (
-        "Ha a megadott e-mail címmel létezik fiók, hamarosan levelet küldünk a folytatáshoz."
-        if email_delivery_available
-        else (
-            "Ha a megadott e-mail címmel létezik fiók, a MIK admin csapat értesítést kapott, "
-            "és hamarosan felveszi veled a kapcsolatot a jelszó visszaállításához."
+    if not email_delivery_available:
+        logger.error(
+            "Password reset requested but Brevo configuration is missing",
+            extra={"request_ip": request.client.host if request.client else None},
         )
-    )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "Jelenleg nem tudjuk elküldeni a jelszó-visszaállító e-mailt. "
+                "Kérjük, vedd fel a kapcsolatot az adminisztrátorral."
+            ),
+        )
+
+    confirmation = "Ha a megadott e-mail címmel létezik fiók, hamarosan levelet küldünk a folytatáshoz."
     reset_token = issue_password_reset_token(
         db,
         email=payload.email,
@@ -1208,7 +1214,7 @@ def request_password_reset(
             "email": reset_token.user.email,
             "token": reset_token.token,
             "reset_link": link,
-            "sent_via": "brevo" if email_delivery_available else "noop",
+            "sent_via": "brevo",
         }
     )
     return SimpleMessageResponse(message=confirmation)

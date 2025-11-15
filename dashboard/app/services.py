@@ -608,11 +608,13 @@ def queue_password_reset_email(
     reset_link = f"{base}{reset_path}" if base else reset_path
 
     if not api_key or not sender_email:
-        logger.warning(
-            "Password reset email attempted without Brevo configuration; email will not be sent",
+        logger.error(
+            "Password reset email attempted without Brevo configuration",
             extra={"user_email": getattr(token.user, "email", None)},
         )
-        return reset_link
+        raise PasswordResetError(
+            "A jelszó-visszaállító e-mail küldéséhez nincs beállítva e-mail szolgáltató."
+        )
 
     user = token.user
     recipient_email = getattr(user, "email", None)

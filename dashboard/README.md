@@ -126,8 +126,8 @@ provided blueprint or the manual setup steps below.
 7. Állítsd be a `PUBLIC_BASE_URL` értékét a dashboard publikus URL-jére, majd
    add meg a Brevo küldő adatait (`BREVO_SENDER_EMAIL`, `BREVO_SENDER_NAME`) –
    alapértelmezetten `noreply@mikegyesulet.hu` és `MIK Egyesület` – és
-   a Render irányítópultján a `BREVO_API_KEY` titkot, hogy a regisztrációs
-   visszaigazoló e-mailek ténylegesen kiküldésre kerüljenek. A blueprint a
+   a Render irányítópultján a `BREVO_API_KEY` titkot, hogy a regisztrációs és
+   jelszó-visszaállító e-mailek ténylegesen kiküldésre kerüljenek. A blueprint a
    `https://dashboard.mikegyesulet.hu/` értékkel indul ki, amit szükség esetén
    cserélj le a saját környezetedre. A `render.yaml` fájl szándékosan hagyja
    szinkronizálatlanul a Brevo API kulcsát, így azt közvetlenül a Render
