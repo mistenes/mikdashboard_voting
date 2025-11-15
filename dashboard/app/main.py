@@ -848,8 +848,8 @@ def password_reset_request_page(
 @app.post("/elfelejtett-jelszo", response_class=HTMLResponse)
 def submit_password_reset_form(
     request: Request,
+    db: DatabaseDependency,
     email: str = Form(""),
-    db: DatabaseDependency = Depends(get_db),
 ):
     email_value = (email or "").strip()
 
