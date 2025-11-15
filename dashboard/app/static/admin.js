@@ -2001,6 +2001,11 @@ async function initEventsPage() {
         `/api/admin/events/${eventState.selectedEventId}/codes.pdf`,
         {
           credentials: "include",
+          headers: getAuthHeaders({
+            headers: {
+              Accept: "application/pdf",
+            },
+          }),
         },
       );
       if (!response.ok) {
