@@ -49,6 +49,11 @@ ACCESS_CODE_LENGTH = 8
 ACCESS_CODES_PER_PAGE = 16
 
 
+def _mark_admin_password_initialized(user: User) -> None:
+    if user.is_admin and user.seed_password_changed_at is None:
+        user.seed_password_changed_at = datetime.utcnow()
+
+
 def _log_brevo_delivery(kind: str, response: httpx.Response, *, extra: dict | None = None) -> None:
     metadata: dict[str, object] = {
         "brevo_status_code": response.status_code,
@@ -230,6 +235,7 @@ def complete_password_reset(
     user.password_salt = salt
     user.password_hash = password_hash
     user.must_change_password = False
+    _mark_admin_password_initialized(user)
 
     if not user.is_email_verified:
         user.is_email_verified = True
@@ -292,6 +298,7 @@ def create_admin_account(
         must_change_password=True,
         is_voting_delegate=False,
         is_organization_contact=False,
+        seed_password_changed_at=None,
     )
     session.add(user)
     session.flush()
@@ -310,6 +317,7 @@ def reset_admin_temporary_password(
     user.password_salt = salt
     user.password_hash = password_hash
     user.must_change_password = True
+    user.seed_password_changed_at = None
     user.is_email_verified = True
     user.updated_at = datetime.utcnow()
     session.flush()
@@ -792,6 +800,7 @@ def change_user_password(
     user.password_salt = salt
     user.password_hash = password_hash
     user.must_change_password = False
+    _mark_admin_password_initialized(user)
 
     session.query(SessionToken).where(SessionToken.user_id == user.id).delete()
     session.flush()

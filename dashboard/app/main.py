@@ -279,6 +279,7 @@ def startup() -> None:
     ensure_is_admin_column()
     ensure_voting_delegate_column()
     ensure_must_change_password_column()
+    ensure_seed_password_changed_column()
     ensure_organization_contact_column()
     ensure_nullable_organization_column()
     ensure_name_columns()
@@ -350,6 +351,22 @@ def ensure_must_change_password_column() -> None:
             connection.execute(
                 text(
                     "ALTER TABLE users ADD COLUMN must_change_password BOOLEAN NOT NULL DEFAULT FALSE"
+                )
+            )
+
+
+def ensure_seed_password_changed_column() -> None:
+    with engine.begin() as connection:
+        inspector = inspect(connection)
+        columns = {column["name"] for column in inspector.get_columns("users")}
+        if "seed_password_changed_at" not in columns:
+            connection.execute(
+                text("ALTER TABLE users ADD COLUMN seed_password_changed_at TIMESTAMP")
+            )
+            connection.execute(
+                text(
+                    "UPDATE users SET seed_password_changed_at = updated_at "
+                    "WHERE is_admin = TRUE AND must_change_password = FALSE"
                 )
             )
 
@@ -513,8 +530,12 @@ def seed_admin_user() -> None:
         salt, password_hash = hash_password(ADMIN_PASSWORD)
 
         if existing:
-            existing.password_salt = salt
-            existing.password_hash = password_hash
+            if existing.seed_password_changed_at is None:
+                existing.password_salt = salt
+                existing.password_hash = password_hash
+                existing.must_change_password = True
+                existing.seed_password_changed_at = None
+
             existing.organization = None
             existing.is_admin = True
             existing.is_email_verified = True
@@ -522,7 +543,6 @@ def seed_admin_user() -> None:
             existing.first_name = ADMIN_FIRST_NAME
             existing.last_name = ADMIN_LAST_NAME
             existing.is_voting_delegate = True
-            existing.must_change_password = True
         else:
             user = User(
                 email=ADMIN_EMAIL,
@@ -536,6 +556,7 @@ def seed_admin_user() -> None:
                 admin_decision=ApprovalDecision.approved,
                 is_voting_delegate=True,
                 must_change_password=True,
+                seed_password_changed_at=None,
             )
             session.add(user)
 
