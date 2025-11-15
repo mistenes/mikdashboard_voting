@@ -97,6 +97,9 @@ class User(Base):
         back_populates="accepted_by_user",
         foreign_keys="OrganizationInvitation.accepted_by_user_id",
     )
+    redeemed_access_codes = relationship(
+        "VotingAccessCode", back_populates="used_by_user"
+    )
 
 
 class EmailVerificationToken(Base):
@@ -164,6 +167,9 @@ class VotingEvent(Base):
     delegates = relationship(
         "EventDelegate", back_populates="event", cascade="all, delete-orphan"
     )
+    access_codes = relationship(
+        "VotingAccessCode", back_populates="event", cascade="all, delete-orphan"
+    )
 
 
 class EventDelegate(Base):
@@ -183,6 +189,20 @@ class EventDelegate(Base):
     event = relationship("VotingEvent", back_populates="delegates")
     organization = relationship("Organization", back_populates="event_delegates")
     user = relationship("User", back_populates="event_delegations")
+
+
+class VotingAccessCode(Base):
+    __tablename__ = "voting_access_codes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    event_id = Column(Integer, ForeignKey("voting_events.id"), nullable=False, index=True)
+    code = Column(String, unique=True, nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    used_at = Column(DateTime, nullable=True)
+    used_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+
+    event = relationship("VotingEvent", back_populates="access_codes")
+    used_by_user = relationship("User", back_populates="redeemed_access_codes")
 
 
 class OrganizationInvitation(Base):

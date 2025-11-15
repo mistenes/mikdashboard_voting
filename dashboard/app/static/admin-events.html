@@ -148,6 +148,28 @@
               <p id="delegate-lock-message" class="status delegate-lock-message"></p>
             </div>
           </div>
+          <div class="delegate-code-panel" aria-live="polite">
+            <div class="delegate-code-actions">
+              <p id="delegate-code-summary" class="delegate-code-summary muted">
+                Válassz ki egy eseményt a belépőkódok kezeléséhez.
+              </p>
+              <div class="delegate-code-buttons">
+                <button type="button" id="delegate-generate-codes" class="primary-btn">
+                  Belépőkódok generálása
+                </button>
+                <button type="button" id="delegate-download-codes" class="ghost-btn">
+                  PDF letöltése
+                </button>
+              </div>
+            </div>
+            <p
+              id="delegate-code-status"
+              class="status delegate-code-status action-status"
+              role="status"
+              hidden
+            ></p>
+            <div id="delegate-code-list" class="delegate-code-list"></div>
+          </div>
           <div class="table-scroll">
             <table class="delegate-table">
               <thead>

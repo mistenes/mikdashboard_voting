@@ -30,6 +30,7 @@ from .models import (
     Organization,
     OrganizationInvitation,
     User,
+    VotingAccessCode,
     VotingEvent,
 )
 from .schemas import (
@@ -69,6 +70,10 @@ from .schemas import (
     SessionUser,
     SimpleMessageResponse,
     VerificationResponse,
+    VotingAccessCodeBatch,
+    VotingAccessCodeGenerateRequest,
+    VotingAccessCodeInfo,
+    VotingAccessCodeUserInfo,
     VotingAuthRequest,
     VotingAuthResponse,
     VotingEventAccessUpdate,
@@ -113,8 +118,10 @@ from .services import (
     queue_admin_invitation_email,
     queue_verification_email,
     register_user,
+    build_access_code_pdf,
     reset_voting_events,
     remove_member_from_organization,
+    generate_voting_access_codes,
     resolve_session_user,
     search_organizations,
     set_active_voting_event,
@@ -125,10 +132,14 @@ from .services import (
     set_organization_billing_details,
     set_organization_fee_status,
     update_voting_event,
+    redeem_voting_access_code,
     verify_email,
     verify_recaptcha,
+    voting_access_code_summary,
     reset_admin_temporary_password,
     delete_admin_account,
+    VotingAccessCodeError,
+    VotingAccessCodeUnavailableError,
 )
 from .security import hash_password
 
@@ -435,7 +446,10 @@ def _validate_voting_auth_request(payload: VotingAuthRequest) -> None:
         )
 
     canonical_email = payload.email.lower()
-    message = f"{payload.timestamp}:{canonical_email}:{payload.password}".encode("utf-8")
+    normalized_code = (payload.code or "").strip().upper()
+    message = (
+        f"{payload.timestamp}:{canonical_email}:{payload.password}:{normalized_code}"
+    ).encode("utf-8")
     expected_signature = hmac.new(
         _VOTING_O2AUTH_SECRET_BYTES, message, hashlib.sha256
     ).hexdigest()
@@ -607,10 +621,24 @@ def event_delegate_count(event: VotingEvent | None) -> int:
     return count
 
 
+def event_access_code_counts(event: VotingEvent | None) -> tuple[int, int, int]:
+    if event is None:
+        return (0, 0, 0)
+    codes = getattr(event, "access_codes", None) or []
+    total = len(codes)
+    used = 0
+    for code in codes:
+        if getattr(code, "used_at", None):
+            used += 1
+    available = max(total - used, 0)
+    return total, available, used
+
+
 def active_event_info(event: VotingEvent | None) -> ActiveEventInfo | None:
     if event is None:
         return None
     lock_state = delegate_lock_state(event)
+    total_codes, available_codes, used_codes = event_access_code_counts(event)
     return ActiveEventInfo(
         id=event.id,
         title=event.title,
@@ -624,6 +652,9 @@ def active_event_info(event: VotingEvent | None) -> ActiveEventInfo | None:
         delegate_lock_mode=lock_state.mode,
         delegate_lock_reason=lock_state.reason,
         delegate_lock_message=lock_state.message,
+        access_codes_total=total_codes,
+        access_codes_available=available_codes,
+        access_codes_used=used_codes,
     )
 
 
@@ -786,6 +817,7 @@ def build_organization_detail(
 def build_event_read(event: VotingEvent) -> VotingEventRead:
     delegate_count = event_delegate_count(event)
     lock_state = delegate_lock_state(event)
+    total_codes, available_codes, used_codes = event_access_code_counts(event)
     return VotingEventRead(
         id=event.id,
         title=event.title,
@@ -802,6 +834,45 @@ def build_event_read(event: VotingEvent) -> VotingEventRead:
         delegate_lock_mode=lock_state.mode,
         delegate_lock_reason=lock_state.reason,
         delegate_lock_message=lock_state.message,
+        access_codes_total=total_codes,
+        access_codes_available=available_codes,
+        access_codes_used=used_codes,
+    )
+
+
+def build_access_code_batch(
+    event: VotingEvent,
+    codes: list[VotingAccessCode],
+    total: int,
+    available: int,
+    used: int,
+) -> VotingAccessCodeBatch:
+    items: list[VotingAccessCodeInfo] = []
+    for code in codes:
+        used_by = getattr(code, "used_by_user", None)
+        used_by_payload = None
+        if used_by:
+            used_by_payload = VotingAccessCodeUserInfo(
+                id=used_by.id,
+                email=used_by.email,
+                first_name=used_by.first_name,
+                last_name=used_by.last_name,
+            )
+        items.append(
+            VotingAccessCodeInfo(
+                code=code.code,
+                created_at=code.created_at,
+                used_at=code.used_at,
+                used_by=used_by_payload,
+            )
+        )
+    return VotingAccessCodeBatch(
+        event_id=event.id,
+        event_title=event.title,
+        total=total,
+        available=available,
+        used=used,
+        codes=items,
     )
 
 
@@ -1226,6 +1297,8 @@ def create_voting_o2auth_session(
         )
 
     requested_view = (launch.view if launch else "default") or "default"
+    provided_code = (launch.code if launch else None) or ""
+    normalized_code_input = provided_code.strip()
 
     if requested_view == "admin" and not user.is_admin:
         raise HTTPException(
@@ -1242,6 +1315,31 @@ def create_voting_o2auth_session(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Nem vagy kijelölve a szavazási eseményre ennél a szervezetnél.",
             )
+
+    requires_access_code = requested_view == "default" and not user.is_admin
+    if requires_access_code:
+        _, total_codes, available_codes, _ = voting_access_code_summary(
+            db, active_event.id
+        )
+        if total_codes == 0 or available_codes <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Ehhez az eseményhez már nincs szabad belépőkód. Kérjük, vedd fel a kapcsolatot az adminisztrátorral.",
+            )
+        try:
+            redeem_voting_access_code(
+                db,
+                event_id=active_event.id,
+                code_value=normalized_code_input,
+                user=user,
+            )
+            db.commit()
+        except VotingAccessCodeError as exc:
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=exc.message,
+            ) from exc
 
     token = generate_voting_o2auth_token(
         user,
@@ -1301,6 +1399,34 @@ def authenticate_for_voting(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="A szavazási felület még nem elérhető ehhez az eseményhez.",
         )
+
+    requires_access_code = bool(
+        active_event and not user.is_admin and is_delegate
+    )
+    if requires_access_code:
+        code_value = (payload.code or "").strip()
+        _, total_codes, available_codes, _ = voting_access_code_summary(
+            db, active_event.id
+        )
+        if total_codes == 0 or available_codes <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Ehhez az eseményhez már nincs szabad belépőkód. Kérjük, vedd fel a kapcsolatot az adminisztrátorral.",
+            )
+        try:
+            redeem_voting_access_code(
+                db,
+                event_id=active_event.id,
+                code_value=code_value,
+                user=user,
+            )
+            db.commit()
+        except VotingAccessCodeError as exc:
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=exc.message,
+            ) from exc
 
     return VotingAuthResponse(
         email=user.email,
@@ -2130,6 +2256,98 @@ def update_delegate_lock_state(
     db.commit()
     _sync_active_event(db)
     return build_event_read(event)
+
+
+@app.get(
+    "/api/admin/events/{event_id}/codes",
+    response_model=VotingAccessCodeBatch,
+    responses={401: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+)
+def list_event_access_codes(
+    event_id: int,
+    db: DatabaseDependency,
+    _: Annotated[User, Depends(require_admin)],
+) -> VotingAccessCodeBatch:
+    event = db.get(VotingEvent, event_id)
+    if event is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Nem található szavazási esemény",
+        )
+    codes, total, available, used = voting_access_code_summary(db, event_id)
+    return build_access_code_batch(event, codes, total, available, used)
+
+
+@app.post(
+    "/api/admin/events/{event_id}/codes",
+    response_model=VotingAccessCodeBatch,
+    responses={
+        401: {"model": ErrorResponse},
+        400: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+    },
+)
+def generate_event_access_codes(
+    event_id: int,
+    payload: VotingAccessCodeGenerateRequest,
+    db: DatabaseDependency,
+    _: Annotated[User, Depends(require_admin)],
+) -> VotingAccessCodeBatch:
+    event = db.get(VotingEvent, event_id)
+    if event is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Nem található szavazási esemény",
+        )
+    try:
+        generate_voting_access_codes(
+            db, event_id=event_id, regenerate=payload.regenerate
+        )
+        db.flush()
+        db.refresh(event, attribute_names=["access_codes"])
+    except VotingAccessCodeUnavailableError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=exc.message
+        ) from exc
+    except RegistrationError as exc:
+        db.rollback()
+        detail = str(exc)
+        lowered = detail.lower()
+        status_code = (
+            status.HTTP_404_NOT_FOUND if "nem található" in lowered else status.HTTP_400_BAD_REQUEST
+        )
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+
+    db.commit()
+    refreshed = db.get(VotingEvent, event_id)
+    codes, total, available, used = voting_access_code_summary(db, event_id)
+    return build_access_code_batch(refreshed or event, codes, total, available, used)
+
+
+@app.get(
+    "/api/admin/events/{event_id}/codes.pdf",
+    response_class=Response,
+    responses={401: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+)
+def download_event_access_codes_pdf(
+    event_id: int,
+    db: DatabaseDependency,
+    _: Annotated[User, Depends(require_admin)],
+) -> Response:
+    event = db.get(VotingEvent, event_id)
+    if event is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Nem található szavazási esemény",
+        )
+    codes, total, available, used = voting_access_code_summary(db, event_id)
+    pdf_bytes = build_access_code_pdf(event, codes)
+    filename = f"esemeny-{event.id}-belepokodok.pdf"
+    headers = {
+        "Content-Disposition": f"attachment; filename=\"{filename}\"",
+    }
+    return Response(content=pdf_bytes, media_type="application/pdf", headers=headers)
 
 
 @app.get(

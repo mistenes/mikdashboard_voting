@@ -121,6 +121,9 @@ class ActiveEventInfo(BaseModel):
     delegate_lock_mode: DelegateLockMode = "auto"
     delegate_lock_reason: Optional[str] = None
     delegate_lock_message: Optional[str] = None
+    access_codes_total: int = 0
+    access_codes_available: int = 0
+    access_codes_used: int = 0
 
 
 class OrganizationMember(BaseModel):
@@ -286,6 +289,36 @@ class VotingEventRead(BaseModel):
     delegate_lock_mode: DelegateLockMode = "auto"
     delegate_lock_reason: Optional[str] = None
     delegate_lock_message: Optional[str] = None
+    access_codes_total: int = 0
+    access_codes_available: int = 0
+    access_codes_used: int = 0
+
+
+class VotingAccessCodeUserInfo(BaseModel):
+    id: Optional[int] = None
+    email: Optional[EmailStr] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+
+
+class VotingAccessCodeInfo(BaseModel):
+    code: constr(strip_whitespace=True, min_length=4, max_length=32)
+    created_at: datetime
+    used_at: Optional[datetime] = None
+    used_by: Optional[VotingAccessCodeUserInfo] = None
+
+
+class VotingAccessCodeBatch(BaseModel):
+    event_id: int
+    event_title: str
+    total: int
+    available: int
+    used: int
+    codes: list[VotingAccessCodeInfo] = Field(default_factory=list)
+
+
+class VotingAccessCodeGenerateRequest(BaseModel):
+    regenerate: bool = True
 
 
 class InvitationCreateRequest(BaseModel):
@@ -329,6 +362,7 @@ class VotingO2AuthResponse(BaseModel):
 
 class VotingO2AuthLaunchRequest(BaseModel):
     view: Literal["default", "admin", "public"] = "default"
+    code: Optional[constr(strip_whitespace=True, max_length=64)] = None
 
 
 class VotingAuthRequest(BaseModel):
@@ -336,6 +370,7 @@ class VotingAuthRequest(BaseModel):
     password: str
     timestamp: int
     signature: constr(strip_whitespace=True, min_length=1)
+    code: Optional[constr(strip_whitespace=True, max_length=64)] = None
 
 
 class VotingAuthResponse(BaseModel):

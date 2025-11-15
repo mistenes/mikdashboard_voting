@@ -55,9 +55,23 @@
             </p>
           </div>
           <div class="voting-actions">
-            <button id="open-voting" type="button" class="primary-btn">Szavazás megnyitása</button>
-            <button id="open-voting-admin" type="button" class="ghost-btn">Admin nézet megnyitása</button>
-            <button id="open-voting-public" type="button" class="ghost-btn">Nyilvános nézet</button>
+            <div class="voting-code-field" id="voting-code-wrapper">
+              <label for="voting-access-code">Egyszer használható belépőkód</label>
+              <input
+                type="text"
+                id="voting-access-code"
+                name="voting-access-code"
+                inputmode="text"
+                autocomplete="one-time-code"
+                placeholder="ABCD-EFGH"
+              />
+              <p id="voting-code-status" class="status action-status" role="status"></p>
+            </div>
+            <div class="voting-buttons">
+              <button id="open-voting" type="button" class="primary-btn">Szavazás megnyitása</button>
+              <button id="open-voting-admin" type="button" class="ghost-btn">Admin nézet megnyitása</button>
+              <button id="open-voting-public" type="button" class="ghost-btn">Nyilvános nézet</button>
+            </div>
             <p id="voting-helper" class="muted"></p>
           </div>
         </section>

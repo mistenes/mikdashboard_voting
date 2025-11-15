@@ -16,6 +16,11 @@ const createEventSubmitButton = createEventForm?.querySelector('button[type="sub
 const delegateLockModeSelect = document.querySelector("#delegate-lock-mode");
 const delegateLockApplyButton = document.querySelector("#delegate-lock-apply");
 const delegateLockMessage = document.querySelector("#delegate-lock-message");
+const delegateCodeSummary = document.querySelector("#delegate-code-summary");
+const delegateCodeStatus = document.querySelector("#delegate-code-status");
+const delegateCodeList = document.querySelector("#delegate-code-list");
+const delegateGenerateCodesButton = document.querySelector("#delegate-generate-codes");
+const delegateDownloadCodesButton = document.querySelector("#delegate-download-codes");
 const eventTitleInput = createEventForm?.querySelector("#event-title");
 const eventDescriptionInput = createEventForm?.querySelector("#event-description");
 const eventDateInput = createEventForm?.querySelector("#event-date");
@@ -36,6 +41,8 @@ const eventState = {
   delegates: [],
   selectedEventId: null,
   editingEventId: null,
+  accessCodes: [],
+  accessCodeSummary: null,
 };
 
 const eventDateFormatter = new Intl.DateTimeFormat("hu-HU", {
@@ -119,6 +126,18 @@ function formatDateTime(value) {
   } catch (_) {
     return null;
   }
+}
+
+function setDelegateCodeStatus(message = "", type = "") {
+  if (!delegateCodeStatus) {
+    return;
+  }
+  delegateCodeStatus.textContent = message || "";
+  delegateCodeStatus.classList.remove("error", "success");
+  if (message && type) {
+    delegateCodeStatus.classList.add(type);
+  }
+  delegateCodeStatus.hidden = !message;
 }
 
 function toDateTimeLocalValue(value) {
@@ -1165,7 +1184,10 @@ function renderEventsList(events) {
     const delegateSummary = event.delegate_limit
       ? `Összes delegált: ${event.delegate_count} • ${event.delegate_limit}/szervezet`
       : `Összes delegált: ${event.delegate_count}`;
-    meta.textContent = `Létrehozva: ${createdLabel} • ${delegateSummary}`;
+    const codeSummary = event.access_codes_total
+      ? `Belépőkódok: ${Math.max(event.access_codes_available || 0, 0)}/${event.access_codes_total}`
+      : "Belépőkódok: nincs";
+    meta.textContent = `Létrehozva: ${createdLabel} • ${delegateSummary} • ${codeSummary}`;
 
     const details = document.createElement("ul");
     details.classList.add("event-details");
@@ -1200,6 +1222,13 @@ function renderEventsList(events) {
       lockItem.textContent = "Delegált módosítás: engedélyezett";
     }
     details.appendChild(lockItem);
+    const codeItem = document.createElement("li");
+    if (event.access_codes_total) {
+      codeItem.textContent = `Belépőkódok: ${Math.max(event.access_codes_available || 0, 0)} / ${event.access_codes_total}`;
+    } else {
+      codeItem.textContent = "Belépőkódok: még nincs generálva";
+    }
+    details.appendChild(codeItem);
 
     const actions = document.createElement("div");
     actions.classList.add("event-actions");
@@ -1343,6 +1372,11 @@ function renderSelectedEventInfo() {
   if (event.delegate_limit) {
     parts.push(`Keret: ${event.delegate_limit}/szervezet`);
   }
+  if (event.access_codes_total) {
+    parts.push(
+      `Belépőkódok: ${Math.max(event.access_codes_available || 0, 0)}/${event.access_codes_total}`,
+    );
+  }
   if (event.delegates_locked) {
     parts.push("Delegált módosítás: zárolva");
   } else if (event.delegate_lock_mode === "unlocked") {
@@ -1351,6 +1385,117 @@ function renderSelectedEventInfo() {
     parts.push("Delegált módosítás: engedélyezett");
   }
   selectedEventInfo.textContent = parts.join(" • ");
+}
+
+function renderAccessCodePanel() {
+  if (
+    !delegateCodeSummary ||
+    !delegateCodeList ||
+    !delegateGenerateCodesButton ||
+    !delegateDownloadCodesButton
+  ) {
+    return;
+  }
+
+  setDelegateCodeStatus("");
+
+  if (!eventState.selectedEventId) {
+    delegateCodeSummary.textContent =
+      "Válassz ki egy eseményt a belépőkódok kezeléséhez.";
+    delegateGenerateCodesButton.disabled = true;
+    delegateDownloadCodesButton.disabled = true;
+    delegateCodeList.innerHTML = "";
+    const placeholder = document.createElement("p");
+    placeholder.classList.add("muted");
+    placeholder.textContent = "Nincs kiválasztott esemény.";
+    delegateCodeList.appendChild(placeholder);
+    return;
+  }
+
+  delegateGenerateCodesButton.disabled = false;
+  const summary = eventState.accessCodeSummary;
+  const codes = Array.isArray(summary?.codes) ? summary.codes : [];
+  const total = Number(summary?.total || 0);
+  const available = Number(summary?.available || 0);
+  const used = Number(summary?.used || 0);
+  delegateDownloadCodesButton.disabled = !codes.length;
+
+  delegateCodeSummary.textContent = codes.length
+    ? `Összes kód: ${total} • Felhasználható: ${available} • Felhasznált: ${used}`
+    : "Még nincs generált belépőkód.";
+
+  delegateCodeList.innerHTML = "";
+  if (!codes.length) {
+    const empty = document.createElement("p");
+    empty.classList.add("muted");
+    empty.textContent = "A kiválasztott eseményhez még nem készült belépőkódkészlet.";
+    delegateCodeList.appendChild(empty);
+    return;
+  }
+
+  const list = document.createElement("ul");
+  list.classList.add("code-grid");
+  codes.forEach((codeInfo) => {
+    const item = document.createElement("li");
+    item.classList.add("code-card");
+    if (codeInfo?.used_at) {
+      item.classList.add("is-used");
+    }
+
+    const value = document.createElement("span");
+    value.classList.add("code-value");
+    value.textContent = codeInfo?.code || "";
+    item.appendChild(value);
+
+    const meta = document.createElement("span");
+    meta.classList.add("code-meta");
+    if (codeInfo?.used_at) {
+      const usedAt = formatDateTime(codeInfo.used_at);
+      const usedBy = codeInfo?.used_by || {};
+      const nameParts = [];
+      if (usedBy.last_name) {
+        nameParts.push(usedBy.last_name);
+      }
+      if (usedBy.first_name) {
+        nameParts.push(usedBy.first_name);
+      }
+      const displayName = nameParts.join(" ") || usedBy.email || "Ismeretlen felhasználó";
+      meta.textContent = usedAt
+        ? `Felhasználva: ${usedAt} – ${displayName}`
+        : `Felhasználva – ${displayName}`;
+    } else {
+      meta.textContent = "Még nem használták fel.";
+    }
+    item.appendChild(meta);
+
+    list.appendChild(item);
+  });
+
+  delegateCodeList.appendChild(list);
+}
+
+async function refreshAccessCodes() {
+  if (!ensureAdminSession(true)) {
+    return;
+  }
+  if (!eventState.selectedEventId) {
+    eventState.accessCodes = [];
+    eventState.accessCodeSummary = null;
+    renderAccessCodePanel();
+    return;
+  }
+  try {
+    const response = await requestJSON(
+      `/api/admin/events/${eventState.selectedEventId}/codes`,
+    );
+    eventState.accessCodes = Array.isArray(response?.codes) ? response.codes : [];
+    eventState.accessCodeSummary = response || null;
+  } catch (error) {
+    eventState.accessCodes = [];
+    eventState.accessCodeSummary = null;
+    handleAuthError(error);
+  }
+  renderAccessCodePanel();
 }
 
 function renderDelegateLockControls() {
@@ -1555,10 +1700,13 @@ async function refreshEventData(refreshOrganizations = false, preserveStatus = f
     if (!eventState.events.length) {
       eventState.selectedEventId = null;
       eventState.delegates = [];
+      eventState.accessCodes = [];
+      eventState.accessCodeSummary = null;
       renderEventsList(eventState.events);
       renderEventSelectorControl(eventState.events);
       renderDelegateTable();
       renderDelegateLockControls();
+      renderAccessCodePanel();
       return;
     }
 
@@ -1571,11 +1719,13 @@ async function refreshEventData(refreshOrganizations = false, preserveStatus = f
     }
 
     await refreshEventDelegates();
+    await refreshAccessCodes();
 
     renderEventsList(eventState.events);
     renderEventSelectorControl(eventState.events);
     renderDelegateTable();
     renderDelegateLockControls();
+    renderAccessCodePanel();
   } catch (error) {
     handleAuthError(error);
   }
@@ -1764,9 +1914,11 @@ async function initEventsPage() {
     const selected = Number.parseInt(event.target.value, 10);
     eventState.selectedEventId = Number.isFinite(selected) ? selected : null;
     await refreshEventDelegates();
+    await refreshAccessCodes();
     renderSelectedEventInfo();
     renderDelegateTable();
     renderDelegateLockControls();
+    renderAccessCodePanel();
   });
 
   delegateLockApplyButton?.addEventListener("click", async () => {
@@ -1781,6 +1933,104 @@ async function initEventsPage() {
     }
     exitEventEditMode();
     setStatus("Az esemény szerkesztése megszakítva.", "", cancelEventEditButton);
+  });
+
+  delegateGenerateCodesButton?.addEventListener("click", async () => {
+    if (!ensureAdminSession(true)) {
+      return;
+    }
+    if (!eventState.selectedEventId) {
+      setDelegateCodeStatus("Válassz ki egy eseményt a kódok generálásához.", "error");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "Ez a művelet új belépőkódokat hoz létre, és felülírja a korábbi kódokat. Folytatod?",
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    delegateGenerateCodesButton.disabled = true;
+    setDelegateCodeStatus("Belépőkódok generálása folyamatban...", "");
+
+    try {
+      const response = await requestJSON(
+        `/api/admin/events/${eventState.selectedEventId}/codes`,
+        {
+          method: "POST",
+          body: JSON.stringify({ regenerate: true }),
+        },
+      );
+      eventState.accessCodes = Array.isArray(response?.codes) ? response.codes : [];
+      eventState.accessCodeSummary = response || null;
+      const selectedEvent = getSelectedEvent();
+      if (selectedEvent) {
+        selectedEvent.access_codes_total = response?.total ?? 0;
+        selectedEvent.access_codes_available = response?.available ?? 0;
+        selectedEvent.access_codes_used = response?.used ?? 0;
+      }
+      setDelegateCodeStatus("Belépőkódok frissítve.", "success");
+      renderAccessCodePanel();
+      renderSelectedEventInfo();
+      renderEventsList(eventState.events);
+    } catch (error) {
+      const message =
+        error?.message || "Nem sikerült generálni a belépőkódokat. Próbáld újra később.";
+      setDelegateCodeStatus(message, "error");
+      handleAuthError(error, delegateGenerateCodesButton);
+    } finally {
+      delegateGenerateCodesButton.disabled = false;
+    }
+  });
+
+  delegateDownloadCodesButton?.addEventListener("click", async () => {
+    if (!ensureAdminSession(true)) {
+      return;
+    }
+    if (!eventState.selectedEventId) {
+      setDelegateCodeStatus("Válassz ki egy eseményt a PDF letöltéséhez.", "error");
+      return;
+    }
+
+    delegateDownloadCodesButton.disabled = true;
+    setDelegateCodeStatus("PDF generálása folyamatban...", "");
+
+    try {
+      const response = await fetch(
+        `/api/admin/events/${eventState.selectedEventId}/codes.pdf`,
+        {
+          credentials: "include",
+        },
+      );
+      if (!response.ok) {
+        let detail = `A letöltés sikertelen (HTTP ${response.status}).`;
+        try {
+          const payload = await response.json();
+          detail = payload?.detail || detail;
+        } catch (_) {
+          // ignore JSON parse errors
+        }
+        throw new Error(detail);
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `esemeny-${eventState.selectedEventId}-belepokodok.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setDelegateCodeStatus("A belépőkódok PDF fájlja letöltve.", "success");
+    } catch (error) {
+      const message =
+        error?.message || "Nem sikerült letölteni a belépőkódok PDF fájlját.";
+      setDelegateCodeStatus(message, "error");
+      handleAuthError(error, delegateDownloadCodesButton);
+    } finally {
+      delegateDownloadCodesButton.disabled = false;
+    }
   });
 
   createEventForm?.addEventListener("submit", async (event) => {

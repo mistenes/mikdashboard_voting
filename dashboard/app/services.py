@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from io import BytesIO
 from typing import Iterable, List, Literal, Optional
 
 import logging
@@ -10,6 +11,10 @@ import string
 import uuid
 
 import httpx
+
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.units import mm
+from reportlab.pdfgen import canvas
 
 from sqlalchemy import case, delete, func, select
 from sqlalchemy.exc import IntegrityError
@@ -26,9 +31,10 @@ from .models import (
     OrganizationInvitation,
     PasswordResetToken,
     SessionToken,
-    VotingEvent,
     User,
     VerificationStatus,
+    VotingAccessCode,
+    VotingEvent,
 )
 from .security import hash_password, verify_password
 
@@ -37,6 +43,10 @@ logger = logging.getLogger(__name__)
 
 
 DELEGATE_TIMEZONE = ZoneInfo("Europe/Budapest")
+
+ACCESS_CODE_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
+ACCESS_CODE_LENGTH = 8
+ACCESS_CODES_PER_PAGE = 16
 
 
 def _log_brevo_delivery(kind: str, response: httpx.Response, *, extra: dict | None = None) -> None:
@@ -68,6 +78,16 @@ class AuthenticationError(Exception):
 
 
 class PasswordResetError(Exception):
+    pass
+
+
+class VotingAccessCodeError(Exception):
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.message = message
+
+
+class VotingAccessCodeUnavailableError(VotingAccessCodeError):
     pass
 
 
@@ -1068,11 +1088,201 @@ def set_delegate_lock_override(
     return event
 
 
+def _canonicalize_access_code(value: str) -> str:
+    cleaned = "".join(ch for ch in (value or "").upper() if ch.isalnum())
+    if not cleaned:
+        return ""
+    if len(cleaned) != ACCESS_CODE_LENGTH:
+        raise VotingAccessCodeError(
+            "A megadott egyszer használható kód formátuma érvénytelen."
+        )
+    grouped = [cleaned[i : i + 4] for i in range(0, len(cleaned), 4)]
+    return "-".join(grouped)
+
+
+def _generate_access_code(existing: set[str]) -> str:
+    while True:
+        raw = "".join(secrets.choice(ACCESS_CODE_ALPHABET) for _ in range(ACCESS_CODE_LENGTH))
+        formatted = "-".join(raw[i : i + 4] for i in range(0, len(raw), 4))
+        if formatted not in existing:
+            return formatted
+
+
+def list_voting_access_codes(session: Session, event_id: int) -> list[VotingAccessCode]:
+    stmt = (
+        select(VotingAccessCode)
+        .where(VotingAccessCode.event_id == event_id)
+        .options(selectinload(VotingAccessCode.used_by_user))
+        .order_by(VotingAccessCode.code.asc())
+    )
+    return list(session.scalars(stmt))
+
+
+def generate_voting_access_codes(
+    session: Session,
+    event_id: int,
+    *,
+    regenerate: bool = True,
+) -> list[VotingAccessCode]:
+    event = session.get(VotingEvent, event_id)
+    if event is None:
+        raise RegistrationError("Nem található szavazási esemény")
+
+    delegate_total = session.scalar(
+        select(func.count(EventDelegate.id)).where(EventDelegate.event_id == event_id)
+    )
+    if not delegate_total:
+        raise VotingAccessCodeUnavailableError(
+            "Nem található kijelölt delegált ehhez az eseményhez."
+        )
+
+    if regenerate:
+        session.execute(
+            delete(VotingAccessCode).where(VotingAccessCode.event_id == event_id)
+        )
+        session.flush()
+
+    existing_codes = set(
+        session.scalars(
+            select(VotingAccessCode.code).where(VotingAccessCode.event_id == event_id)
+        )
+    )
+
+    missing = max(delegate_total - len(existing_codes), 0)
+    for _ in range(missing):
+        new_code = _generate_access_code(existing_codes)
+        existing_codes.add(new_code)
+        session.add(VotingAccessCode(event_id=event_id, code=new_code))
+
+    session.flush()
+    return list_voting_access_codes(session, event_id)
+
+
+def redeem_voting_access_code(
+    session: Session,
+    *,
+    event_id: int,
+    code_value: str,
+    user: User,
+) -> VotingAccessCode:
+    if not code_value:
+        raise VotingAccessCodeError(
+            "Egyszer használható belépőkód megadása szükséges a belépéshez."
+        )
+
+    canonical = _canonicalize_access_code(code_value)
+
+    stmt = (
+        select(VotingAccessCode)
+        .where(
+            VotingAccessCode.event_id == event_id,
+            VotingAccessCode.code == canonical,
+        )
+        .limit(1)
+    )
+    record = session.scalar(stmt)
+    if record is None:
+        raise VotingAccessCodeError("A megadott egyszer használható kód érvénytelen.")
+    if record.used_at:
+        raise VotingAccessCodeError("Ezt a belépőkódot már felhasználták.")
+
+    record.used_at = datetime.utcnow()
+    record.used_by_user_id = user.id if user and user.id else None
+    session.flush()
+    return record
+
+
+def voting_access_code_summary(
+    session: Session, event_id: int
+) -> tuple[list[VotingAccessCode], int, int, int]:
+    codes = list_voting_access_codes(session, event_id)
+    total = len(codes)
+    used = sum(1 for code in codes if code.used_at)
+    available = total - used
+    return codes, total, available, used
+
+
+def build_access_code_pdf(event: VotingEvent, codes: list[VotingAccessCode]) -> bytes:
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=A4)
+    width, height = A4
+    margin_x = 20 * mm
+    margin_y = 25 * mm
+    top_margin = 35 * mm
+    columns = 4
+    rows = 4
+    cell_width = (width - 2 * margin_x) / columns
+    cell_height = (height - top_margin - margin_y) / rows
+
+    def draw_page_header(page_number: int) -> None:
+        pdf.setFont("Helvetica-Bold", 16)
+        pdf.drawString(margin_x, height - margin_y + 5 * mm, event.title or "Szavazási esemény")
+        if event.event_date:
+            pdf.setFont("Helvetica", 10)
+            pdf.drawString(
+                margin_x,
+                height - margin_y,
+                event.event_date.strftime("%Y.%m.%d %H:%M"),
+            )
+        pdf.setFont("Helvetica", 9)
+        pdf.drawRightString(
+            width - margin_x,
+            margin_y / 2,
+            f"Oldal {page_number}",
+        )
+
+    if not codes:
+        draw_page_header(1)
+        pdf.setFont("Helvetica", 12)
+        pdf.drawString(
+            margin_x,
+            height - top_margin,
+            "Ehhez az eseményhez még nem generáltunk belépőkódokat.",
+        )
+        pdf.save()
+        buffer.seek(0)
+        return buffer.read()
+
+    draw_page_header(1)
+
+    for index, code in enumerate(codes):
+        if index and index % ACCESS_CODES_PER_PAGE == 0:
+            pdf.showPage()
+            draw_page_header((index // ACCESS_CODES_PER_PAGE) + 1)
+
+        position = index % ACCESS_CODES_PER_PAGE
+        column = position % columns
+        row = position // columns
+        x = margin_x + column * cell_width
+        y = height - top_margin - row * cell_height
+        pdf.setLineWidth(1)
+        pdf.roundRect(x, y - cell_height + 6 * mm, cell_width - 5 * mm, cell_height - 12 * mm, 6, stroke=1, fill=0)
+        pdf.setFont("Helvetica", 11)
+        pdf.drawCentredString(
+            x + (cell_width - 5 * mm) / 2,
+            y - cell_height + 12 * mm,
+            "MIK egyszer használható belépőkód",
+        )
+        pdf.setFont("Helvetica-Bold", 22)
+        pdf.drawCentredString(
+            x + (cell_width - 5 * mm) / 2,
+            y - (cell_height / 2),
+            code.code,
+        )
+
+    pdf.save()
+    buffer.seek(0)
+    return buffer.read()
+
+
 def list_voting_events(session: Session) -> List[VotingEvent]:
     stmt = (
         select(VotingEvent)
         .options(
             selectinload(VotingEvent.delegates).selectinload(EventDelegate.user),
+            selectinload(VotingEvent.access_codes).selectinload(
+                VotingAccessCode.used_by_user
+            ),
         )
         .order_by(VotingEvent.created_at.desc())
     )
@@ -1084,6 +1294,9 @@ def upcoming_voting_events(session: Session) -> List[VotingEvent]:
         select(VotingEvent)
         .options(
             selectinload(VotingEvent.delegates).selectinload(EventDelegate.user),
+            selectinload(VotingEvent.access_codes).selectinload(
+                VotingAccessCode.used_by_user
+            ),
         )
         .order_by(
             case((VotingEvent.event_date.is_(None), 1), else_=0),
@@ -1098,7 +1311,12 @@ def get_active_voting_event(session: Session) -> Optional[VotingEvent]:
     stmt = (
         select(VotingEvent)
         .where(VotingEvent.is_active.is_(True))
-        .options(selectinload(VotingEvent.delegates).selectinload(EventDelegate.user))
+        .options(
+            selectinload(VotingEvent.delegates).selectinload(EventDelegate.user),
+            selectinload(VotingEvent.access_codes).selectinload(
+                VotingAccessCode.used_by_user
+            ),
+        )
         .limit(1)
     )
     return session.scalar(stmt)

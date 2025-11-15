@@ -606,12 +606,37 @@ const VoterView = ({ sessionData, onLogout, eventTitle, clockOffsetMs }: { sessi
     );
 };
 
-const LoginScreen = ({ onLogin, error }: { onLogin: (email: string, password: string) => Promise<void> | void, error: string }) => {
+const LoginScreen = ({
+    onLogin,
+    error,
+    mode,
+}: {
+    onLogin: (email: string, password: string, code: string) => Promise<void> | void;
+    error: string;
+    mode: AppMode;
+}) => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [code, setCode] = useState('');
     const [showPassword, setShowPassword] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [localError, setLocalError] = useState('');
+    const requiresCode = mode === 'default';
+
+    const normalizeCode = (value: string): string => {
+        const cleaned = (value || '').toUpperCase().replace(/[^0-9A-Z]/g, '').slice(0, 8);
+        if (!cleaned) {
+            return '';
+        }
+        const chunks = cleaned.match(/.{1,4}/g) || [];
+        return chunks.join('-');
+    };
+
+    useEffect(() => {
+        if (!requiresCode && code) {
+            setCode('');
+        }
+    }, [requiresCode, code]);
 
     const handleSubmit = async (e: FormEvent) => {
         e.preventDefault();
@@ -627,13 +652,26 @@ const LoginScreen = ({ onLogin, error }: { onLogin: (email: string, password: st
             return;
         }
 
+        let normalizedCode = '';
+        if (requiresCode) {
+            normalizedCode = normalizeCode(code);
+            if (!normalizedCode || normalizedCode.replace(/[^0-9A-Z]/g, '').length !== 8) {
+                setLocalError('Kérjük, adja meg a kiosztott egyszer használható belépőkódot.');
+                return;
+            }
+        }
+
         if (trimmedEmail !== email) {
             setEmail(trimmedEmail);
         }
 
+        if (requiresCode && normalizedCode !== code) {
+            setCode(normalizedCode);
+        }
+
         setIsSubmitting(true);
         try {
-            await onLogin(trimmedEmail, password);
+            await onLogin(trimmedEmail, password, normalizedCode);
         } finally {
             setIsSubmitting(false);
         }
@@ -702,6 +740,22 @@ const LoginScreen = ({ onLogin, error }: { onLogin: (email: string, password: st
                                 </button>
                             </div>
                         </div>
+                        {requiresCode && (
+                            <div className={`input-field ${code ? 'has-value' : ''}`}>
+                                <label htmlFor="code">Egyszer használható belépőkód</label>
+                                <input
+                                    type="text"
+                                    id="code"
+                                    name="code"
+                                    autoComplete="one-time-code"
+                                    value={code}
+                                    onChange={(e) => setCode(e.target.value.toUpperCase())}
+                                    required={requiresCode}
+                                    aria-describedby={feedback ? 'login-error' : undefined}
+                                    placeholder="ABCD-EFGH"
+                                />
+                            </div>
+                        )}
                         <div className="login-actions">
                             <button type="submit" className="btn btn-primary" disabled={isSubmitting}>
                                 {isSubmitting ? 'Bejelentkezés folyamatban…' : 'Bejelentkezés'}
@@ -711,7 +765,9 @@ const LoginScreen = ({ onLogin, error }: { onLogin: (email: string, password: st
                             </a>
                         </div>
                         <p className="login-meta">
-                            Tipp: ha a MIK Dashboard felületéről érkezett, ellenőrizze a böngészőjében az egyszeri bejelentkezési lapot is.
+                            {requiresCode
+                                ? 'Tipp: ha a MIK Dashboard felületéről érkezett, ellenőrizze a böngészőjében az egyszeri belépőkódot tartalmazó lapot is.'
+                                : 'Tipp: ha gondja akad a belépéssel, ellenőrizze a MIK Dashboard admin felületét vagy vegye fel a kapcsolatot az adminisztrátorral.'}
                         </p>
                         <p id="login-error" className={`error-message ${feedback ? 'is-visible' : ''}`} role="alert" aria-live="polite">
                             {feedback}
@@ -815,12 +871,12 @@ const App = () => {
         };
     }, [updateClockOffset]);
 
-    const handleLogin = async (email: string, password: string): Promise<void> => {
+    const handleLogin = async (email: string, password: string, code: string): Promise<void> => {
         setError('');
         try {
             const payload = await jsonRequest<AuthSessionResponse>('/api/auth/login', {
                 method: 'POST',
-                body: JSON.stringify({ email, password }),
+                body: JSON.stringify({ email, password, code }),
             });
             setUser(payload.user);
             setAuthChecked(true);
@@ -859,7 +915,7 @@ const App = () => {
         }
 
         if (!user) {
-            return <LoginScreen onLogin={handleLogin} error={error} />;
+            return <LoginScreen onLogin={handleLogin} error={error} mode={mode} />;
         }
 
         if (!sessionData) {
@@ -876,7 +932,7 @@ const App = () => {
             case 'voter':
                 return <VoterView sessionData={sessionData} onLogout={handleLogout} eventTitle={user.eventTitle} clockOffsetMs={clockOffsetMs} />;
             default:
-                return <LoginScreen onLogin={handleLogin} error={error} />;
+                return <LoginScreen onLogin={handleLogin} error={error} mode={mode} />;
         }
     };
 
