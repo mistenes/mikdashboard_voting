@@ -756,7 +756,17 @@ function renderEventAssignments(detail, sessionUser) {
     if (!eventDetail.can_manage_delegates) {
       const notice = document.createElement("p");
       notice.classList.add("muted");
-      notice.textContent = "A delegáltak kiosztása lezárult ehhez az eseményhez.";
+      notice.textContent =
+        eventDetail.delegate_lock_message ||
+        "A delegáltak kiosztása lezárult ehhez az eseményhez.";
+      card.appendChild(notice);
+    } else if (
+      eventDetail.delegate_lock_mode === "unlocked" &&
+      eventDetail.delegate_lock_message
+    ) {
+      const notice = document.createElement("p");
+      notice.classList.add("muted");
+      notice.textContent = eventDetail.delegate_lock_message;
       card.appendChild(notice);
     }
 

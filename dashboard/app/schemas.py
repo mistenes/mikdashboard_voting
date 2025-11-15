@@ -8,6 +8,9 @@ from pydantic import AnyHttpUrl, BaseModel, EmailStr, Field, constr
 from .models import ApprovalDecision, InvitationRole
 
 
+DelegateLockMode = Literal["auto", "locked", "unlocked"]
+
+
 class OrganizationRead(BaseModel):
     id: int
     name: str
@@ -114,6 +117,10 @@ class ActiveEventInfo(BaseModel):
     is_voting_enabled: bool = False
     delegate_count: int = 0
     delegate_limit: Optional[int] = None
+    delegates_locked: bool = False
+    delegate_lock_mode: DelegateLockMode = "auto"
+    delegate_lock_reason: Optional[str] = None
+    delegate_lock_message: Optional[str] = None
 
 
 class OrganizationMember(BaseModel):
@@ -168,6 +175,10 @@ class OrganizationEventAssignment(BaseModel):
     delegate_user_ids: list[int] = Field(default_factory=list)
     delegates: list[OrganizationEventDelegate] = Field(default_factory=list)
     can_manage_delegates: bool = False
+    delegates_locked: bool = False
+    delegate_lock_mode: DelegateLockMode = "auto"
+    delegate_lock_reason: Optional[str] = None
+    delegate_lock_message: Optional[str] = None
 
 
 class OrganizationDetail(BaseModel):
@@ -255,6 +266,10 @@ class VotingEventAccessUpdate(BaseModel):
     is_voting_enabled: bool
 
 
+class DelegateLockUpdateRequest(BaseModel):
+    mode: DelegateLockMode
+
+
 class VotingEventRead(BaseModel):
     id: int
     title: str
@@ -267,6 +282,10 @@ class VotingEventRead(BaseModel):
     created_at: datetime
     delegate_count: int = 0
     can_delete: bool = False
+    delegates_locked: bool = False
+    delegate_lock_mode: DelegateLockMode = "auto"
+    delegate_lock_reason: Optional[str] = None
+    delegate_lock_message: Optional[str] = None
 
 
 class InvitationCreateRequest(BaseModel):

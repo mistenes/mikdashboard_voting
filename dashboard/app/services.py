@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Iterable, List, Optional
+from typing import Iterable, List, Literal, Optional
 
 import logging
 import secrets
@@ -950,6 +951,105 @@ def _normalize_datetime(value: datetime) -> datetime:
     return value.astimezone(timezone.utc).replace(tzinfo=None)
 
 
+DelegateLockMode = Literal["auto", "locked", "unlocked"]
+DelegateLockReason = Literal[
+    "deadline_passed",
+    "deadline_pending",
+    "manual_locked",
+    "manual_unlocked",
+    "manual_unlocked_after_deadline",
+    "no_deadline",
+]
+
+
+@dataclass
+class DelegateLockState:
+    locked: bool
+    mode: DelegateLockMode
+    reason: DelegateLockReason
+    message: str
+
+
+def delegate_lock_state(
+    event: VotingEvent, *, current_time: datetime | None = None
+) -> DelegateLockState:
+    if current_time is None:
+        current_time = datetime.utcnow()
+
+    override = (event.delegate_lock_override or "").strip().lower() or None
+
+    if override == "locked":
+        return DelegateLockState(
+            locked=True,
+            mode="locked",
+            reason="manual_locked",
+            message="A delegáltak módosítása adminisztrátori döntés alapján zárolva.",
+        )
+
+    deadline = getattr(event, "delegate_deadline", None)
+    deadline_passed = bool(deadline and deadline < current_time)
+
+    if override == "unlocked":
+        reason: DelegateLockReason
+        if deadline_passed:
+            reason = "manual_unlocked_after_deadline"
+            message = (
+                "A delegált kijelölési határidő lejárt, de az adminisztrátor feloldotta a zárolást."
+            )
+        else:
+            reason = "manual_unlocked"
+            message = "A delegáltak módosítása adminisztrátori döntés alapján engedélyezett."
+        return DelegateLockState(
+            locked=False,
+            mode="unlocked",
+            reason=reason,
+            message=message,
+        )
+
+    if deadline is None:
+        return DelegateLockState(
+            locked=False,
+            mode="auto",
+            reason="no_deadline",
+            message="A delegáltak módosítása engedélyezett.",
+        )
+
+    if deadline_passed:
+        return DelegateLockState(
+            locked=True,
+            mode="auto",
+            reason="deadline_passed",
+            message="A delegált kijelölési határidő lejárt, ezért a módosítás zárolva.",
+        )
+
+    return DelegateLockState(
+        locked=False,
+        mode="auto",
+        reason="deadline_pending",
+        message="A delegáltak módosítása engedélyezett a határidőig.",
+    )
+
+
+def set_delegate_lock_override(
+    session: Session, event_id: int, *, mode: DelegateLockMode
+) -> VotingEvent:
+    event = session.get(VotingEvent, event_id)
+    if event is None:
+        raise RegistrationError("Nem található szavazási esemény")
+
+    if mode == "auto":
+        event.delegate_lock_override = None
+    elif mode == "locked":
+        event.delegate_lock_override = "locked"
+    elif mode == "unlocked":
+        event.delegate_lock_override = "unlocked"
+    else:  # pragma: no cover - defensive
+        raise RegistrationError("Érvénytelen zárolási mód")
+
+    session.flush()
+    return event
+
+
 def list_voting_events(session: Session) -> List[VotingEvent]:
     stmt = (
         select(VotingEvent)
@@ -1155,6 +1255,10 @@ def set_event_delegates_for_organization(
     event = session.get(VotingEvent, event_id)
     if event is None:
         raise RegistrationError("Nem található szavazási esemény")
+
+    lock_state = delegate_lock_state(event)
+    if lock_state.locked:
+        raise RegistrationError(lock_state.message)
 
     organization = session.get(Organization, organization_id)
     if organization is None:

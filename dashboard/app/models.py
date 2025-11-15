@@ -155,6 +155,7 @@ class VotingEvent(Base):
     is_active = Column(Boolean, default=False, nullable=False)
     is_voting_enabled = Column(Boolean, default=False, nullable=False)
     delegate_limit = Column(Integer, nullable=True)
+    delegate_lock_override = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False

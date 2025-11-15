@@ -133,6 +133,20 @@
             <label for="event-selector" class="muted">Megjelenített esemény</label>
             <select id="event-selector" class="event-selector"></select>
             <p id="selected-event-info" class="muted"></p>
+            <div class="delegate-lock-panel">
+              <label for="delegate-lock-mode" class="muted">Delegált módosítási állapot</label>
+              <div class="delegate-lock-actions">
+                <select id="delegate-lock-mode" class="event-selector delegate-lock-mode">
+                  <option value="auto">Automatikus (határidő szerint)</option>
+                  <option value="locked">Mindig zárolva</option>
+                  <option value="unlocked">Mindig szerkeszthető</option>
+                </select>
+                <button type="button" id="delegate-lock-apply" class="ghost-btn">
+                  Állapot frissítése
+                </button>
+              </div>
+              <p id="delegate-lock-message" class="status delegate-lock-message"></p>
+            </div>
           </div>
           <div class="table-scroll">
             <table class="delegate-table">

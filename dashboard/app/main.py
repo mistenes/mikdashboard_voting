@@ -39,6 +39,7 @@ from .schemas import (
     AdminUserCreateRequest,
     AdminUserCreateResponse,
     AdminUserRead,
+    DelegateLockUpdateRequest,
     ErrorResponse,
     EventDelegateAssignmentRequest,
     EventDelegateInfo,
@@ -92,6 +93,7 @@ from .services import (
     create_session_token,
     create_voting_event,
     decide_registration,
+    delegate_lock_state,
     delegates_for_event,
     delete_organization,
     delete_voting_event,
@@ -117,6 +119,7 @@ from .services import (
     search_organizations,
     set_active_voting_event,
     set_event_delegates_for_organization,
+    set_delegate_lock_override,
     set_voting_event_accessibility,
     validate_password_strength,
     set_organization_billing_details,
@@ -393,6 +396,10 @@ def ensure_event_metadata_columns() -> None:
             connection.execute(
                 text("ALTER TABLE voting_events ADD COLUMN delegate_limit INTEGER")
             )
+        if "delegate_lock_override" not in columns:
+            connection.execute(
+                text("ALTER TABLE voting_events ADD COLUMN delegate_lock_override VARCHAR")
+            )
 
 
 def ensure_delegate_uniqueness_constraints() -> None:
@@ -603,6 +610,7 @@ def event_delegate_count(event: VotingEvent | None) -> int:
 def active_event_info(event: VotingEvent | None) -> ActiveEventInfo | None:
     if event is None:
         return None
+    lock_state = delegate_lock_state(event)
     return ActiveEventInfo(
         id=event.id,
         title=event.title,
@@ -612,6 +620,10 @@ def active_event_info(event: VotingEvent | None) -> ActiveEventInfo | None:
         is_voting_enabled=event.is_voting_enabled,
         delegate_count=event_delegate_count(event),
         delegate_limit=getattr(event, "delegate_limit", None),
+        delegates_locked=lock_state.locked,
+        delegate_lock_mode=lock_state.mode,
+        delegate_lock_reason=lock_state.reason,
+        delegate_lock_message=lock_state.message,
     )
 
 
@@ -681,11 +693,8 @@ def build_organization_event_assignment(
         )
         delegate_user_ids.append(user.id)
 
-    can_manage = bool(
-        event.is_active
-        or event.delegate_deadline is None
-        or event.delegate_deadline >= current_time
-    )
+    lock_state = delegate_lock_state(event, current_time=current_time)
+    can_manage = not lock_state.locked
 
     return OrganizationEventAssignment(
         event_id=event.id,
@@ -700,6 +709,10 @@ def build_organization_event_assignment(
         delegate_user_ids=delegate_user_ids,
         delegates=entries,
         can_manage_delegates=can_manage,
+        delegates_locked=lock_state.locked,
+        delegate_lock_mode=lock_state.mode,
+        delegate_lock_reason=lock_state.reason,
+        delegate_lock_message=lock_state.message,
     )
 
 
@@ -772,6 +785,7 @@ def build_organization_detail(
 
 def build_event_read(event: VotingEvent) -> VotingEventRead:
     delegate_count = event_delegate_count(event)
+    lock_state = delegate_lock_state(event)
     return VotingEventRead(
         id=event.id,
         title=event.title,
@@ -784,6 +798,10 @@ def build_event_read(event: VotingEvent) -> VotingEventRead:
         created_at=event.created_at,
         delegate_count=delegate_count,
         can_delete=not event.is_active,
+        delegates_locked=lock_state.locked,
+        delegate_lock_mode=lock_state.mode,
+        delegate_lock_reason=lock_state.reason,
+        delegate_lock_message=lock_state.message,
     )
 
 
@@ -2061,6 +2079,41 @@ def update_event_accessibility(
         event = set_voting_event_accessibility(
             db, event_id=event_id, is_voting_enabled=payload.is_voting_enabled
         )
+        db.flush()
+        db.refresh(event, attribute_names=["delegates"])
+    except RegistrationError as exc:
+        db.rollback()
+        detail = str(exc)
+        lowered = detail.lower()
+        status_code = (
+            status.HTTP_404_NOT_FOUND
+            if "nem található" in lowered
+            else status.HTTP_400_BAD_REQUEST
+        )
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+
+    db.commit()
+    _sync_active_event(db)
+    return build_event_read(event)
+
+
+@app.post(
+    "/api/admin/events/{event_id}/delegate-lock",
+    response_model=VotingEventRead,
+    responses={
+        401: {"model": ErrorResponse},
+        400: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+    },
+)
+def update_delegate_lock_state(
+    event_id: int,
+    payload: DelegateLockUpdateRequest,
+    db: DatabaseDependency,
+    _: Annotated[User, Depends(require_admin)],
+) -> VotingEventRead:
+    try:
+        event = set_delegate_lock_override(db, event_id=event_id, mode=payload.mode)
         db.flush()
         db.refresh(event, attribute_names=["delegates"])
     except RegistrationError as exc:

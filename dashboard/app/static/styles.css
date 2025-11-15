@@ -689,10 +689,43 @@ button.sidebar-link {
 
 .delegate-controls {
   display: flex;
-  justify-content: flex-end;
+  flex-wrap: wrap;
+  justify-content: space-between;
   align-items: flex-start;
   gap: 12px;
   margin-bottom: 12px;
+}
+
+.delegate-lock-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1 1 100%;
+  max-width: 540px;
+}
+
+.delegate-lock-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.delegate-lock-mode {
+  min-width: 220px;
+}
+
+.delegate-lock-message {
+  margin: 0;
+  color: #475569;
+}
+
+.delegate-lock-message.success {
+  color: #0f766e;
+}
+
+.delegate-lock-message.error {
+  color: #dc2626;
 }
 
 #selected-event-info {

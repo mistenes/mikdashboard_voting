@@ -13,6 +13,9 @@ const cancelEventEditButton = document.querySelector("#cancel-event-edit");
 const activateWrapper = createEventForm?.querySelector("[data-activate-wrapper]");
 const activateCheckbox = createEventForm?.querySelector('input[name="activate"]');
 const createEventSubmitButton = createEventForm?.querySelector('button[type="submit"]');
+const delegateLockModeSelect = document.querySelector("#delegate-lock-mode");
+const delegateLockApplyButton = document.querySelector("#delegate-lock-apply");
+const delegateLockMessage = document.querySelector("#delegate-lock-message");
 const eventTitleInput = createEventForm?.querySelector("#event-title");
 const eventDescriptionInput = createEventForm?.querySelector("#event-description");
 const eventDateInput = createEventForm?.querySelector("#event-date");
@@ -1188,6 +1191,15 @@ function renderEventsList(events) {
       ? `Delegált keret: szervezetenként legfeljebb ${event.delegate_limit}`
       : "Delegált keret: nincs felső határ";
     details.appendChild(limitItem);
+    const lockItem = document.createElement("li");
+    if (event.delegates_locked) {
+      lockItem.textContent = "Delegált módosítás: zárolva";
+    } else if (event.delegate_lock_mode === "unlocked") {
+      lockItem.textContent = "Delegált módosítás: kézi feloldás aktív";
+    } else {
+      lockItem.textContent = "Delegált módosítás: engedélyezett";
+    }
+    details.appendChild(lockItem);
 
     const actions = document.createElement("div");
     actions.classList.add("event-actions");
@@ -1331,7 +1343,42 @@ function renderSelectedEventInfo() {
   if (event.delegate_limit) {
     parts.push(`Keret: ${event.delegate_limit}/szervezet`);
   }
+  if (event.delegates_locked) {
+    parts.push("Delegált módosítás: zárolva");
+  } else if (event.delegate_lock_mode === "unlocked") {
+    parts.push("Delegált módosítás: kézi feloldás aktív");
+  } else {
+    parts.push("Delegált módosítás: engedélyezett");
+  }
   selectedEventInfo.textContent = parts.join(" • ");
+}
+
+function renderDelegateLockControls() {
+  if (!delegateLockModeSelect || !delegateLockApplyButton || !delegateLockMessage) {
+    return;
+  }
+  const event = getSelectedEvent();
+  if (!event) {
+    delegateLockModeSelect.value = "auto";
+    delegateLockModeSelect.disabled = true;
+    delegateLockApplyButton.disabled = true;
+    delegateLockMessage.textContent = "Válassz ki egy eseményt a zárolási beállításhoz.";
+    delegateLockMessage.classList.remove("success", "error");
+    return;
+  }
+
+  delegateLockModeSelect.disabled = false;
+  delegateLockApplyButton.disabled = false;
+  const mode = event.delegate_lock_mode || "auto";
+  delegateLockModeSelect.value = mode;
+  const message = event.delegate_lock_message || "";
+  delegateLockMessage.textContent = message;
+  delegateLockMessage.classList.remove("success", "error");
+  if (event.delegates_locked) {
+    delegateLockMessage.classList.add("error");
+  } else if (mode === "unlocked") {
+    delegateLockMessage.classList.add("success");
+  }
 }
 
 function renderDelegateTable() {
@@ -1364,6 +1411,7 @@ function renderDelegateTable() {
 
   const selectedEvent = getSelectedEvent();
   const delegateLimit = selectedEvent?.delegate_limit ?? null;
+  const delegatesLocked = Boolean(selectedEvent?.delegates_locked);
 
   eventState.organizations.forEach((organization) => {
     const info = currentDelegateInfo(organization.id);
@@ -1419,9 +1467,12 @@ function renderDelegateTable() {
         checkbox.type = "checkbox";
         checkbox.value = String(member.id);
         checkbox.checked = selectedIds.includes(member.id);
-        checkbox.addEventListener("change", async () => {
-          await handleDelegateSelection(organization.id, checkbox);
-        });
+        checkbox.disabled = delegatesLocked;
+        if (!delegatesLocked) {
+          checkbox.addEventListener("change", async () => {
+            await handleDelegateSelection(organization.id, checkbox);
+          });
+        }
 
         const span = document.createElement("span");
         span.textContent = formatDisplayName(
@@ -1435,6 +1486,19 @@ function renderDelegateTable() {
         selector.appendChild(label);
       });
     }
+
+    const status = document.createElement("p");
+    status.classList.add("status", "delegate-status");
+    if (delegatesLocked) {
+      status.textContent =
+        selectedEvent?.delegate_lock_message ||
+        "A delegáltak kiosztása lezárult ehhez az eseményhez.";
+      status.classList.add("error");
+    } else if (selectedEvent?.delegate_lock_mode === "unlocked" && selectedEvent?.delegate_lock_message) {
+      status.textContent = selectedEvent.delegate_lock_message;
+      status.classList.add("success");
+    }
+    selector.appendChild(status);
 
     selectCell.appendChild(selector);
 
@@ -1494,6 +1558,7 @@ async function refreshEventData(refreshOrganizations = false, preserveStatus = f
       renderEventsList(eventState.events);
       renderEventSelectorControl(eventState.events);
       renderDelegateTable();
+      renderDelegateLockControls();
       return;
     }
 
@@ -1510,6 +1575,7 @@ async function refreshEventData(refreshOrganizations = false, preserveStatus = f
     renderEventsList(eventState.events);
     renderEventSelectorControl(eventState.events);
     renderDelegateTable();
+    renderDelegateLockControls();
   } catch (error) {
     handleAuthError(error);
   }
@@ -1653,6 +1719,36 @@ async function handleDelegateSelection(organizationId, checkboxElement) {
   }
 }
 
+async function handleDelegateLockApply() {
+  if (!ensureAdminSession(true)) {
+    return;
+  }
+  const event = getSelectedEvent();
+  if (!event || !delegateLockModeSelect) {
+    return;
+  }
+  const mode = delegateLockModeSelect.value;
+  if (!["auto", "locked", "unlocked"].includes(mode)) {
+    setStatus("Érvénytelen zárolási mód.", "error", delegateLockApplyButton);
+    return;
+  }
+
+  try {
+    await requestJSON(`/api/admin/events/${event.id}/delegate-lock`, {
+      method: "POST",
+      body: JSON.stringify({ mode }),
+    });
+    setStatus(
+      "A delegált módosítási állapot frissítve.",
+      "success",
+      delegateLockApplyButton,
+    );
+    await refreshEventData(false, true);
+  } catch (error) {
+    handleAuthError(error, delegateLockApplyButton);
+  }
+}
+
 async function initEventsPage() {
   if (!ensureAdminSession()) {
     return;
@@ -1670,6 +1766,11 @@ async function initEventsPage() {
     await refreshEventDelegates();
     renderSelectedEventInfo();
     renderDelegateTable();
+    renderDelegateLockControls();
+  });
+
+  delegateLockApplyButton?.addEventListener("click", async () => {
+    await handleDelegateLockApply();
   });
 
   cancelEventEditButton?.addEventListener("click", () => {
