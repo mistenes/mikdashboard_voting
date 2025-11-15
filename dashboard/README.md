@@ -91,7 +91,8 @@ provided blueprint or the manual setup steps below.
    $PORT`. The blueprint also wires the `DATABASE_URL` environment variable to
    the managed database and surfaces placeholders for `ADMIN_EMAILS`, `ADMIN_EMAIL`,
    `ADMIN_PASSWORD`, `ADMIN_FIRST_NAME`, `ADMIN_LAST_NAME`, `PUBLIC_BASE_URL`,
-   `BREVO_API_KEY`, `BREVO_SENDER_EMAIL`, `BREVO_SENDER_NAME`, `RECAPTCHA_SITE_KEY`,
+   `BREVO_API_KEY`, `BREVO_SENDER_EMAIL` (alapértelmezés: `noreply@mikegyesulet.hu`),
+   `BREVO_SENDER_NAME` (alapértelmezés: `MIK Egyesület`), `RECAPTCHA_SITE_KEY`,
    `RECAPTCHA_SECRET_KEY`, `VOTING_O2AUTH_SECRET`, `VOTING_APP_BASE_URL`,
    `VOTING_O2AUTH_TTL_SECONDS`, and `VOTING_AUTH_TTL_SECONDS` so you can
    pre-authorize administrator accounts,
@@ -123,7 +124,8 @@ provided blueprint or the manual setup steps below.
    `ADMIN_LAST_NAME` to seed or refresh a dedicated adminisztrátor account
    automatically.
 7. Állítsd be a `PUBLIC_BASE_URL` értékét a dashboard publikus URL-jére, majd
-   add meg a Brevo küldő adatait (`BREVO_SENDER_EMAIL`, `BREVO_SENDER_NAME`) és
+   add meg a Brevo küldő adatait (`BREVO_SENDER_EMAIL`, `BREVO_SENDER_NAME`) –
+   alapértelmezetten `noreply@mikegyesulet.hu` és `MIK Egyesület` – és
    a Render irányítópultján a `BREVO_API_KEY` titkot, hogy a regisztrációs
    visszaigazoló e-mailek ténylegesen kiküldésre kerüljenek. A blueprint a
    `https://dashboard.mikegyesulet.hu/` értékkel indul ki, amit szükség esetén

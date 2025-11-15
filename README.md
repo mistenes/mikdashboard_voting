@@ -31,8 +31,10 @@ Update the environment variables in the blueprint before the first deploy:
   `https://dashboard.mikegyesulet.hu/`. The voting API signs login checks with the shared
   `VOTING_O2AUTH_SECRET` and first calls the dashboard’s `/api/voting/authenticate` endpoint before
   falling back to `/api/login`, so both apps accept the exact same credentials.
-- Provide `BREVO_SENDER_EMAIL`, `PUBLIC_BASE_URL`, and (once deployed) a `BREVO_API_KEY`
-  secret so the registration service can deliver verification emails through Brevo. The
+- Provide `BREVO_SENDER_EMAIL` (defaults to `noreply@mikegyesulet.hu`),
+  `BREVO_SENDER_NAME` (defaults to `MIK Egyesület`), `PUBLIC_BASE_URL`, and (once deployed)
+  a `BREVO_API_KEY` secret so the registration service can deliver verification emails
+  through Brevo. The
   blueprint defaults to the production dashboard domain `https://dashboard.mikegyesulet.hu/`,
   so update the value if you deploy elsewhere. The Render blueprint intentionally leaves the
   API key unsynced so you can store the live credential directly in the Render dashboard.
