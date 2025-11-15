@@ -6,6 +6,7 @@ const confirmPasswordInput = document.querySelector('#password-reset-confirm');
 const newPasswordError = document.querySelector('#password-reset-new-error');
 const confirmPasswordError = document.querySelector('#password-reset-confirm-error');
 const pageEl = document.querySelector('[data-auth-page="password-reset-confirm"]');
+const accountEmail = pageEl?.dataset.accountEmail || '';
 
 const pathSegments = window.location.pathname.split('/').filter(Boolean);
 const tokenFromDataset = pageEl?.dataset.resetToken || '';
@@ -13,6 +14,25 @@ const resetToken =
   tokenFromDataset || pathSegments[pathSegments.length - 1] || '';
 const shouldVerify = pageEl?.dataset.requiresVerify === 'true';
 const initialFormVisible = pageEl?.dataset.formVisible === 'true';
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>'"]/g, (char) => {
+    switch (char) {
+      case '&':
+        return '&amp;';
+      case '<':
+        return '&lt;';
+      case '>':
+        return '&gt;';
+      case '"':
+        return '&quot;';
+      case "'":
+        return '&#39;';
+      default:
+        return char;
+    }
+  });
+}
 
 function applyInitialState() {
   if (form) {
@@ -84,6 +104,9 @@ async function verifyToken() {
         ? `A <strong>${email}</strong> fiókhoz tartozó jelszót állítjuk vissza. Adj meg egy új jelszót.`
         : 'Adj meg egy új jelszót az alábbi mezőkben.';
     summaryEl.classList.add('success');
+    if (pageEl) {
+      pageEl.dataset.accountEmail = email;
+    }
     form?.removeAttribute('hidden');
     statusEl.textContent = response?.message || '';
     if (statusEl.textContent) {
@@ -95,6 +118,9 @@ async function verifyToken() {
     statusEl.classList.remove('success');
     statusEl.textContent = 'Kérj új jelszó-visszaállító linket a bejelentkezési oldalról.';
     statusEl.classList.add('error');
+    if (pageEl) {
+      delete pageEl.dataset.accountEmail;
+    }
     if (form) {
       form.setAttribute('hidden', 'true');
     }
@@ -173,6 +199,17 @@ form?.addEventListener('submit', async (event) => {
 
     statusEl.textContent = response?.message || 'Az új jelszó mentése sikeres.';
     statusEl.classList.add('success');
+    const resolvedEmail = pageEl?.dataset.accountEmail || accountEmail || '';
+    if (summaryEl) {
+      const successSummary = resolvedEmail
+        ? `Az új jelszót beállítottuk a <strong>${escapeHtml(
+            resolvedEmail
+          )}</strong> fiókhoz. Most már bejelentkezhetsz.`
+        : 'Az új jelszó beállítása sikeres. Most már bejelentkezhetsz.';
+      summaryEl.innerHTML = successSummary;
+      summaryEl.classList.remove('error');
+      summaryEl.classList.add('success');
+    }
     form.setAttribute('hidden', 'true');
   } catch (error) {
     statusEl.textContent = error.message || 'Nem sikerült menteni az új jelszót.';

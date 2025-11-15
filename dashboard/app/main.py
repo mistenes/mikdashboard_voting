@@ -118,6 +118,7 @@ from .services import (
     set_active_voting_event,
     set_event_delegates_for_organization,
     set_voting_event_accessibility,
+    validate_password_strength,
     set_organization_billing_details,
     set_organization_fee_status,
     update_voting_event,
@@ -839,6 +840,17 @@ def render_password_reset_request_page(
     )
 
 
+def _password_reset_summary(email: str | None) -> Markup:
+    email_value = (email or "").strip()
+    if email_value:
+        return Markup(
+            "A <strong>{}</strong> fiókhoz tartozó jelszót állítjuk vissza. Adj meg egy új jelszót.".format(
+                escape(email_value)
+            )
+        )
+    return Markup("Adj meg egy új jelszót az alábbi mezőkben.")
+
+
 def render_password_reset_confirm_page(
     request: Request,
     *,
@@ -849,6 +861,9 @@ def render_password_reset_confirm_page(
     status_state: str = "idle",
     form_visible: bool = False,
     requires_verify: bool = False,
+    account_email: str = "",
+    new_password_error: str = "",
+    confirm_password_error: str = "",
 ):
     allowed_summary_states = {"pending", "success", "error"}
     allowed_status_states = {"idle", "success", "error"}
@@ -867,6 +882,9 @@ def render_password_reset_confirm_page(
             "status_state": status,
             "form_visible": form_visible,
             "requires_verify": requires_verify,
+            "account_email": account_email,
+            "new_password_error": new_password_error,
+            "confirm_password_error": confirm_password_error,
         },
     )
 
@@ -953,14 +971,7 @@ def password_reset_confirm_page(
         )
 
     user_email = getattr(reset_token.user, "email", "") or ""
-    if user_email:
-        summary_message = Markup(
-            "A <strong>{}</strong> fiókhoz tartozó jelszót állítjuk vissza. Adj meg egy új jelszót.".format(
-                escape(user_email)
-            )
-        )
-    else:
-        summary_message = Markup("Adj meg egy új jelszót az alábbi mezőkben.")
+    summary_message = _password_reset_summary(user_email)
 
     return render_password_reset_confirm_page(
         request,
@@ -971,6 +982,129 @@ def password_reset_confirm_page(
         status_state="success",
         form_visible=True,
         requires_verify=False,
+        account_email=user_email,
+    )
+
+
+@app.post("/elfelejtett-jelszo/{token}", response_class=HTMLResponse)
+def submit_password_reset_confirm_form(
+    request: Request,
+    token: str,
+    db: DatabaseDependency,
+    password: str = Form(""),
+    password_confirm: str = Form(""),
+) -> HTMLResponse:
+    try:
+        reset_token = get_active_password_reset_token(db, token=token)
+    except PasswordResetError as exc:
+        detail = str(exc).strip() or "A jelszó-visszaállító link lejárt vagy érvénytelen."
+        return render_password_reset_confirm_page(
+            request,
+            token=token,
+            summary_message=Markup(escape(detail)),
+            summary_state="error",
+            status_message="Kérj új jelszó-visszaállító linket a bejelentkezési oldalról.",
+            status_state="error",
+            form_visible=False,
+            requires_verify=False,
+        )
+
+    user_email = getattr(reset_token.user, "email", "") or ""
+    summary_message = _password_reset_summary(user_email)
+
+    password_value = (password or "").strip()
+    confirm_value = (password_confirm or "").strip()
+    new_password_error = ""
+    confirm_password_error = ""
+
+    if not password_value:
+        new_password_error = "Add meg az új jelszót."
+    else:
+        try:
+            validate_password_strength(password_value)
+        except RegistrationError as exc:
+            new_password_error = str(exc).strip() or "Nem sikerült menteni az új jelszót."
+
+    if not confirm_value:
+        confirm_password_error = "Ismételd meg az új jelszót."
+    elif password_value != confirm_value:
+        confirm_password_error = "A két jelszó nem egyezik."
+
+    if new_password_error or confirm_password_error:
+        status_message = (
+            new_password_error or confirm_password_error or "Ellenőrizd a kiemelt mezőket."
+        )
+        return render_password_reset_confirm_page(
+            request,
+            token=token,
+            summary_message=summary_message,
+            summary_state="success",
+            status_message=status_message,
+            status_state="error",
+            form_visible=True,
+            requires_verify=False,
+            account_email=user_email,
+            new_password_error=new_password_error,
+            confirm_password_error=confirm_password_error,
+        )
+
+    try:
+        complete_password_reset(
+            db,
+            token=token,
+            new_password=password_value,
+        )
+        db.commit()
+    except PasswordResetError as exc:
+        db.rollback()
+        detail = str(exc).strip() or "A jelszó-visszaállító link lejárt vagy érvénytelen."
+        return render_password_reset_confirm_page(
+            request,
+            token=token,
+            summary_message=Markup(escape(detail)),
+            summary_state="error",
+            status_message="Kérj új jelszó-visszaállító linket a bejelentkezési oldalról.",
+            status_state="error",
+            form_visible=False,
+            requires_verify=False,
+        )
+    except RegistrationError as exc:
+        db.rollback()
+        detail = str(exc).strip() or "Nem sikerült menteni az új jelszót."
+        return render_password_reset_confirm_page(
+            request,
+            token=token,
+            summary_message=summary_message,
+            summary_state="success",
+            status_message=detail,
+            status_state="error",
+            form_visible=True,
+            requires_verify=False,
+            account_email=user_email,
+            new_password_error=detail,
+            confirm_password_error="",
+        )
+
+    success_summary = (
+        Markup(
+            "Az új jelszót beállítottuk a <strong>{}</strong> fiókhoz. Most már bejelentkezhetsz.".format(
+                escape(user_email)
+            )
+        )
+        if user_email
+        else Markup("Az új jelszó beállítása sikeres. Most már bejelentkezhetsz.")
+    )
+
+    return render_password_reset_confirm_page(
+        request,
+        token=token,
+        summary_message=success_summary,
+        summary_state="success",
+        status_message="Az új jelszó beállítása sikeres. Most már bejelentkezhetsz.",
+        status_state="success",
+        form_visible=False,
+        requires_verify=False,
+        account_email=user_email,
     )
 
 
