@@ -1172,8 +1172,14 @@ def login(request: LoginRequest, db: DatabaseDependency) -> LoginResponse:
 def request_password_reset(
     payload: PasswordResetRequest, request: Request, db: DatabaseDependency
 ) -> SimpleMessageResponse:
+    email_delivery_available = bool(BREVO_API_KEY and BREVO_SENDER_EMAIL)
     confirmation = (
         "Ha a megadott e-mail címmel létezik fiók, hamarosan levelet küldünk a folytatáshoz."
+        if email_delivery_available
+        else (
+            "Ha a megadott e-mail címmel létezik fiók, a MIK admin csapat értesítést kapott, "
+            "és hamarosan felveszi veled a kapcsolatot a jelszó visszaállításához."
+        )
     )
     reset_token = issue_password_reset_token(
         db,
@@ -1202,7 +1208,7 @@ def request_password_reset(
             "email": reset_token.user.email,
             "token": reset_token.token,
             "reset_link": link,
-            "sent_via": "brevo" if BREVO_API_KEY and BREVO_SENDER_EMAIL else "noop",
+            "sent_via": "brevo" if email_delivery_available else "noop",
         }
     )
     return SimpleMessageResponse(message=confirmation)
