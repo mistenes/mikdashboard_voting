@@ -3,6 +3,14 @@ const statusEl = document.querySelector('#password-reset-request-status');
 const emailInput = document.querySelector('#password-reset-email');
 const emailError = document.querySelector('#password-reset-email-error');
 
+if (form?.dataset.complete === 'true') {
+  const submitButton = form.querySelector('button[type="submit"]');
+  submitButton?.setAttribute('disabled', 'true');
+  submitButton?.removeAttribute('aria-busy');
+  submitButton?.textContent = 'Kérés elküldve';
+  emailInput?.setAttribute('readonly', 'true');
+}
+
 function setStatus(message = '', state = 'idle') {
   if (!statusEl) {
     return;

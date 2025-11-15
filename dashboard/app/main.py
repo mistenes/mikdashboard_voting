@@ -10,14 +10,16 @@ import time
 from datetime import datetime
 from typing import Annotated, List
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
-from fastapi.responses import FileResponse
+from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response, status
+from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import inspect, text
 
 import httpx
+from pydantic import ValidationError
 
 from .database import Base, SessionLocal, engine
 from .models import (
@@ -127,6 +129,8 @@ from .security import hash_password
 
 
 logger = logging.getLogger(__name__)
+
+templates = Jinja2Templates(directory="app/templates")
 
 ADMIN_EMAILS = {
     email.strip().lower()
@@ -809,9 +813,91 @@ def login_page() -> FileResponse:
     return FileResponse("app/static/login.html")
 
 
-@app.get("/elfelejtett-jelszo", response_class=FileResponse)
-def password_reset_request_page() -> FileResponse:
-    return FileResponse("app/static/password-reset-request.html")
+def render_password_reset_request_page(
+    request: Request,
+    *,
+    email: str = "",
+    status_message: str = "",
+    status_state: str = "idle",
+    form_complete: bool = False,
+    email_error: str = "",
+):
+    allowed_states = {"idle", "pending", "success", "error"}
+    state = status_state if status_state in allowed_states else "idle"
+    return templates.TemplateResponse(
+        "password-reset-request.html",
+        {
+            "request": request,
+            "prefill_email": email or "",
+            "status_message": status_message,
+            "status_state": state,
+            "form_complete": form_complete,
+            "email_error": email_error,
+            "email_invalid": bool(email_error),
+        },
+    )
+
+
+@app.get("/elfelejtett-jelszo", response_class=HTMLResponse)
+def password_reset_request_page(
+    request: Request, email: str | None = None
+):
+    return render_password_reset_request_page(request, email=email or "")
+
+
+@app.post("/elfelejtett-jelszo", response_class=HTMLResponse)
+def submit_password_reset_form(
+    request: Request,
+    email: str = Form(""),
+    db: DatabaseDependency = Depends(get_db),
+):
+    email_value = (email or "").strip()
+
+    if not email_value:
+        message = "Add meg az e-mail címedet."
+        return render_password_reset_request_page(
+            request,
+            email=email_value,
+            status_message=message,
+            status_state="error",
+            form_complete=False,
+            email_error=message,
+        )
+
+    try:
+        payload = PasswordResetRequest(email=email_value)
+    except ValidationError:
+        message = "Érvényes e-mail címet adj meg."
+        return render_password_reset_request_page(
+            request,
+            email=email_value,
+            status_message=message,
+            status_state="error",
+            form_complete=False,
+            email_error=message,
+        )
+
+    try:
+        confirmation, _ = _process_password_reset_request(
+            payload.email, request, db
+        )
+    except (PasswordResetError, RegistrationError) as exc:
+        detail = str(exc).strip() or "Nem sikerült feldolgozni a kérést."
+        return render_password_reset_request_page(
+            request,
+            email=email_value,
+            status_message=detail,
+            status_state="error",
+            form_complete=False,
+        )
+
+    return render_password_reset_request_page(
+        request,
+        email=payload.email,
+        status_message=confirmation,
+        status_state="success",
+        form_complete=True,
+    )
 
 
 @app.get("/elfelejtett-jelszo/{token}", response_class=FileResponse)
@@ -1164,14 +1250,9 @@ def login(request: LoginRequest, db: DatabaseDependency) -> LoginResponse:
     )
 
 
-@app.post(
-    "/api/password-reset/request",
-    response_model=SimpleMessageResponse,
-    responses={400: {"model": ErrorResponse}},
-)
-def request_password_reset(
-    payload: PasswordResetRequest, request: Request, db: DatabaseDependency
-) -> SimpleMessageResponse:
+def _process_password_reset_request(
+    email: str, request: Request, db: Session
+) -> tuple[str, str]:
     email_delivery_available = bool(BREVO_API_KEY and BREVO_SENDER_EMAIL)
     confirmation = (
         "Ha a megadott e-mail címmel létezik fiók, elküldtük a jelszó-"
@@ -1184,12 +1265,12 @@ def request_password_reset(
     )
     reset_token = issue_password_reset_token(
         db,
-        email=payload.email,
+        email=email,
         ttl_minutes=PASSWORD_RESET_TOKEN_TTL_MINUTES,
     )
     if not reset_token:
         db.rollback()
-        return SimpleMessageResponse(message=confirmation)
+        return confirmation, "none"
 
     try:
         if email_delivery_available:
@@ -1200,6 +1281,7 @@ def request_password_reset(
                 sender_email=BREVO_SENDER_EMAIL or None,
                 sender_name=BREVO_SENDER_NAME,
             )
+            delivery_method = "brevo"
         else:
             logger.warning(
                 "Password reset email queued for manual follow-up",
@@ -1211,19 +1293,38 @@ def request_password_reset(
             base = PUBLIC_BASE_URL.rstrip("/") if PUBLIC_BASE_URL else ""
             reset_path = f"/elfelejtett-jelszo/{reset_token.token}"
             link = f"{base}{reset_path}" if base else reset_path
+            delivery_method = "manual"
         db.commit()
     except (RegistrationError, PasswordResetError) as exc:
         db.rollback()
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        raise
 
     request.app.state.email_queue.append(
         {
             "email": reset_token.user.email,
             "token": reset_token.token,
             "reset_link": link,
-            "sent_via": "brevo" if email_delivery_available else "manual",
+            "sent_via": delivery_method,
         }
     )
+    return confirmation, delivery_method
+
+
+@app.post(
+    "/api/password-reset/request",
+    response_model=SimpleMessageResponse,
+    responses={400: {"model": ErrorResponse}},
+)
+def request_password_reset(
+    payload: PasswordResetRequest, request: Request, db: DatabaseDependency
+) -> SimpleMessageResponse:
+    try:
+        confirmation, _ = _process_password_reset_request(
+            payload.email, request, db
+        )
+    except (PasswordResetError, RegistrationError) as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
     return SimpleMessageResponse(message=confirmation)
 
 
