@@ -256,7 +256,13 @@ def queue_verification_email(
     verification_link = f"{base}{verification_path}" if base else verification_path
 
     if not api_key or not sender_email:
-        return verification_link
+        logger.error(
+            "Verification email attempted without Brevo configuration; email will not be sent",
+            extra={"user_email": getattr(token.user, "email", None)},
+        )
+        raise RegistrationError(
+            "Az e-mail megerősítő üzenetek küldése jelenleg nem elérhető. Vedd fel a kapcsolatot az adminisztrátorral."
+        )
 
     recipient_name_parts = [token.user.first_name or "", token.user.last_name or ""]
     recipient_name = " ".join(part for part in recipient_name_parts if part).strip()
@@ -314,9 +320,6 @@ def queue_invitation_email(
     base = base_url.rstrip("/") if base_url else ""
     accept_path = f"/meghivas/{invitation.token}"
     accept_link = f"{base}{accept_path}" if base else accept_path
-
-    if not api_key or not sender_email:
-        return accept_link
 
     role_text = (
         "kapcsolattartójaként" if invitation.role == InvitationRole.contact else "tagjaként"
