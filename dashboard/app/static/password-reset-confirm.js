@@ -5,9 +5,24 @@ const newPasswordInput = document.querySelector('#password-reset-new');
 const confirmPasswordInput = document.querySelector('#password-reset-confirm');
 const newPasswordError = document.querySelector('#password-reset-new-error');
 const confirmPasswordError = document.querySelector('#password-reset-confirm-error');
+const pageEl = document.querySelector('[data-auth-page="password-reset-confirm"]');
 
 const pathSegments = window.location.pathname.split('/').filter(Boolean);
-const resetToken = pathSegments[pathSegments.length - 1] || '';
+const tokenFromDataset = pageEl?.dataset.resetToken || '';
+const resetToken =
+  tokenFromDataset || pathSegments[pathSegments.length - 1] || '';
+const shouldVerify = pageEl?.dataset.requiresVerify === 'true';
+const initialFormVisible = pageEl?.dataset.formVisible === 'true';
+
+function applyInitialState() {
+  if (form) {
+    if (initialFormVisible) {
+      form.removeAttribute('hidden');
+    } else if (!shouldVerify) {
+      form.setAttribute('hidden', 'true');
+    }
+  }
+}
 
 function setFieldValidity(inputEl, errorEl, message = '') {
   const wrapper = inputEl?.closest('.auth-input');
@@ -51,7 +66,7 @@ async function requestJSON(url, options = {}) {
   return response.json();
 }
 
-async function initialize() {
+async function verifyToken() {
   if (!resetToken) {
     summaryEl.textContent = 'Hiányzik a jelszó-visszaállító hivatkozás. Kérj új linket.';
     summaryEl.classList.add('error');
@@ -83,6 +98,13 @@ async function initialize() {
     if (form) {
       form.setAttribute('hidden', 'true');
     }
+  }
+}
+
+function initialize() {
+  applyInitialState();
+  if (shouldVerify) {
+    verifyToken();
   }
 }
 

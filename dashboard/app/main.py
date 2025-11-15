@@ -14,6 +14,7 @@ from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response, st
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
+from markupsafe import Markup, escape
 from sqlalchemy.orm import Session
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import inspect, text
@@ -838,6 +839,38 @@ def render_password_reset_request_page(
     )
 
 
+def render_password_reset_confirm_page(
+    request: Request,
+    *,
+    token: str,
+    summary_message: Markup | str = "",
+    summary_state: str = "pending",
+    status_message: str = "",
+    status_state: str = "idle",
+    form_visible: bool = False,
+    requires_verify: bool = False,
+):
+    allowed_summary_states = {"pending", "success", "error"}
+    allowed_status_states = {"idle", "success", "error"}
+    summary = summary_state if summary_state in allowed_summary_states else "pending"
+    status = status_state if status_state in allowed_status_states else "idle"
+    if not isinstance(summary_message, Markup):
+        summary_message = Markup(summary_message)
+    return templates.TemplateResponse(
+        "password-reset-confirm.html",
+        {
+            "request": request,
+            "reset_token": token,
+            "summary_message": summary_message,
+            "summary_state": summary,
+            "status_message": status_message,
+            "status_state": status,
+            "form_visible": form_visible,
+            "requires_verify": requires_verify,
+        },
+    )
+
+
 @app.get("/elfelejtett-jelszo", response_class=HTMLResponse)
 def password_reset_request_page(
     request: Request, email: str | None = None
@@ -900,9 +933,45 @@ def submit_password_reset_form(
     )
 
 
-@app.get("/elfelejtett-jelszo/{token}", response_class=FileResponse)
-def password_reset_confirm_page(token: str) -> FileResponse:
-    return FileResponse("app/static/password-reset-confirm.html")
+@app.get("/elfelejtett-jelszo/{token}", response_class=HTMLResponse)
+def password_reset_confirm_page(
+    request: Request, token: str, db: DatabaseDependency
+) -> HTMLResponse:
+    try:
+        reset_token = get_active_password_reset_token(db, token=token)
+    except PasswordResetError as exc:
+        detail = str(exc).strip() or "A jelszó-visszaállító link lejárt vagy érvénytelen."
+        return render_password_reset_confirm_page(
+            request,
+            token=token,
+            summary_message=Markup(escape(detail)),
+            summary_state="error",
+            status_message="Kérj új jelszó-visszaállító linket a bejelentkezési oldalról.",
+            status_state="error",
+            form_visible=False,
+            requires_verify=False,
+        )
+
+    user_email = getattr(reset_token.user, "email", "") or ""
+    if user_email:
+        summary_message = Markup(
+            "A <strong>{}</strong> fiókhoz tartozó jelszót állítjuk vissza. Adj meg egy új jelszót.".format(
+                escape(user_email)
+            )
+        )
+    else:
+        summary_message = Markup("Adj meg egy új jelszót az alábbi mezőkben.")
+
+    return render_password_reset_confirm_page(
+        request,
+        token=token,
+        summary_message=summary_message,
+        summary_state="success",
+        status_message="A jelszó-visszaállító link érvényes. Állíts be új jelszót az alábbi mezőkben.",
+        status_state="success",
+        form_visible=True,
+        requires_verify=False,
+    )
 
 
 @app.get("/register", response_class=FileResponse)
