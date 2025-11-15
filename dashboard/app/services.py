@@ -15,6 +15,8 @@ from sqlalchemy import case, delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
+from zoneinfo import ZoneInfo
+
 from .models import (
     ApprovalDecision,
     EventDelegate,
@@ -32,6 +34,9 @@ from .security import hash_password, verify_password
 
 
 logger = logging.getLogger(__name__)
+
+
+DELEGATE_TIMEZONE = ZoneInfo("Europe/Budapest")
 
 
 def _log_brevo_delivery(kind: str, response: httpx.Response, *, extra: dict | None = None) -> None:
@@ -976,6 +981,11 @@ def delegate_lock_state(
     if current_time is None:
         current_time = datetime.utcnow()
 
+    if current_time.tzinfo is None:
+        current_reference = current_time.replace(tzinfo=timezone.utc)
+    else:
+        current_reference = current_time.astimezone(timezone.utc)
+
     override = (event.delegate_lock_override or "").strip().lower() or None
 
     if override == "locked":
@@ -987,7 +997,15 @@ def delegate_lock_state(
         )
 
     deadline = getattr(event, "delegate_deadline", None)
-    deadline_passed = bool(deadline and deadline < current_time)
+    deadline_passed = False
+    if deadline is not None:
+        if deadline.tzinfo is None:
+            localized_deadline = deadline.replace(tzinfo=DELEGATE_TIMEZONE)
+            comparison_time = current_reference.astimezone(DELEGATE_TIMEZONE)
+        else:
+            localized_deadline = deadline.astimezone(timezone.utc)
+            comparison_time = current_reference
+        deadline_passed = localized_deadline < comparison_time
 
     if override == "unlocked":
         reason: DelegateLockReason
