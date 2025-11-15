@@ -260,6 +260,45 @@ def create_admin_account(
     return user, password
 
 
+def reset_admin_temporary_password(
+    session: Session, *, user_id: int
+) -> tuple[User, str]:
+    user = session.get(User, user_id)
+    if user is None or not user.is_admin:
+        raise RegistrationError("Nem található adminisztrátori fiók.")
+
+    password = _generate_admin_password()
+    salt, password_hash = hash_password(password)
+    user.password_salt = salt
+    user.password_hash = password_hash
+    user.must_change_password = True
+    user.is_email_verified = True
+    user.updated_at = datetime.utcnow()
+    session.flush()
+    return user, password
+
+
+def delete_admin_account(
+    session: Session, *, admin_id: int, acting_admin_id: int | None = None
+) -> None:
+    admin_user = session.get(User, admin_id)
+    if admin_user is None or not admin_user.is_admin:
+        raise RegistrationError("Nem található adminisztrátori fiók.")
+
+    if acting_admin_id is not None and admin_user.id == acting_admin_id:
+        raise RegistrationError("A saját adminisztrátori fiókodat nem törölheted.")
+
+    total_admins = session.scalar(
+        select(func.count()).select_from(User).where(User.is_admin.is_(True))
+    )
+    if total_admins is not None and total_admins <= 1:
+        raise RegistrationError(
+            "Legalább egy adminisztrátornak maradnia kell a rendszerben."
+        )
+
+    session.delete(admin_user)
+
+
 def queue_verification_email(
     token: EmailVerificationToken,
     *,
@@ -449,6 +488,99 @@ def queue_invitation_email(
     )
 
     return accept_link
+
+
+def queue_admin_invitation_email(
+    admin: User,
+    temporary_password: str,
+    *,
+    base_url: str = "",
+    api_key: str | None = None,
+    sender_email: str | None = None,
+    sender_name: str | None = None,
+) -> str:
+    if not api_key or not sender_email:
+        logger.error(
+            "Admin invitation email attempted without Brevo configuration; email will not be sent",
+            extra={"admin_email": getattr(admin, "email", None)},
+        )
+        raise RegistrationError(
+            "Az adminisztrátori meghívó e-mail küldése jelenleg nem elérhető. Vedd fel a kapcsolatot a rendszer adminisztrátorával."
+        )
+
+    if not temporary_password:
+        raise RegistrationError("Az ideiglenes jelszó hiányzik a meghívó e-mail küldéséhez.")
+
+    base = base_url.rstrip("/") if base_url else ""
+    login_link = f"{base}/" if base else "/"
+
+    recipient_email = getattr(admin, "email", None)
+    logger.info(
+        "Dispatching Brevo admin invitation email",
+        extra={"admin_email": recipient_email, "admin_id": getattr(admin, "id", None)},
+    )
+
+    recipient_name_parts = [admin.last_name or "", admin.first_name or ""]
+    recipient_name = " ".join(part for part in recipient_name_parts if part).strip()
+    if not recipient_name:
+        recipient_name = recipient_email or "Adminisztrátor"
+
+    html_content = (
+        f"<p>Kedves {recipient_name}!</p>"
+        "<p>Adminisztrátori hozzáférést kaptál a MIK Dashboard rendszerhez.</p>"
+        f"<p>A belépéshez használd az alábbi ideiglenes jelszót: <strong>{temporary_password}</strong></p>"
+        f"<p>Belépés: <a href=\"{login_link}\">{login_link}</a></p>"
+        "<p>A jelszót az első bejelentkezés után kötelező megváltoztatni.</p>"
+    )
+
+    text_content = (
+        "Kedves {name}!\n"
+        "Adminisztrátori hozzáférést kaptál a MIK Dashboard rendszerhez.\n"
+        "A belépéshez használd az alábbi ideiglenes jelszót: {password}\n"
+        "Belépés: {link}\n"
+        "A jelszót az első bejelentkezés után kötelező megváltoztatni."
+    ).format(name=recipient_name, password=temporary_password, link=login_link)
+
+    payload = {
+        "sender": {"email": sender_email, "name": sender_name or sender_email},
+        "to": [{"email": recipient_email, "name": recipient_name}],
+        "subject": "Adminisztrátori meghívó a MIK Dashboard rendszerbe",
+        "htmlContent": html_content,
+        "textContent": text_content,
+    }
+
+    headers = {
+        "accept": "application/json",
+        "api-key": api_key,
+        "content-type": "application/json",
+    }
+
+    try:
+        response = httpx.post(
+            "https://api.brevo.com/v3/smtp/email",
+            json=payload,
+            headers=headers,
+            timeout=15.0,
+        )
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        logger.exception("Brevo admin invitation email request failed with status error")
+        raise RegistrationError(
+            "Nem sikerült elküldeni az adminisztrátori meghívó e-mailt. Próbáld újra később."
+        ) from exc
+    except httpx.HTTPError as exc:
+        logger.exception("Brevo admin invitation email request failed")
+        raise RegistrationError(
+            "Nem sikerült elküldeni az adminisztrátori meghívó e-mailt. Próbáld újra később."
+        ) from exc
+
+    _log_brevo_delivery(
+        "admin_invite",
+        response,
+        extra={"admin_email": recipient_email, "admin_id": getattr(admin, "id", None)},
+    )
+
+    return login_link
 
 
 def queue_password_reset_email(

@@ -1809,12 +1809,17 @@ async function initUsersPage() {
     items.forEach((admin) => {
       const row = document.createElement("tr");
 
-      const nameCell = document.createElement("td");
-      nameCell.textContent = formatDisplayName(
+      const displayName = formatDisplayName(
         admin.first_name,
         admin.last_name,
         admin.email || "–",
       );
+      row.dataset.adminId = String(admin.id || "");
+      row.dataset.adminEmail = admin.email || "";
+      row.dataset.adminName = displayName || "";
+
+      const nameCell = document.createElement("td");
+      nameCell.textContent = displayName;
       row.appendChild(nameCell);
 
       const emailCell = document.createElement("td");
@@ -1843,6 +1848,32 @@ async function initUsersPage() {
       }
       row.appendChild(statusCell);
 
+      const actionsCell = document.createElement("td");
+      actionsCell.className = "admin-actions-cell";
+      const actionGroup = document.createElement("div");
+      actionGroup.className = "action-button-group";
+
+      const resendButton = document.createElement("button");
+      resendButton.type = "button";
+      resendButton.className = "ghost-btn action-btn";
+      resendButton.dataset.adminAction = "resend";
+      resendButton.dataset.adminId = String(admin.id || "");
+      resendButton.dataset.adminEmail = admin.email || "";
+      resendButton.textContent = "Meghívó újraküldése";
+      actionGroup.appendChild(resendButton);
+
+      const removeButton = document.createElement("button");
+      removeButton.type = "button";
+      removeButton.className = "danger-btn action-btn";
+      removeButton.dataset.adminAction = "remove";
+      removeButton.dataset.adminId = String(admin.id || "");
+      removeButton.dataset.adminEmail = admin.email || "";
+      removeButton.textContent = "Eltávolítás";
+      actionGroup.appendChild(removeButton);
+
+      actionsCell.appendChild(actionGroup);
+      row.appendChild(actionsCell);
+
       adminListBody.appendChild(row);
     });
   }
@@ -1853,6 +1884,83 @@ async function initUsersPage() {
       renderAdmins(admins);
     } catch (error) {
       handleAuthError(error);
+    }
+  }
+
+  async function resendAdminInvite(adminId, anchor) {
+    if (!ensureAdminSession(true)) {
+      return;
+    }
+
+    if (!adminId) {
+      return;
+    }
+
+    if (anchor) {
+      anchor.disabled = true;
+    }
+
+    try {
+      setStatus("Meghívó újraküldése folyamatban...", "", anchor);
+      const response = await requestJSON(
+        `/api/admin/admins/${adminId}/resend-invite`,
+        {
+          method: "POST",
+        },
+      );
+      const message =
+        response?.message || "Új meghívó e-mail elküldve az adminisztrátornak.";
+      setStatus(message, "success", anchor);
+      setStatus(message, "success");
+      await refreshAdmins();
+    } catch (error) {
+      handleAuthError(error, anchor);
+    } finally {
+      if (anchor) {
+        anchor.disabled = false;
+      }
+    }
+  }
+
+  async function removeAdmin(adminId, anchor, adminName = "") {
+    if (!ensureAdminSession(true)) {
+      return;
+    }
+
+    if (!adminId) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      adminName
+        ? `Biztosan eltávolítod ${adminName} adminisztrátort? Ez a művelet nem visszavonható.`
+        : "Biztosan eltávolítod az adminisztrátort? Ez a művelet nem visszavonható.",
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    if (anchor) {
+      anchor.disabled = true;
+    }
+
+    try {
+      setStatus("Adminisztrátor eltávolítása folyamatban...", "", anchor);
+      await requestJSON(`/api/admin/admins/${adminId}`, {
+        method: "DELETE",
+      });
+      const successMessage = adminName
+        ? `${adminName} eltávolítva a rendszerből.`
+        : "Adminisztrátor eltávolítva a rendszerből.";
+      setStatus(successMessage, "success", anchor);
+      setStatus(successMessage, "success");
+      await refreshAdmins();
+    } catch (error) {
+      handleAuthError(error, anchor);
+    } finally {
+      if (anchor) {
+        anchor.disabled = false;
+      }
     }
   }
 
@@ -1910,6 +2018,26 @@ async function initUsersPage() {
         if (submitButton) {
           submitButton.disabled = false;
         }
+      }
+    });
+  }
+
+  if (adminListBody) {
+    adminListBody.addEventListener("click", async (event) => {
+      const button = event.target.closest("button[data-admin-action]");
+      if (!button) {
+        return;
+      }
+
+      const adminId = Number(button.dataset.adminId || "");
+      const action = button.dataset.adminAction;
+      const row = button.closest("tr");
+      const adminName = row?.dataset?.adminName || button.dataset.adminEmail || "";
+
+      if (action === "resend") {
+        await resendAdminInvite(adminId, button);
+      } else if (action === "remove") {
+        await removeAdmin(adminId, button, adminName);
       }
     });
   }

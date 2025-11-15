@@ -757,6 +757,38 @@ button.sidebar-link {
   color: #475569;
 }
 
+.admin-user-table .actions-column {
+  text-align: right;
+  min-width: 220px;
+}
+
+.admin-actions-cell {
+  vertical-align: middle;
+}
+
+.action-button-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.action-btn {
+  font-size: 0.9rem;
+  padding: 8px 12px;
+  border-radius: 10px;
+}
+
+.action-button-group .ghost-btn.action-btn,
+.action-button-group .danger-btn.action-btn {
+  padding: 8px 12px;
+}
+
+.action-btn[disabled] {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .delegate-selector {
   display: flex;
   flex-direction: column;

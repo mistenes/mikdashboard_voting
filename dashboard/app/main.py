@@ -105,6 +105,7 @@ from .services import (
     pending_registrations,
     queue_password_reset_email,
     queue_invitation_email,
+    queue_admin_invitation_email,
     queue_verification_email,
     register_user,
     reset_voting_events,
@@ -119,6 +120,8 @@ from .services import (
     update_voting_event,
     verify_email,
     verify_recaptcha,
+    reset_admin_temporary_password,
+    delete_admin_account,
 )
 from .security import hash_password
 
@@ -1891,6 +1894,14 @@ def create_admin_account_endpoint(
             first_name=payload.first_name,
             last_name=payload.last_name,
         )
+        queue_admin_invitation_email(
+            admin_user,
+            temporary_password,
+            base_url=PUBLIC_BASE_URL,
+            api_key=BREVO_API_KEY or None,
+            sender_email=BREVO_SENDER_EMAIL or None,
+            sender_name=BREVO_SENDER_NAME or None,
+        )
         db.commit()
     except RegistrationError as exc:
         db.rollback()
@@ -1903,6 +1914,88 @@ def create_admin_account_endpoint(
     return AdminUserCreateResponse(
         message=message, admin=admin_user, temporary_password=temporary_password
     )
+
+
+@app.post(
+    "/api/admin/admins/{admin_id}/resend-invite",
+    response_model=SimpleMessageResponse,
+    responses={
+        400: {"model": ErrorResponse},
+        401: {"model": ErrorResponse},
+        403: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+    },
+)
+def resend_admin_invitation(
+    admin_id: int,
+    db: DatabaseDependency,
+    current_admin: Annotated[User, Depends(require_admin)],
+) -> SimpleMessageResponse:
+    if admin_id == current_admin.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A saját adminisztrátori fiókhoz nem küldhetsz új meghívót.",
+        )
+
+    try:
+        admin_user, temporary_password = reset_admin_temporary_password(
+            db, user_id=admin_id
+        )
+        queue_admin_invitation_email(
+            admin_user,
+            temporary_password,
+            base_url=PUBLIC_BASE_URL,
+            api_key=BREVO_API_KEY or None,
+            sender_email=BREVO_SENDER_EMAIL or None,
+            sender_name=BREVO_SENDER_NAME or None,
+        )
+        db.commit()
+    except RegistrationError as exc:
+        db.rollback()
+        detail = str(exc)
+        status_code_value = (
+            status.HTTP_404_NOT_FOUND
+            if "nem található" in detail.lower()
+            else status.HTTP_400_BAD_REQUEST
+        )
+        raise HTTPException(status_code=status_code_value, detail=detail) from exc
+
+    message = "Új meghívó e-mail elküldve az adminisztrátornak."
+    return SimpleMessageResponse(message=message)
+
+
+@app.delete(
+    "/api/admin/admins/{admin_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+    responses={
+        400: {"model": ErrorResponse},
+        401: {"model": ErrorResponse},
+        403: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+    },
+)
+def delete_admin(
+    admin_id: int,
+    db: DatabaseDependency,
+    current_admin: Annotated[User, Depends(require_admin)],
+) -> Response:
+    try:
+        delete_admin_account(
+            db, admin_id=admin_id, acting_admin_id=current_admin.id
+        )
+        db.commit()
+    except RegistrationError as exc:
+        db.rollback()
+        detail = str(exc)
+        status_code_value = (
+            status.HTTP_404_NOT_FOUND
+            if "nem található" in detail.lower()
+            else status.HTTP_400_BAD_REQUEST
+        )
+        raise HTTPException(status_code=status_code_value, detail=detail) from exc
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @app.delete(

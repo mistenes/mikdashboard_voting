@@ -65,8 +65,8 @@
             </div>
           </form>
           <p class="muted">
-            A rendszer automatikusan generál egy ideiglenes jelszót, amelyet a mentés után látsz, és továbbíthatsz az új
-            adminnak. Az első bejelentkezéskor kötelező lesz jelszót cserélnie.
+            A rendszer automatikusan generál egy ideiglenes jelszót, és e-mailben elküldi az új adminisztrátornak. A jelszót a mentés után
+            itt is megjelenítjük, így szükség esetén manuálisan is továbbíthatod.
           </p>
         </section>
 
@@ -85,6 +85,7 @@
                   <th scope="col">E-mail</th>
                   <th scope="col">Létrehozva</th>
                   <th scope="col">Állapot</th>
+                  <th scope="col" class="actions-column">Műveletek</th>
                 </tr>
               </thead>
               <tbody data-admin-list></tbody>
@@ -92,6 +93,9 @@
           </div>
           <p class="muted" data-admin-empty hidden>
             Jelenleg nincs adminisztrátori fiók. Hozz létre egyet a fenti űrlappal.
+          </p>
+          <p class="muted">
+            A táblázatból újraküldheted a meghívó e-mailt az ideiglenes jelszóval, vagy eltávolíthatod az adminisztrátort a rendszerből.
           </p>
         </section>
       </main>
