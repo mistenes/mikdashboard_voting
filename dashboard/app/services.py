@@ -33,6 +33,26 @@ from .security import hash_password, verify_password
 logger = logging.getLogger(__name__)
 
 
+def _log_brevo_delivery(kind: str, response: httpx.Response, *, extra: dict | None = None) -> None:
+    metadata: dict[str, object] = {
+        "brevo_status_code": response.status_code,
+    }
+    try:
+        response_json = response.json()
+    except Exception:  # pragma: no cover - defensive JSON parsing
+        response_json = None
+
+    if isinstance(response_json, dict):
+        message_id = response_json.get("messageId")
+        if message_id:
+            metadata["brevo_message_id"] = message_id
+
+    if extra:
+        metadata.update(extra)
+
+    logger.info("Brevo %s email sent", kind, extra=metadata)
+
+
 class RegistrationError(Exception):
     pass
 
@@ -264,6 +284,12 @@ def queue_verification_email(
             "Az e-mail megerősítő üzenetek küldése jelenleg nem elérhető. Vedd fel a kapcsolatot az adminisztrátorral."
         )
 
+    recipient_email = getattr(token.user, "email", None)
+    logger.info(
+        "Dispatching Brevo verification email",
+        extra={"user_email": recipient_email, "token_id": getattr(token, "id", None)},
+    )
+
     recipient_name_parts = [token.user.first_name or "", token.user.last_name or ""]
     recipient_name = " ".join(part for part in recipient_name_parts if part).strip()
     if not recipient_name:
@@ -305,6 +331,12 @@ def queue_verification_email(
         raise RegistrationError(
             "Nem sikerült elküldeni az e-mail megerősítést. Kérjük, próbáld újra később."
         ) from exc
+
+    _log_brevo_delivery(
+        "verification",
+        response,
+        extra={"user_email": recipient_email, "token_id": getattr(token, "id", None)},
+    )
 
     return verification_link
 
@@ -353,6 +385,15 @@ def queue_invitation_email(
             "A meghívó e-mailek küldése jelenleg nem elérhető. Vedd fel a kapcsolatot az adminisztrátorral."
         )
 
+    logger.info(
+        "Dispatching Brevo invitation email",
+        extra={
+            "invitation_email": invitation.email,
+            "organization_id": invitation.organization_id,
+            "invitation_id": getattr(invitation, "id", None),
+        },
+    )
+
     payload = {
         "sender": {"email": sender_email, "name": sender_name or sender_email},
         "to": [{"email": invitation.email, "name": invitation.email}],
@@ -397,6 +438,16 @@ def queue_invitation_email(
             "Nem sikerült elküldeni a meghívó e-mailt. Kérjük, próbáld újra később."
         ) from exc
 
+    _log_brevo_delivery(
+        "invitation",
+        response,
+        extra={
+            "invitation_email": invitation.email,
+            "organization_id": invitation.organization_id,
+            "invitation_id": getattr(invitation, "id", None),
+        },
+    )
+
     return accept_link
 
 
@@ -422,6 +473,15 @@ def queue_password_reset_email(
         )
 
     user = token.user
+    recipient_email = getattr(user, "email", None)
+    logger.info(
+        "Dispatching Brevo password reset email",
+        extra={
+            "user_email": recipient_email,
+            "password_reset_token_id": getattr(token, "id", None),
+        },
+    )
+
     recipient_name_parts = [user.first_name or "", user.last_name or ""]
     recipient_name = " ".join(part for part in recipient_name_parts if part).strip()
     if not recipient_name:
@@ -484,6 +544,15 @@ def queue_password_reset_email(
         raise PasswordResetError(
             "Nem sikerült elküldeni a jelszó-visszaállító e-mailt. Kérjük, próbáld újra később."
         ) from exc
+
+    _log_brevo_delivery(
+        "password reset",
+        response,
+        extra={
+            "user_email": recipient_email,
+            "password_reset_token_id": getattr(token, "id", None),
+        },
+    )
 
     return reset_link
 
