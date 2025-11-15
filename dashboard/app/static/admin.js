@@ -693,16 +693,24 @@ function renderOrganizations(items) {
       contactForm.addEventListener("submit", async (event) => {
         event.preventDefault();
         try {
-          await requestJSON(`/api/admin/organizations/${org.id}/contact-invitations`, {
-            method: "POST",
-            body: JSON.stringify({
-              email: contactEmailInput.value,
-              first_name: contactFirstInput.value,
-              last_name: contactLastInput.value,
-              role: "contact",
-            }),
-          });
-          setStatus("Kapcsolattartó meghívó elküldve.", "success", contactSubmit);
+          const detail = await requestJSON(
+            `/api/admin/organizations/${org.id}/contact-invitations`,
+            {
+              method: "POST",
+              body: JSON.stringify({
+                email: contactEmailInput.value,
+                first_name: contactFirstInput.value,
+                last_name: contactLastInput.value,
+                role: "contact",
+              }),
+            },
+          );
+          const contactStatus = detail?.contact?.status;
+          const successMessage =
+            contactStatus === "assigned"
+              ? "Kapcsolattartó sikeresen beállítva."
+              : "Kapcsolattartó meghívó elküldve.";
+          setStatus(successMessage, "success", contactSubmit);
           await loadOrganizations();
         } catch (error) {
           handleAuthError(error, contactSubmit);
@@ -1859,10 +1867,7 @@ async function initUsersPage() {
       const firstName = String(formData.get("first_name") || "").trim();
       const lastName = String(formData.get("last_name") || "").trim();
       const email = String(formData.get("email") || "").trim();
-      const password = String(formData.get("password") || "");
-      const confirmPassword = String(formData.get("password_confirm") || "");
-
-      if (!firstName || !lastName || !email || !password) {
+      if (!firstName || !lastName || !email) {
         setStatus(
           "Kérjük, tölts ki minden mezőt az admin létrehozásához.",
           "error",
@@ -1870,16 +1875,11 @@ async function initUsersPage() {
         );
         return;
       }
-      if (password !== confirmPassword) {
-        setStatus("A megadott jelszavak nem egyeznek.", "error", submitButton);
-        return;
-      }
 
       const payload = {
         first_name: firstName,
         last_name: lastName,
         email: email.toLowerCase(),
-        password,
       };
 
       if (submitButton) {
@@ -1894,7 +1894,11 @@ async function initUsersPage() {
         });
         const message =
           response?.message || "Új adminisztrátor létrehozva. Első belépéskor jelszócsere szükséges.";
-        setStatus(message, "success", submitButton);
+        const tempPassword = response?.temporary_password;
+        const finalMessage = tempPassword
+          ? `${message} Ideiglenes jelszó: ${tempPassword}`
+          : message;
+        setStatus(finalMessage, "success", submitButton);
         form.reset();
         await refreshAdmins();
         if (firstNameInput instanceof HTMLElement) {

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import enum
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 from sqlalchemy import (
@@ -79,6 +79,11 @@ class User(Base):
 
     organization = relationship("Organization", back_populates="users")
     verification_tokens = relationship("EmailVerificationToken", back_populates="user")
+    password_reset_tokens = relationship(
+        "PasswordResetToken",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
     event_delegations = relationship(
         "EventDelegate", back_populates="user", cascade="all, delete-orphan"
     )
@@ -109,6 +114,23 @@ class EmailVerificationToken(Base):
     @staticmethod
     def new_token() -> str:
         return str(uuid.uuid4())
+
+
+class PasswordResetToken(Base):
+    __tablename__ = "password_reset_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    token = Column(String, unique=True, nullable=False, default=lambda: uuid.uuid4().hex)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    used_at = Column(DateTime, nullable=True)
+
+    user = relationship("User", back_populates="password_reset_tokens")
+
+    @staticmethod
+    def default_expiration(minutes: int = 60) -> datetime:
+        return datetime.utcnow() + timedelta(minutes=minutes)
 
 
 class SessionToken(Base):

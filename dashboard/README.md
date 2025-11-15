@@ -1,4 +1,4 @@
-# MikDashboard Registration Prototype
+# MIK Dashboard Registration Prototype
 
 This prototype implements a simple registration flow with organization lookup,
 email verification, and administrator approval gates. It provides a FastAPI
@@ -123,10 +123,13 @@ provided blueprint or the manual setup steps below.
    `ADMIN_LAST_NAME` to seed or refresh a dedicated adminisztrátor account
    automatically.
 7. Állítsd be a `PUBLIC_BASE_URL` értékét a dashboard publikus URL-jére, majd
-   add meg a Brevo küldő adatait (`BREVO_API_KEY`, `BREVO_SENDER_EMAIL`,
-   `BREVO_SENDER_NAME`), hogy a regisztrációs visszaigazoló e-mailek ténylegesen
-   kiküldésre kerüljenek. A blueprint a `https://dashboard.mikegyesulet.hu/`
-   értékkel indul ki, amit szükség esetén cserélj le a saját környezetedre.
+   add meg a Brevo küldő adatait (`BREVO_SENDER_EMAIL`, `BREVO_SENDER_NAME`) és
+   a Render irányítópultján a `BREVO_API_KEY` titkot, hogy a regisztrációs
+   visszaigazoló e-mailek ténylegesen kiküldésre kerüljenek. A blueprint a
+   `https://dashboard.mikegyesulet.hu/` értékkel indul ki, amit szükség esetén
+   cserélj le a saját környezetedre. A `render.yaml` fájl szándékosan hagyja
+   szinkronizálatlanul a Brevo API kulcsát, így azt közvetlenül a Render
+   felületén biztonságosan tárolhatod.
 8. (Optional) Configure Google reCAPTCHA by setting `RECAPTCHA_SITE_KEY` and
    `RECAPTCHA_SECRET_KEY`. When omitted, the regisztrációs űrlap captcha
    automatikusan letiltva marad.

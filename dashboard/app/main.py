@@ -55,6 +55,9 @@ from .schemas import (
     OrganizationRead,
     PasswordChangeRequest,
     PasswordChangeResponse,
+    PasswordResetConfirmRequest,
+    PasswordResetRequest,
+    PasswordResetVerifyResponse,
     PendingUser,
     PublicConfigResponse,
     RegistrationRequest,
@@ -73,9 +76,11 @@ from .schemas import (
 )
 from .services import (
     AuthenticationError,
+    PasswordResetError,
     RegistrationError,
     accept_invitation,
     authenticate_user,
+    complete_password_reset,
     change_user_password,
     create_admin_account,
     create_contact_invitation,
@@ -88,14 +93,17 @@ from .services import (
     delete_organization,
     delete_voting_event,
     delete_user_account,
+    get_active_password_reset_token,
     get_active_voting_event,
     get_invitation_by_token,
+    issue_password_reset_token,
     list_voting_events,
     upcoming_voting_events,
     list_admin_users,
     organization_with_members,
     organizations_with_members,
     pending_registrations,
+    queue_password_reset_email,
     queue_invitation_email,
     queue_verification_email,
     register_user,
@@ -144,10 +152,13 @@ VOTING_APP_BASE_URL = (
 VOTING_AUTH_TTL_SECONDS = int(os.getenv("VOTING_AUTH_TTL_SECONDS", "60"))
 BREVO_API_KEY = os.getenv("BREVO_API_KEY", "").strip()
 BREVO_SENDER_EMAIL = os.getenv("BREVO_SENDER_EMAIL", "").strip()
-BREVO_SENDER_NAME = os.getenv("BREVO_SENDER_NAME", "MikDashboard").strip() or "MikDashboard"
+BREVO_SENDER_NAME = os.getenv("BREVO_SENDER_NAME", "MIK Dashboard").strip() or "MIK Dashboard"
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").strip()
 _VOTING_O2AUTH_SECRET_BYTES = VOTING_O2AUTH_SECRET.encode("utf-8")
 VOTING_SYNC_TIMEOUT_SECONDS = float(os.getenv("VOTING_SYNC_TIMEOUT_SECONDS", "5"))
+PASSWORD_RESET_TOKEN_TTL_MINUTES = int(
+    os.getenv("PASSWORD_RESET_TOKEN_TTL_MINUTES", "60")
+)
 
 
 def _serialize_datetime(value):
@@ -226,7 +237,7 @@ def _sync_active_event(db: Session) -> None:
     active_event = get_active_voting_event(db)
     _sync_voting_service(active_event)
 
-app = FastAPI(title="MikDashboard Registration Service")
+app = FastAPI(title="MIK Dashboard Registration Service")
 
 
 @app.on_event("startup")
@@ -787,6 +798,16 @@ def login_page() -> FileResponse:
     return FileResponse("app/static/login.html")
 
 
+@app.get("/elfelejtett-jelszo", response_class=FileResponse)
+def password_reset_request_page() -> FileResponse:
+    return FileResponse("app/static/password-reset-request.html")
+
+
+@app.get("/elfelejtett-jelszo/{token}", response_class=FileResponse)
+def password_reset_confirm_page(token: str) -> FileResponse:
+    return FileResponse("app/static/password-reset-confirm.html")
+
+
 @app.get("/register", response_class=FileResponse)
 def register_page() -> FileResponse:
     return FileResponse("app/static/register.html")
@@ -1133,6 +1154,89 @@ def login(request: LoginRequest, db: DatabaseDependency) -> LoginResponse:
 
 
 @app.post(
+    "/api/password-reset/request",
+    response_model=SimpleMessageResponse,
+    responses={400: {"model": ErrorResponse}},
+)
+def request_password_reset(
+    payload: PasswordResetRequest, request: Request, db: DatabaseDependency
+) -> SimpleMessageResponse:
+    confirmation = (
+        "Ha a megadott e-mail címmel létezik fiók, hamarosan levelet küldünk a folytatáshoz."
+    )
+    reset_token = issue_password_reset_token(
+        db,
+        email=payload.email,
+        ttl_minutes=PASSWORD_RESET_TOKEN_TTL_MINUTES,
+    )
+    if not reset_token:
+        db.rollback()
+        return SimpleMessageResponse(message=confirmation)
+
+    try:
+        link = queue_password_reset_email(
+            reset_token,
+            base_url=PUBLIC_BASE_URL,
+            api_key=BREVO_API_KEY or None,
+            sender_email=BREVO_SENDER_EMAIL or None,
+            sender_name=BREVO_SENDER_NAME,
+        )
+        db.commit()
+    except (RegistrationError, PasswordResetError) as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    request.app.state.email_queue.append(
+        {
+            "email": reset_token.user.email,
+            "token": reset_token.token,
+            "reset_link": link,
+            "sent_via": "brevo" if BREVO_API_KEY and BREVO_SENDER_EMAIL else "noop",
+        }
+    )
+    return SimpleMessageResponse(message=confirmation)
+
+
+@app.get(
+    "/api/password-reset/verify",
+    response_model=PasswordResetVerifyResponse,
+    responses={400: {"model": ErrorResponse}},
+)
+def verify_password_reset(token: str, db: DatabaseDependency) -> PasswordResetVerifyResponse:
+    try:
+        reset_token = get_active_password_reset_token(db, token=token)
+    except PasswordResetError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    message = "A jelszó-visszaállító link érvényes. Állíts be új jelszót az alábbi mezőkben."
+    return PasswordResetVerifyResponse(email=reset_token.user.email, message=message)
+
+
+@app.post(
+    "/api/password-reset/confirm",
+    response_model=SimpleMessageResponse,
+    responses={400: {"model": ErrorResponse}},
+)
+def confirm_password_reset(
+    payload: PasswordResetConfirmRequest, db: DatabaseDependency
+) -> SimpleMessageResponse:
+    try:
+        complete_password_reset(
+            db,
+            token=payload.token,
+            new_password=payload.password,
+        )
+        db.commit()
+    except (PasswordResetError, RegistrationError) as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    return SimpleMessageResponse(
+        message="Az új jelszó beállítása sikeres. Most már bejelentkezhetsz."
+    )
+
+
+@app.post(
     "/api/change-password",
     response_model=PasswordChangeResponse,
     responses={401: {"model": ErrorResponse}, 400: {"model": ErrorResponse}},
@@ -1361,13 +1465,15 @@ def create_contact_invitation_endpoint(
     db: DatabaseDependency,
     admin: Annotated[User, Depends(require_admin)],
 ) -> OrganizationDetail:
+    invitation: OrganizationInvitation | None = None
+    promoted_user: User | None = None
     if payload.role != InvitationRole.contact:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="A kapcsolattartó meghívásához a role mezőnek 'contact'-nak kell lennie.",
         )
     try:
-        invitation = create_contact_invitation(
+        invitation, promoted_user = create_contact_invitation(
             db,
             organization_id=organization_id,
             email=payload.email,
@@ -1379,13 +1485,15 @@ def create_contact_invitation_endpoint(
         organization = organization_with_members(db, organization_id)
         active_event = get_active_voting_event(db)
         detail = build_organization_detail(organization, active_event=active_event)
-        link = queue_invitation_email(
-            invitation,
-            base_url=PUBLIC_BASE_URL,
-            api_key=BREVO_API_KEY or None,
-            sender_email=BREVO_SENDER_EMAIL or None,
-            sender_name=BREVO_SENDER_NAME,
-        )
+        link: str | None = None
+        if invitation is not None:
+            link = queue_invitation_email(
+                invitation,
+                base_url=PUBLIC_BASE_URL,
+                api_key=BREVO_API_KEY or None,
+                sender_email=BREVO_SENDER_EMAIL or None,
+                sender_name=BREVO_SENDER_NAME,
+            )
     except RegistrationError as exc:
         db.rollback()
         detail = str(exc)
@@ -1397,16 +1505,30 @@ def create_contact_invitation_endpoint(
         raise HTTPException(status_code=status_code, detail=detail) from exc
 
     db.commit()
-    request.app.state.email_queue.append(
-        {
-            "email": invitation.email,
-            "invitation_id": invitation.id,
-            "token": invitation.token,
-            "role": invitation.role.value,
-            "link": link,
-            "sent_via": "brevo" if BREVO_API_KEY and BREVO_SENDER_EMAIL else "noop",
-        }
-    )
+    if invitation is not None and link is not None:
+        request.app.state.email_queue.append(
+            {
+                "email": invitation.email,
+                "invitation_id": invitation.id,
+                "token": invitation.token,
+                "role": invitation.role.value,
+                "link": link,
+                "sent_via": "brevo"
+                if BREVO_API_KEY and BREVO_SENDER_EMAIL
+                else "noop",
+            }
+        )
+    elif promoted_user is not None:
+        request.app.state.email_queue.append(
+            {
+                "email": promoted_user.email,
+                "invitation_id": None,
+                "token": None,
+                "role": InvitationRole.contact.value,
+                "link": None,
+                "sent_via": "existing-user",
+            }
+        )
     return detail
 
 
@@ -1763,12 +1885,11 @@ def create_admin_account_endpoint(
     _: Annotated[User, Depends(require_admin)],
 ) -> AdminUserCreateResponse:
     try:
-        admin_user = create_admin_account(
+        admin_user, temporary_password = create_admin_account(
             db,
             email=payload.email,
             first_name=payload.first_name,
             last_name=payload.last_name,
-            password=payload.password,
         )
         db.commit()
     except RegistrationError as exc:
@@ -1779,7 +1900,9 @@ def create_admin_account_endpoint(
     message = (
         "Új adminisztrátor sikeresen létrehozva. Az első bejelentkezéskor jelszócsere szükséges."
     )
-    return AdminUserCreateResponse(message=message, admin=admin_user)
+    return AdminUserCreateResponse(
+        message=message, admin=admin_user, temporary_password=temporary_password
+    )
 
 
 @app.delete(
@@ -1894,9 +2017,11 @@ def create_member_invitation_endpoint(
             detail="Csak a szervezet kapcsolattartója küldhet tagmeghívót.",
         )
 
+    invitation: OrganizationInvitation | None = None
+    promoted_user: User | None = None
     try:
         if role == InvitationRole.contact:
-            invitation = create_contact_invitation(
+            invitation, promoted_user = create_contact_invitation(
                 db,
                 organization_id=organization_id,
                 email=payload.email,
@@ -1920,13 +2045,15 @@ def create_member_invitation_endpoint(
         detail = build_organization_detail(
             organization, active_event=active_event, events=events
         )
-        link = queue_invitation_email(
-            invitation,
-            base_url=PUBLIC_BASE_URL,
-            api_key=BREVO_API_KEY or None,
-            sender_email=BREVO_SENDER_EMAIL or None,
-            sender_name=BREVO_SENDER_NAME,
-        )
+        link: str | None = None
+        if invitation is not None:
+            link = queue_invitation_email(
+                invitation,
+                base_url=PUBLIC_BASE_URL,
+                api_key=BREVO_API_KEY or None,
+                sender_email=BREVO_SENDER_EMAIL or None,
+                sender_name=BREVO_SENDER_NAME,
+            )
     except RegistrationError as exc:
         db.rollback()
         detail = str(exc)
@@ -1938,16 +2065,30 @@ def create_member_invitation_endpoint(
         raise HTTPException(status_code=status_code, detail=detail) from exc
 
     db.commit()
-    request.app.state.email_queue.append(
-        {
-            "email": invitation.email,
-            "invitation_id": invitation.id,
-            "token": invitation.token,
-            "role": invitation.role.value,
-            "link": link,
-            "sent_via": "brevo" if BREVO_API_KEY and BREVO_SENDER_EMAIL else "noop",
-        }
-    )
+    if invitation is not None and link is not None:
+        request.app.state.email_queue.append(
+            {
+                "email": invitation.email,
+                "invitation_id": invitation.id,
+                "token": invitation.token,
+                "role": invitation.role.value,
+                "link": link,
+                "sent_via": "brevo"
+                if BREVO_API_KEY and BREVO_SENDER_EMAIL
+                else "noop",
+            }
+        )
+    elif promoted_user is not None:
+        request.app.state.email_queue.append(
+            {
+                "email": promoted_user.email,
+                "invitation_id": None,
+                "token": None,
+                "role": InvitationRole.contact.value,
+                "link": None,
+                "sent_via": "existing-user",
+            }
+        )
     return detail
 
 

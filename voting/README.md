@@ -1,4 +1,4 @@
-# MikDashboard Voting UI
+# MIK Dashboard Voting UI
 
 ## Run Locally
 

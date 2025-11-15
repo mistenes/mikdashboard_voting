@@ -1,4 +1,4 @@
-# MikDashboard Voting Monorepo
+# MIK Dashboard Voting Monorepo
 
 This repository contains two deployable apps:
 
@@ -31,10 +31,11 @@ Update the environment variables in the blueprint before the first deploy:
   `https://dashboard.mikegyesulet.hu/`. The voting API signs login checks with the shared
   `VOTING_O2AUTH_SECRET` and first calls the dashboard’s `/api/voting/authenticate` endpoint before
   falling back to `/api/login`, so both apps accept the exact same credentials.
-- Provide `BREVO_API_KEY`, `BREVO_SENDER_EMAIL`, and `PUBLIC_BASE_URL` so the registration
-  service can deliver verification emails through Brevo. The blueprint defaults to the
-  production dashboard domain `https://dashboard.mikegyesulet.hu/`, so update the value if
-  you deploy elsewhere.
+- Provide `BREVO_SENDER_EMAIL`, `PUBLIC_BASE_URL`, and (once deployed) a `BREVO_API_KEY`
+  secret so the registration service can deliver verification emails through Brevo. The
+  blueprint defaults to the production dashboard domain `https://dashboard.mikegyesulet.hu/`,
+  so update the value if you deploy elsewhere. The Render blueprint intentionally leaves the
+  API key unsynced so you can store the live credential directly in the Render dashboard.
 - Optionally configure Google reCAPTCHA keys if you want captcha protection on sign-up forms.
 
 The dashboard now exposes a dedicated **Szavazási események** admin page where you can create

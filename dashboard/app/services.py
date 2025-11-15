@@ -1,8 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Iterable, List, Optional
 
+import logging
+import secrets
+import string
 import uuid
 
 import httpx
@@ -18,6 +21,7 @@ from .models import (
     InvitationRole,
     Organization,
     OrganizationInvitation,
+    PasswordResetToken,
     SessionToken,
     VotingEvent,
     User,
@@ -26,11 +30,38 @@ from .models import (
 from .security import hash_password, verify_password
 
 
+logger = logging.getLogger(__name__)
+
+
+def _log_brevo_delivery(kind: str, response: httpx.Response, *, extra: dict | None = None) -> None:
+    metadata: dict[str, object] = {
+        "brevo_status_code": response.status_code,
+    }
+    try:
+        response_json = response.json()
+    except Exception:  # pragma: no cover - defensive JSON parsing
+        response_json = None
+
+    if isinstance(response_json, dict):
+        message_id = response_json.get("messageId")
+        if message_id:
+            metadata["brevo_message_id"] = message_id
+
+    if extra:
+        metadata.update(extra)
+
+    logger.info("Brevo %s email sent", kind, extra=metadata)
+
+
 class RegistrationError(Exception):
     pass
 
 
 class AuthenticationError(Exception):
+    pass
+
+
+class PasswordResetError(Exception):
     pass
 
 
@@ -95,6 +126,86 @@ def _normalize_email(value: str) -> str:
     return value.strip().lower()
 
 
+def issue_password_reset_token(
+    session: Session,
+    *,
+    email: str,
+    ttl_minutes: int = 60,
+) -> PasswordResetToken | None:
+    normalized_email = _normalize_email(email)
+    if not normalized_email:
+        return None
+
+    user = session.scalar(select(User).where(User.email == normalized_email).limit(1))
+    if not user or not user.is_email_verified:
+        return None
+
+    now = datetime.utcnow()
+    existing_tokens = session.scalars(
+        select(PasswordResetToken)
+        .where(
+            PasswordResetToken.user_id == user.id,
+            PasswordResetToken.used_at.is_(None),
+            PasswordResetToken.expires_at > now,
+        )
+        .limit(20)
+    )
+    for token in existing_tokens:
+        token.used_at = now
+
+    reset_token = PasswordResetToken(
+        user=user, expires_at=PasswordResetToken.default_expiration(ttl_minutes)
+    )
+    session.add(reset_token)
+    session.flush()
+    return reset_token
+
+
+def get_active_password_reset_token(
+    session: Session, *, token: str
+) -> PasswordResetToken:
+    value = (token or "").strip()
+    if not value:
+        raise PasswordResetError("Érvénytelen jelszó-visszaállító hivatkozás.")
+
+    reset_token = session.scalar(
+        select(PasswordResetToken)
+        .options(selectinload(PasswordResetToken.user))
+        .where(PasswordResetToken.token == value)
+        .limit(1)
+    )
+    if not reset_token or not reset_token.user:
+        raise PasswordResetError("A jelszó-visszaállító link érvénytelen.")
+
+    now = datetime.utcnow()
+    if reset_token.used_at is not None or reset_token.expires_at < now:
+        raise PasswordResetError("A jelszó-visszaállító link lejárt vagy már felhasználták.")
+
+    return reset_token
+
+
+def complete_password_reset(
+    session: Session,
+    *,
+    token: str,
+    new_password: str,
+) -> User:
+    reset_token = get_active_password_reset_token(session, token=token)
+    validate_password_strength(new_password)
+
+    salt, password_hash = hash_password(new_password)
+    user = reset_token.user
+    if not user:
+        raise PasswordResetError("Nem található a jelszóhoz tartozó felhasználó.")
+
+    user.password_salt = salt
+    user.password_hash = password_hash
+    user.must_change_password = False
+    reset_token.used_at = datetime.utcnow()
+    session.flush()
+    return user
+
+
 def list_admin_users(session: Session) -> List[User]:
     stmt = (
         select(User)
@@ -104,18 +215,32 @@ def list_admin_users(session: Session) -> List[User]:
     return list(session.scalars(stmt))
 
 
+def _generate_admin_password(length: int = 12) -> str:
+    alphabet = string.ascii_letters + string.digits + "!@#$%^&*()-_=+"
+    while True:
+        password = "".join(secrets.choice(alphabet) for _ in range(length))
+        try:
+            validate_password_strength(password)
+        except RegistrationError:
+            continue
+        if not any(character.islower() for character in password):
+            continue
+        if not any(character.isdigit() for character in password):
+            continue
+        return password
+
+
 def create_admin_account(
     session: Session,
     *,
     email: str,
     first_name: str,
     last_name: str,
-    password: str,
-) -> User:
+) -> tuple[User, str]:
     normalized_email = _normalize_email(email)
-    validate_password_strength(password)
     _ensure_email_available(session, normalized_email)
 
+    password = _generate_admin_password()
     salt, password_hash = hash_password(password)
     user = User(
         email=normalized_email,
@@ -132,7 +257,7 @@ def create_admin_account(
     )
     session.add(user)
     session.flush()
-    return user
+    return user, password
 
 
 def queue_verification_email(
@@ -151,7 +276,19 @@ def queue_verification_email(
     verification_link = f"{base}{verification_path}" if base else verification_path
 
     if not api_key or not sender_email:
-        return verification_link
+        logger.error(
+            "Verification email attempted without Brevo configuration; email will not be sent",
+            extra={"user_email": getattr(token.user, "email", None)},
+        )
+        raise RegistrationError(
+            "Az e-mail megerősítő üzenetek küldése jelenleg nem elérhető. Vedd fel a kapcsolatot az adminisztrátorral."
+        )
+
+    recipient_email = getattr(token.user, "email", None)
+    logger.info(
+        "Dispatching Brevo verification email",
+        extra={"user_email": recipient_email, "token_id": getattr(token, "id", None)},
+    )
 
     recipient_name_parts = [token.user.first_name or "", token.user.last_name or ""]
     recipient_name = " ".join(part for part in recipient_name_parts if part).strip()
@@ -163,13 +300,13 @@ def queue_verification_email(
         "to": [{"email": token.user.email, "name": recipient_name}],
         "subject": "Erősítsd meg az e-mail címedet",
         "htmlContent": (
-            "<p>Köszönjük a regisztrációt a MikDashboard rendszerben.</p>"
+            "<p>Köszönjük a regisztrációt a MIK Dashboard rendszerben.</p>"
             "<p>A regisztráció befejezéséhez kattints az alábbi gombra:</p>"
             f"<p><a href=\"{verification_link}\">E-mail cím megerősítése</a></p>"
             "<p>Ha nem te kezdeményezted a regisztrációt, kérjük, hagyd figyelmen kívül ezt az üzenetet.</p>"
         ),
         "textContent": (
-            "Köszönjük a regisztrációt a MikDashboard rendszerben.\n"
+            "Köszönjük a regisztrációt a MIK Dashboard rendszerben.\n"
             "A regisztráció befejezéséhez másold a böngésződbe az alábbi linket:\n"
             f"{verification_link}\n"
             "Ha nem te kezdeményezted a regisztrációt, kérjük, hagyd figyelmen kívül ezt az üzenetet."
@@ -195,6 +332,12 @@ def queue_verification_email(
             "Nem sikerült elküldeni az e-mail megerősítést. Kérjük, próbáld újra később."
         ) from exc
 
+    _log_brevo_delivery(
+        "verification",
+        response,
+        extra={"user_email": recipient_email, "token_id": getattr(token, "id", None)},
+    )
+
     return verification_link
 
 
@@ -210,27 +353,45 @@ def queue_invitation_email(
     accept_path = f"/meghivas/{invitation.token}"
     accept_link = f"{base}{accept_path}" if base else accept_path
 
-    if not api_key or not sender_email:
-        return accept_link
-
     role_text = (
         "kapcsolattartójaként" if invitation.role == InvitationRole.contact else "tagjaként"
     )
 
-    subject = "MikDashboard meghívó"
+    subject = "MIK Dashboard meghívó"
     html_body = (
-        f"<p>Meghívást kaptál a MikDashboard rendszerbe a(z) {invitation.organization.name} "
+        f"<p>Meghívást kaptál a MIK Dashboard rendszerbe a(z) {invitation.organization.name} "
         f"szervezet {role_text}.</p>"
         "<p>A csatlakozáshoz kattints az alábbi gombra, és állítsd be a jelszavad:</p>"
-        f"<p><a href=\"{accept_link}\">Csatlakozás a MikDashboardhoz</a></p>"
+        f"<p><a href=\"{accept_link}\">Csatlakozás a MIK Dashboardhoz</a></p>"
         "<p>Ha nem vártad ezt a meghívót, hagyd figyelmen kívül ezt az üzenetet.</p>"
     )
     text_body = (
-        f"Meghívást kaptál a MikDashboard rendszerbe a(z) {invitation.organization.name} "
+        f"Meghívást kaptál a MIK Dashboard rendszerbe a(z) {invitation.organization.name} "
         f"szervezet {role_text}.\n"
         "A csatlakozáshoz másold a böngésződbe az alábbi linket és állítsd be a jelszavad:\n"
         f"{accept_link}\n"
         "Ha nem vártad ezt a meghívót, hagyd figyelmen kívül ezt az üzenetet."
+    )
+
+    if not api_key or not sender_email:
+        logger.error(
+            "Invitation email attempted without Brevo configuration; email will not be sent",
+            extra={
+                "invitation_email": invitation.email,
+                "organization_id": invitation.organization_id,
+            },
+        )
+        raise RegistrationError(
+            "A meghívó e-mailek küldése jelenleg nem elérhető. Vedd fel a kapcsolatot az adminisztrátorral."
+        )
+
+    logger.info(
+        "Dispatching Brevo invitation email",
+        extra={
+            "invitation_email": invitation.email,
+            "organization_id": invitation.organization_id,
+            "invitation_id": getattr(invitation, "id", None),
+        },
     )
 
     payload = {
@@ -255,12 +416,145 @@ def queue_invitation_email(
             timeout=15.0,
         )
         response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        logger.exception("Brevo invitation email request failed with status error")
+        error_detail = "Nem sikerült elküldeni a meghívó e-mailt. Kérjük, próbáld újra később."
+        try:
+            response_json = exc.response.json()
+            message = response_json.get("message")
+            if isinstance(message, str) and message.strip():
+                error_detail = f"{error_detail} (Brevo: {message.strip()})"
+        except Exception:  # pragma: no cover - defensive JSON parsing
+            try:
+                response_text = exc.response.text
+                if response_text:
+                    error_detail = f"{error_detail} (Brevo: {response_text.strip()})"
+            except Exception:  # pragma: no cover - defensive response handling
+                pass
+        raise RegistrationError(error_detail) from exc
     except httpx.HTTPError as exc:
+        logger.exception("Brevo invitation email request failed")
         raise RegistrationError(
             "Nem sikerült elküldeni a meghívó e-mailt. Kérjük, próbáld újra később."
         ) from exc
 
+    _log_brevo_delivery(
+        "invitation",
+        response,
+        extra={
+            "invitation_email": invitation.email,
+            "organization_id": invitation.organization_id,
+            "invitation_id": getattr(invitation, "id", None),
+        },
+    )
+
     return accept_link
+
+
+def queue_password_reset_email(
+    token: PasswordResetToken,
+    *,
+    base_url: str = "",
+    api_key: str | None = None,
+    sender_email: str | None = None,
+    sender_name: str | None = None,
+) -> str:
+    base = base_url.rstrip("/") if base_url else ""
+    reset_path = f"/elfelejtett-jelszo/{token.token}"
+    reset_link = f"{base}{reset_path}" if base else reset_path
+
+    if not api_key or not sender_email:
+        logger.error(
+            "Password reset email attempted without Brevo configuration; email will not be sent",
+            extra={"user_email": getattr(token.user, 'email', None)},
+        )
+        raise PasswordResetError(
+            "A jelszó-visszaállító e-mailek küldése jelenleg nem elérhető. Vedd fel a kapcsolatot az adminisztrátorral."
+        )
+
+    user = token.user
+    recipient_email = getattr(user, "email", None)
+    logger.info(
+        "Dispatching Brevo password reset email",
+        extra={
+            "user_email": recipient_email,
+            "password_reset_token_id": getattr(token, "id", None),
+        },
+    )
+
+    recipient_name_parts = [user.first_name or "", user.last_name or ""]
+    recipient_name = " ".join(part for part in recipient_name_parts if part).strip()
+    if not recipient_name:
+        recipient_name = user.email
+
+    subject = "MIK Dashboard jelszó visszaállítás"
+    html_body = (
+        "<p>Jelszó-visszaállítást kezdeményeztél a MIK Dashboard felületén.</p>"
+        "<p>A folyamat befejezéséhez kattints az alábbi gombra, és állíts be új jelszót:</p>"
+        f"<p><a href=\"{reset_link}\">Új jelszó beállítása</a></p>"
+        "<p>Ha nem te kérted a jelszó módosítását, hagyd figyelmen kívül ezt az üzenetet.</p>"
+    )
+    text_body = (
+        "Jelszó-visszaállítást kezdeményeztél a MIK Dashboard felületén.\n"
+        "A folyamat befejezéséhez másold a böngésződbe az alábbi linket és állíts be új jelszót:\n"
+        f"{reset_link}\n"
+        "Ha nem te kérted a jelszó módosítását, hagyd figyelmen kívül ezt az üzenetet."
+    )
+
+    payload = {
+        "sender": {"email": sender_email, "name": sender_name or sender_email},
+        "to": [{"email": user.email, "name": recipient_name}],
+        "subject": subject,
+        "htmlContent": html_body,
+        "textContent": text_body,
+    }
+
+    headers = {
+        "accept": "application/json",
+        "api-key": api_key,
+        "content-type": "application/json",
+    }
+
+    try:
+        response = httpx.post(
+            "https://api.brevo.com/v3/smtp/email",
+            json=payload,
+            headers=headers,
+            timeout=15.0,
+        )
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        logger.exception("Brevo password reset email request failed with status error")
+        error_detail = "Nem sikerült elküldeni a jelszó-visszaállító e-mailt. Kérjük, próbáld újra később."
+        try:
+            response_json = exc.response.json()
+            message = response_json.get("message")
+            if isinstance(message, str) and message.strip():
+                error_detail = f"{error_detail} (Brevo: {message.strip()})"
+        except Exception:  # pragma: no cover - defensive JSON parsing
+            try:
+                response_text = exc.response.text
+                if response_text:
+                    error_detail = f"{error_detail} (Brevo: {response_text.strip()})"
+            except Exception:  # pragma: no cover - defensive response handling
+                pass
+        raise PasswordResetError(error_detail) from exc
+    except httpx.HTTPError as exc:
+        logger.exception("Brevo password reset email request failed")
+        raise PasswordResetError(
+            "Nem sikerült elküldeni a jelszó-visszaállító e-mailt. Kérjük, próbáld újra később."
+        ) from exc
+
+    _log_brevo_delivery(
+        "password reset",
+        response,
+        extra={
+            "user_email": recipient_email,
+            "password_reset_token_id": getattr(token, "id", None),
+        },
+    )
+
+    return reset_link
 
 
 def verify_email(session: Session, token_value: str) -> User:
@@ -866,10 +1160,12 @@ def create_contact_invitation(
     invited_by: User,
     first_name: Optional[str] = None,
     last_name: Optional[str] = None,
-) -> OrganizationInvitation:
+) -> tuple[OrganizationInvitation | None, User | None]:
     organization = session.get(Organization, organization_id)
     if organization is None:
         raise RegistrationError("Nem található szervezet")
+
+    normalized_email = _normalize_email(email)
 
     stmt = (
         select(User)
@@ -878,9 +1174,32 @@ def create_contact_invitation(
     )
     existing_contact = session.scalar(stmt)
     if existing_contact is not None:
+        if existing_contact.email and existing_contact.email.lower() == normalized_email:
+            raise RegistrationError(
+                "Ez a felhasználó már a szervezet kapcsolattartója"
+            )
         raise RegistrationError("Ehhez a szervezethez már tartozik kapcsolattartó")
 
-    return _create_invitation(
+    user_stmt = select(User).where(func.lower(User.email) == normalized_email)
+    existing_user = session.scalar(user_stmt)
+    if existing_user is not None:
+        if existing_user.organization_id != organization.id:
+            raise RegistrationError(
+                "Ezzel az e-mail címmel már létezik felhasználó a rendszerben"
+            )
+        if existing_user.is_organization_contact:
+            raise RegistrationError("Ez a felhasználó már a szervezet kapcsolattartója")
+
+        if first_name and not existing_user.first_name:
+            existing_user.first_name = first_name.strip() or None
+        if last_name and not existing_user.last_name:
+            existing_user.last_name = last_name.strip() or None
+
+        existing_user.is_organization_contact = True
+        session.flush()
+        return None, existing_user
+
+    invitation = _create_invitation(
         session,
         organization=organization,
         email=email,
@@ -889,6 +1208,8 @@ def create_contact_invitation(
         first_name=first_name,
         last_name=last_name,
     )
+
+    return invitation, None
 
 
 def create_member_invitation(

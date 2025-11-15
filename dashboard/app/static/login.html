@@ -3,43 +3,97 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>MikDashboard – Bejelentkezés</title>
+    <title>MIK Dashboard – Bejelentkezés</title>
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
-  <body class="simple-bg">
-    <main class="centered-card">
-      <section class="auth-card">
-        <h1>Bejelentkezés</h1>
-        <p class="lead">Írd be a munkahelyi e-mail címedet és a jelszavadat.</p>
-        <form id="login-form" class="form-grid">
-          <label class="form-field">
-            <span>E-mail cím</span>
-            <input
-              id="login-email"
-              name="email"
-              type="email"
-              placeholder="te@ceged.hu"
-              autocomplete="username"
-              required
-            />
+  <body class="auth-surface" data-auth-page="login">
+    <main class="auth-layout">
+      <section class="auth-hero">
+        <div class="auth-brand">
+          <span class="auth-badge">MIK Dashboard</span>
+          <h1>Üdv az Egyesületi irányítópulton!</h1>
+          <p>
+            A bejelentkezés után egyszerűen kezelheted a tagsági adatokat,
+            intézheted a pénzügyeket és követheted a szavazások állapotát.
+          </p>
+        </div>
+        <ul class="auth-highlights">
+          <li>
+            <h2>Naprakész információk</h2>
+            <p>Minden szervezetnél azonnal látod a legfontosabb teendőket.</p>
+          </li>
+          <li>
+            <h2>Biztonságos hozzáférés</h2>
+            <p>Kétlépcsős védelemmel és meghívás alapú tagsággal óvjuk az adatokat.</p>
+          </li>
+          <li>
+            <h2>Összekapcsolt szolgáltatások</h2>
+            <p>Ugorj át a szavazási felületre vagy a tagkezelőre egyetlen kattintással.</p>
+          </li>
+        </ul>
+      </section>
+      <section class="auth-panel" aria-labelledby="login-title">
+        <header class="auth-panel__header">
+          <h1 id="login-title">Bejelentkezés</h1>
+          <p class="auth-panel__lead">
+            A MIK Dashboard meghívás alapú. A hozzáférést a szervezeted adminja
+            biztosítja számodra.
+          </p>
+        </header>
+        <form id="login-form" class="auth-panel__form" novalidate>
+          <label class="auth-input">
+            <span class="auth-input__label">E-mail cím</span>
+            <div class="auth-input__field">
+              <input
+                id="login-email"
+                name="email"
+                type="email"
+                placeholder="te@ceged.hu"
+                autocomplete="username"
+                required
+              />
+            </div>
+            <span class="auth-input__error" id="login-email-error"></span>
           </label>
-          <label class="form-field">
-            <span>Jelszó</span>
-            <input
-              id="login-password"
-              name="password"
-              type="password"
-              placeholder="Jelszó"
-              autocomplete="current-password"
-              required
-            />
+          <label class="auth-input">
+            <span class="auth-input__label">Jelszó</span>
+            <div class="auth-input__field">
+              <input
+                id="login-password"
+                name="password"
+                type="password"
+                placeholder="••••••••"
+                autocomplete="current-password"
+                required
+              />
+              <button
+                type="button"
+                class="auth-input__toggle"
+                aria-controls="login-password"
+                aria-pressed="false"
+              >
+                Mutat
+              </button>
+            </div>
+            <span class="auth-input__error" id="login-password-error"></span>
           </label>
-          <button type="submit" class="primary-btn">Bejelentkezés</button>
+          <p class="auth-panel__actions">
+            <a class="auth-panel__link" href="/elfelejtett-jelszo">
+              Elfelejtetted a jelszavad?
+            </a>
+            <span aria-hidden="true">·</span>
+            <a class="auth-panel__link" href="mailto:info@mikegyesulet.hu">
+              Segítségre van szükséged?
+            </a>
+          </p>
+          <button type="submit" class="primary-btn auth-panel__submit">
+            Bejelentkezés
+          </button>
         </form>
-        <p id="login-status" class="status" role="status"></p>
-        <p class="muted">
-          Még nincs fiókod?
-          <a href="/register">Regisztráció</a>
+        <p id="login-status" class="auth-panel__status" role="status" aria-live="polite"></p>
+        <p class="auth-panel__footer">
+          Nem találsz meghívót vagy segítség kell?
+          <a href="mailto:info@mikegyesulet.hu">Lépj kapcsolatba velünk</a>.
         </p>
       </section>
     </main>
