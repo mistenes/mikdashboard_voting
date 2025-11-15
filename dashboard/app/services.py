@@ -338,6 +338,18 @@ def queue_invitation_email(
         "Ha nem vártad ezt a meghívót, hagyd figyelmen kívül ezt az üzenetet."
     )
 
+    if not api_key or not sender_email:
+        logger.error(
+            "Invitation email attempted without Brevo configuration; email will not be sent",
+            extra={
+                "invitation_email": invitation.email,
+                "organization_id": invitation.organization_id,
+            },
+        )
+        raise RegistrationError(
+            "A meghívó e-mailek küldése jelenleg nem elérhető. Vedd fel a kapcsolatot az adminisztrátorral."
+        )
+
     payload = {
         "sender": {"email": sender_email, "name": sender_name or sender_email},
         "to": [{"email": invitation.email, "name": invitation.email}],
@@ -360,7 +372,24 @@ def queue_invitation_email(
             timeout=15.0,
         )
         response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        logger.exception("Brevo invitation email request failed with status error")
+        error_detail = "Nem sikerült elküldeni a meghívó e-mailt. Kérjük, próbáld újra később."
+        try:
+            response_json = exc.response.json()
+            message = response_json.get("message")
+            if isinstance(message, str) and message.strip():
+                error_detail = f"{error_detail} (Brevo: {message.strip()})"
+        except Exception:  # pragma: no cover - defensive JSON parsing
+            try:
+                response_text = exc.response.text
+                if response_text:
+                    error_detail = f"{error_detail} (Brevo: {response_text.strip()})"
+            except Exception:  # pragma: no cover - defensive response handling
+                pass
+        raise RegistrationError(error_detail) from exc
     except httpx.HTTPError as exc:
+        logger.exception("Brevo invitation email request failed")
         raise RegistrationError(
             "Nem sikerült elküldeni a meghívó e-mailt. Kérjük, próbáld újra később."
         ) from exc
