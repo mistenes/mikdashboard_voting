@@ -1333,69 +1333,34 @@ def build_access_code_pdf(event: VotingEvent, codes: list[VotingAccessCode]) -> 
     width, height = A4
     margin_x = 25 * mm
     margin_y = 30 * mm
-    top_margin = 45 * mm
     columns = 3
     rows = 4
     cell_width = (width - 2 * margin_x) / columns
-    cell_height = (height - top_margin - margin_y) / rows
+    cell_height = (height - 2 * margin_y) / rows
     regular_font, bold_font = _get_access_code_font_names()
     border_padding_x = 6 * mm
     border_padding_y = 8 * mm
     code_text_margin_x = 8 * mm
-
-    def draw_page_header(page_number: int) -> None:
-        pdf.setFont(bold_font, 16)
-        pdf.drawString(margin_x, height - margin_y + 5 * mm, event.title or "Szavazási esemény")
-        if event.event_date:
-            pdf.setFont(regular_font, 10)
-            pdf.drawString(
-                margin_x,
-                height - margin_y,
-                event.event_date.strftime("%Y.%m.%d %H:%M"),
-            )
-        pdf.setFont(regular_font, 9)
-        pdf.drawRightString(
-            width - margin_x,
-            margin_y / 2,
-            f"Oldal {page_number}",
-        )
-
     if not codes:
-        draw_page_header(1)
-        pdf.setFont(regular_font, 12)
-        pdf.drawString(
-            margin_x,
-            height - top_margin,
-            "Ehhez az eseményhez még nem generáltunk belépőkódokat.",
-        )
         pdf.save()
         buffer.seek(0)
         return buffer.read()
 
-    draw_page_header(1)
-
     for index, code in enumerate(codes):
         if index and index % ACCESS_CODES_PER_PAGE == 0:
             pdf.showPage()
-            draw_page_header((index // ACCESS_CODES_PER_PAGE) + 1)
 
         position = index % ACCESS_CODES_PER_PAGE
         column = position % columns
         row = position // columns
         x = margin_x + column * cell_width
-        y = height - top_margin - row * cell_height
+        y = height - margin_y - row * cell_height
         rect_x = x + border_padding_x
         rect_y = y - cell_height + border_padding_y
         rect_width = cell_width - 2 * border_padding_x
         rect_height = cell_height - 2 * border_padding_y
         pdf.setLineWidth(1)
         pdf.roundRect(rect_x, rect_y, rect_width, rect_height, 6, stroke=1, fill=0)
-        pdf.setFont(regular_font, 11)
-        pdf.drawCentredString(
-            rect_x + rect_width / 2,
-            rect_y + rect_height - 8 * mm,
-            "MIK egyszer használható belépőkód",
-        )
         code_max_width = rect_width - (2 * code_text_margin_x)
         font_size = _fit_text_within_width(
             code.code,
