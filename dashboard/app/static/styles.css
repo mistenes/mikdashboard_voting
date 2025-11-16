@@ -2171,6 +2171,47 @@ button:disabled {
   font-weight: bold;
 }
 
+.delegate-preview {
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.delegate-preview-heading {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 10px 0 2px;
+}
+
+.delegate-preview li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  background: #f8fafc;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 12px;
+}
+
+.delegate-preview strong {
+  color: #0f172a;
+  font-weight: 700;
+}
+
+.delegate-preview .delegate-preview-email {
+  color: #475569;
+  font-size: 0.88rem;
+}
+
+.delegate-preview .delegate-preview-empty {
+  color: #475569;
+  font-style: italic;
+}
+
 .delegate-form {
   display: flex;
   flex-direction: column;

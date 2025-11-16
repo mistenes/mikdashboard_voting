@@ -21,6 +21,7 @@ const invitationList = document.querySelector("#member-invitation-list");
 const memberDirectory = document.querySelector("#member-directory");
 const contactEventsCard = document.querySelector("#contact-events-card");
 const contactEventsList = document.querySelector("#contact-events-list");
+const contactEventsDescription = document.querySelector("#contact-events-description");
 const contactActionItems = document.querySelectorAll(".contact-only-action");
 
 let cachedSessionUser = null;
@@ -746,22 +747,40 @@ function renderEventAssignments(detail, sessionUser) {
     : [];
   const isContact = hasContactPrivileges(detail, sessionUser);
   toggleContactActions(isContact);
-  if (!isContact) {
+  const isDelegateForEvent = (eventDetail) => {
+    if (!sessionUser || !Array.isArray(eventDetail.delegate_user_ids)) {
+      return false;
+    }
+    return eventDetail.delegate_user_ids.includes(sessionUser.id);
+  };
+
+  const visibleEvents = isContact ? events : events.filter(isDelegateForEvent);
+  const shouldShowCard = isContact || visibleEvents.length > 0;
+
+  if (contactEventsDescription) {
+    contactEventsDescription.textContent = isContact
+      ? "Itt kezelheted, hogy kik képviselik a szervezetet az egyes eseményeken."
+      : "Itt láthatod, mely eseményekre jelöltek ki delegáltként, a részletekkel együtt.";
+  }
+
+  if (!shouldShowCard) {
     contactEventsCard.classList.add("is-hidden");
     contactEventsList.innerHTML = "";
     return;
   }
   contactEventsCard.classList.remove("is-hidden");
   contactEventsList.innerHTML = "";
-  if (!events.length) {
+  if (!visibleEvents.length) {
     const empty = document.createElement("p");
     empty.classList.add("muted");
-    empty.textContent = "Jelenleg nincs közelgő esemény.";
+    empty.textContent = isContact
+      ? "Jelenleg nincs közelgő esemény."
+      : "Nem jelöltek ki közelgő eseményre.";
     contactEventsList.appendChild(empty);
     return;
   }
 
-  events.forEach((eventDetail) => {
+  visibleEvents.forEach((eventDetail) => {
     const card = document.createElement("article");
     card.classList.add("event-assignment-card");
 
@@ -812,6 +831,54 @@ function renderEventAssignments(detail, sessionUser) {
     countItem.textContent = `Jelenleg kijelölve: ${eventDetail.delegate_count} fő`;
     metaList.appendChild(countItem);
     card.appendChild(metaList);
+
+    const delegatesHeading = document.createElement("p");
+    delegatesHeading.classList.add("delegate-preview-heading");
+    delegatesHeading.textContent = "Kijelölt delegáltak";
+    card.appendChild(delegatesHeading);
+
+    const delegateList = document.createElement("ul");
+    delegateList.classList.add("delegate-preview");
+    const delegates = Array.isArray(eventDetail.delegates) ? eventDetail.delegates : [];
+    if (!delegates.length) {
+      const emptyDelegates = document.createElement("li");
+      emptyDelegates.classList.add("delegate-preview-empty");
+      emptyDelegates.textContent =
+        "Ehhez az eseményhez még nem jelöltek ki delegáltat.";
+      delegateList.appendChild(emptyDelegates);
+    } else {
+      delegates.forEach((delegate) => {
+        const item = document.createElement("li");
+        const name = document.createElement("strong");
+        name.textContent = formatDisplayName(
+          delegate.first_name,
+          delegate.last_name,
+          delegate.email,
+        );
+        if (delegate.user_id === sessionUser?.id) {
+          name.textContent = `${name.textContent} (Te)`;
+        }
+        const email = document.createElement("span");
+        email.classList.add("delegate-preview-email");
+        email.textContent = delegate.email;
+        item.appendChild(name);
+        item.appendChild(email);
+        delegateList.appendChild(item);
+      });
+    }
+
+    card.appendChild(delegateList);
+
+    if (!isContact) {
+      const lockNotice = document.createElement("p");
+      lockNotice.classList.add("muted");
+      lockNotice.textContent = eventDetail.delegate_lock_message
+        ? eventDetail.delegate_lock_message
+        : "A delegálást az adminisztrátor kezeli ehhez az eseményhez.";
+      card.appendChild(lockNotice);
+      contactEventsList.appendChild(card);
+      return;
+    }
 
     if (!eventDetail.can_manage_delegates) {
       const notice = document.createElement("p");
