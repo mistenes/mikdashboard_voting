@@ -9,6 +9,18 @@ const newPasswordError = document.querySelector('#password-reset-new-error');
 const confirmPasswordError = document.querySelector('#password-reset-confirm-error');
 const pageEl = document.querySelector('[data-auth-page="password-reset-confirm"]');
 const accountEmail = pageEl?.dataset.accountEmail || '';
+const passwordRequirementItems = {
+  length: document.querySelector('[data-requirement="length"]'),
+  uppercase: document.querySelector('[data-requirement="uppercase"]'),
+  special: document.querySelector('[data-requirement="special"]'),
+};
+
+const uppercasePattern = /[A-ZÁÉÍÓÖŐÚÜŰ]/;
+const passwordRules = [
+  { key: 'length', test: (value) => value.length >= 8 },
+  { key: 'uppercase', test: (value) => uppercasePattern.test(value) },
+  { key: 'special', test: (value) => /[^A-Za-z0-9]/.test(value) },
+];
 
 const pathSegments = window.location.pathname.split('/').filter(Boolean);
 const tokenFromDataset = pageEl?.dataset.resetToken || '';
@@ -59,6 +71,30 @@ function setFieldValidity(inputEl, errorEl, message = '') {
     delete wrapper.dataset.invalid;
     errorEl.textContent = '';
   }
+}
+
+function updatePasswordRequirements() {
+  if (!newPasswordInput) {
+    return;
+  }
+  const value = newPasswordInput.value;
+  passwordRules.forEach((rule) => {
+    const met = rule.test(value);
+    const listItem = passwordRequirementItems[rule.key];
+    if (!listItem) return;
+    listItem.classList.toggle('met', met);
+    const indicator = listItem.querySelector('.requirement-indicator');
+    if (indicator) {
+      indicator.textContent = met ? '✓' : '';
+    }
+  });
+}
+
+function passwordMeetsRequirements() {
+  if (!newPasswordInput) {
+    return false;
+  }
+  return passwordRules.every((rule) => rule.test(newPasswordInput.value));
 }
 
 async function requestJSON(url, options = {}) {
@@ -131,6 +167,7 @@ async function verifyToken() {
 
 function initialize() {
   applyInitialState();
+  updatePasswordRequirements();
   if (shouldVerify) {
     verifyToken();
   }
@@ -140,11 +177,20 @@ newPasswordInput?.addEventListener('input', () => {
   if (newPasswordInput.value) {
     setFieldValidity(newPasswordInput, newPasswordError);
   }
+  updatePasswordRequirements();
+  if (statusEl?.textContent) {
+    statusEl.textContent = '';
+    statusEl.classList.remove('error', 'success');
+  }
 });
 
 confirmPasswordInput?.addEventListener('input', () => {
   if (confirmPasswordInput.value) {
     setFieldValidity(confirmPasswordInput, confirmPasswordError);
+  }
+  if (statusEl?.textContent) {
+    statusEl.textContent = '';
+    statusEl.classList.remove('error', 'success');
   }
 });
 
@@ -152,6 +198,7 @@ form?.addEventListener('submit', async (event) => {
   event.preventDefault();
   statusEl.textContent = '';
   statusEl.classList.remove('error', 'success');
+  updatePasswordRequirements();
 
   if (!newPasswordInput || !confirmPasswordInput) {
     return;
@@ -162,8 +209,12 @@ form?.addEventListener('submit', async (event) => {
   if (!newPasswordInput.value) {
     setFieldValidity(newPasswordInput, newPasswordError, 'Add meg az új jelszót.');
     isValid = false;
-  } else if (newPasswordInput.value.length < 8) {
-    setFieldValidity(newPasswordInput, newPasswordError, 'Legalább 8 karakter hosszú jelszót adj meg.');
+  } else if (!passwordMeetsRequirements()) {
+    setFieldValidity(
+      newPasswordInput,
+      newPasswordError,
+      'A jelszónak meg kell felelnie az összes felsorolt követelménynek.',
+    );
     isValid = false;
   } else {
     setFieldValidity(newPasswordInput, newPasswordError);
@@ -180,7 +231,7 @@ form?.addEventListener('submit', async (event) => {
   }
 
   if (!isValid) {
-    statusEl.textContent = 'Ellenőrizd a kiemelt mezőket.';
+    statusEl.textContent = 'Ellenőrizd a jelszókövetelményeket és a kiemelt mezőket.';
     statusEl.classList.add('error');
     return;
   }
