@@ -2607,6 +2607,24 @@ body[data-invite-page] .invite-form-card .status {
   line-height: 1.4;
 }
 
+.beta-banner__close {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  border: none;
+  background: transparent;
+  color: #7c2d12;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px;
+}
+
+.beta-banner__close:hover,
+.beta-banner__close:focus-visible {
+  color: #92400e;
+}
+
 .has-beta-banner {
   padding-top: 56px;
 }

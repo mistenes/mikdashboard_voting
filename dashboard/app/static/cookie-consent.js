@@ -1,6 +1,25 @@
 const CONSENT_STORAGE_KEY = "mik-dashboard-cookie-consent";
 const CONSENT_COOKIE = `${CONSENT_STORAGE_KEY}=accepted`;
 const ISSUE_ENDPOINT = "/api/report-issue";
+const BETA_BANNER_DISMISS_KEY = "mik-dashboard-beta-banner-dismissed";
+
+function hasDismissedBetaBanner() {
+  try {
+    return localStorage.getItem(BETA_BANNER_DISMISS_KEY) === "1";
+  } catch (err) {
+    console.warn("Nem sikerült elérni a localStorage-t a béta bannerhez:", err);
+  }
+
+  return false;
+}
+
+function rememberBetaBannerDismissal() {
+  try {
+    localStorage.setItem(BETA_BANNER_DISMISS_KEY, "1");
+  } catch (err) {
+    console.warn("Nem sikerült elmenteni a béta banner elutasítását:", err);
+  }
+}
 
 function hasStoredConsent() {
   try {
@@ -81,7 +100,7 @@ export function initCookieConsent() {
 initCookieConsent();
 
 function initBetaBanner() {
-  if (document.getElementById("beta-banner")) {
+  if (document.getElementById("beta-banner") || hasDismissedBetaBanner()) {
     return;
   }
 
@@ -105,7 +124,19 @@ function initBetaBanner() {
   content.appendChild(title);
   content.appendChild(text);
 
+  const closeButton = document.createElement("button");
+  closeButton.type = "button";
+  closeButton.className = "beta-banner__close";
+  closeButton.setAttribute("aria-label", "Béta értesítés bezárása");
+  closeButton.innerHTML = "&times;";
+  closeButton.addEventListener("click", () => {
+    rememberBetaBannerDismissal();
+    banner.remove();
+    document.body.classList.remove("has-beta-banner");
+  });
+
   banner.appendChild(content);
+  banner.appendChild(closeButton);
   document.body.prepend(banner);
   document.body.classList.add("has-beta-banner");
 }
