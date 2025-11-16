@@ -2444,6 +2444,63 @@ body[data-invite-page] .invite-submit {
   box-shadow: 0 16px 40px rgba(59, 130, 246, 0.22);
 }
 
+body[data-invite-page] .password-requirements {
+  margin-top: -2px;
+  padding: 10px 12px 8px;
+  border-radius: 12px;
+  background: rgba(59, 130, 246, 0.08);
+  border: 1px solid rgba(59, 130, 246, 0.18);
+}
+
+body[data-invite-page] .password-requirements .requirements-title {
+  margin: 0 0 6px;
+  font-size: 0.92rem;
+  color: #0f172a;
+  font-weight: 600;
+}
+
+body[data-invite-page] .password-requirements .requirements-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+body[data-invite-page] .password-requirements .requirements-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.95rem;
+  color: #475569;
+}
+
+body[data-invite-page] .password-requirements .requirements-list li .requirement-indicator {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid rgba(59, 130, 246, 0.6);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  line-height: 1;
+  color: #2563eb;
+  background: #fff;
+  flex-shrink: 0;
+}
+
+body[data-invite-page] .password-requirements .requirements-list li.met {
+  color: #0f172a;
+  font-weight: 600;
+}
+
+body[data-invite-page] .password-requirements .requirements-list li.met .requirement-indicator {
+  background: #16a34a;
+  border-color: #16a34a;
+  color: #fff;
+}
+
 body[data-invite-page] .invite-form-card .small-print {
   margin: 0;
   line-height: 1.6;

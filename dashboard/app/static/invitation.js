@@ -10,6 +10,18 @@ const confirmInput = document.querySelector("#password-confirm");
 const passwordInput = document.querySelector("#password");
 const firstNameInput = document.querySelector("#first-name");
 const lastNameInput = document.querySelector("#last-name");
+const passwordRequirementItems = {
+  length: document.querySelector('[data-requirement="length"]'),
+  uppercase: document.querySelector('[data-requirement="uppercase"]'),
+  special: document.querySelector('[data-requirement="special"]'),
+};
+
+const uppercasePattern = /[A-ZÁÉÍÓÖŐÚÜŰ]/;
+const passwordRules = [
+  { key: "length", test: (value) => value.length >= 8 },
+  { key: "uppercase", test: (value) => uppercasePattern.test(value) },
+  { key: "special", test: (value) => /[^A-Za-z0-9]/.test(value) },
+];
 
 function setStatus(message, type = "") {
   if (!statusEl) {
@@ -91,11 +103,32 @@ function validatePasswords() {
   if (!passwordInput || !confirmInput) {
     return true;
   }
+  if (!passwordRules.every((rule) => rule.test(passwordInput.value))) {
+    setStatus("A jelszónak meg kell felelnie az összes felsorolt követelménynek.", "error");
+    return false;
+  }
   if (passwordInput.value !== confirmInput.value) {
     setStatus("A két jelszó nem egyezik.", "error");
     return false;
   }
   return true;
+}
+
+function updatePasswordRequirements() {
+  if (!passwordInput) {
+    return;
+  }
+  const value = passwordInput.value;
+  passwordRules.forEach((rule) => {
+    const met = rule.test(value);
+    const listItem = passwordRequirementItems[rule.key];
+    if (!listItem) return;
+    listItem.classList.toggle("met", met);
+    const indicator = listItem.querySelector(".requirement-indicator");
+    if (indicator) {
+      indicator.textContent = met ? "✓" : "";
+    }
+  });
 }
 
 async function submitInvitation(event, token) {
@@ -149,6 +182,13 @@ async function init() {
   }
 
   formEl?.addEventListener("submit", (event) => submitInvitation(event, token));
+  passwordInput?.addEventListener("input", () => {
+    updatePasswordRequirements();
+    if (statusEl?.textContent) {
+      setStatus("");
+    }
+  });
+  updatePasswordRequirements();
 }
 
 init();
