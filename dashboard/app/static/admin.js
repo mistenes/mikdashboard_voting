@@ -1177,16 +1177,21 @@ async function initOrganizationsPage() {
   });
 }
 
-async function loadPending() {
+async function loadPending(options = {}) {
   if (!ensureAdminSession(true)) {
-    return;
+    return false;
   }
-  clearStatus();
+  const { silent = false, anchor = null } = options || {};
+  if (!silent) {
+    clearStatus(anchor);
+  }
   try {
     const users = await requestJSON("/api/admin/pending");
     renderPending(users);
+    return true;
   } catch (error) {
-    handleAuthError(error);
+    handleAuthError(error, anchor);
+    return false;
   }
 }
 
@@ -1272,21 +1277,10 @@ async function decideRegistration(userId, approve, anchor) {
       "success",
       anchor,
     );
-    await loadPending();
+    await loadPending({ silent: true });
   } catch (error) {
     handleAuthError(error, anchor);
   }
-}
-
-async function initPendingPage() {
-  if (!ensureAdminSession()) {
-    return;
-  }
-  await loadPending();
-  const refreshButton = document.querySelector("[data-admin-refresh]");
-  refreshButton?.addEventListener("click", async () => {
-    await loadPending();
-  });
 }
 
 function eligibleDelegatesForOrganization(organization) {
@@ -2398,10 +2392,31 @@ async function initUsersPage() {
   const tableWrapper = document.querySelector("[data-admin-table]");
   const countElement = document.querySelector("[data-admin-count]");
   const firstNameInput = document.querySelector("#admin-first-name");
+  const pendingSection = document.querySelector("[data-pending-section]");
+  const pendingRefreshButton = document.querySelector("[data-pending-refresh]");
 
   function updateCount(count) {
     if (countElement) {
       countElement.textContent = String(count);
+    }
+  }
+
+  async function refreshPendingRegistrations(anchor = null) {
+    if (!pendingSection) {
+      return;
+    }
+    if (anchor) {
+      anchor.disabled = true;
+    }
+    try {
+      const loaded = await loadPending({ silent: true, anchor });
+      if (loaded && anchor) {
+        setStatus("Függő regisztrációk frissítve.", "success", anchor);
+      }
+    } finally {
+      if (anchor) {
+        anchor.disabled = false;
+      }
     }
   }
 
@@ -2501,6 +2516,13 @@ async function initUsersPage() {
     } catch (error) {
       handleAuthError(error);
     }
+  }
+
+  if (pendingSection) {
+    await refreshPendingRegistrations();
+    pendingRefreshButton?.addEventListener("click", async () => {
+      await refreshPendingRegistrations(pendingRefreshButton);
+    });
   }
 
   async function resendAdminInvite(adminId, anchor) {
@@ -2770,9 +2792,6 @@ attachSignOut();
 switch (pageType) {
   case "organizations":
     initOrganizationsPage();
-    break;
-  case "pending":
-    initPendingPage();
     break;
   case "events":
     initEventsPage();

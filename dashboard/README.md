@@ -13,9 +13,9 @@ separate adminisztrációs felület.
   through Brevo once the message sender is configured.
 - Email verification endpoint that flags the account as verified while waiting
   on administrator approval.
-- Admin review API with dedicated `/admin`, `/admin/szervezetek`, and `/admin/jelentkezok`
-  felületek, amelyek külön oldalakon kezelik az áttekintést, a szervezeteket és a függő
-  regisztrációkat.
+- Admin review API with dedicated `/admin`, `/admin/szervezetek`, and a combined
+  `/admin/felhasznalok` felület, ahol a függő regisztrációk jóváhagyása és az admin
+  felhasználók kezelése egy oldalon érhető el.
 - Admin áttekintő, amely listázza a szervezeteket, megmutatja a tagokat, engedi a tagsági
   díj státuszának módosítását, a banki adatok frissítését és lehetővé teszi a tagok törlését.
 - Admin felületről új szervezet hozható létre, a törlés pedig három egymást követő
@@ -45,7 +45,7 @@ uvicorn app.main:app --reload
 Then open `http://localhost:8000` to reach the Hungarian login page. Registration lives at
 `http://localhost:8000/register`. Adminisztrátorok a jóváhagyott belépés után az
 `/admin` áttekintőre jutnak, ahonnan a szervezet-kezelés (`/admin/szervezetek`) és a függő
-kérelmek (`/admin/jelentkezok`) külön oldalon érhetők el. Minden más felhasználó a
+kérelmeket is tartalmazó felhasználói oldal (`/admin/felhasznalok`) érhető el. Minden más felhasználó a
 tagsági díj státusza alapján kerül átirányításra a saját szervezetének oldalára:
 - rendezetlen díj esetén: `http://localhost:8000/szervezetek/<id>/dij`, ahol a banki adatok
   és az utalási instrukciók jelennek meg;

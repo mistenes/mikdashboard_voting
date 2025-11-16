@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>MIK Dashboard – Felhasználókezelés</title>
+    <title>MIK Dashboard – Felhasználók és regisztrációk</title>
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body class="simple-bg" data-admin-page="users">
@@ -16,9 +16,8 @@
         <nav class="sidebar-nav" aria-label="Admin menü">
           <a href="/admin" class="sidebar-link">Áttekintés</a>
           <a href="/admin/szervezetek" class="sidebar-link">Szervezetek</a>
-          <a href="/admin/jelentkezok" class="sidebar-link">Függő regisztrációk</a>
           <a href="/admin/esemenyek" class="sidebar-link">Szavazási események</a>
-          <a href="/admin/felhasznalok" class="sidebar-link active">Felhasználókezelés</a>
+          <a href="/admin/felhasznalok" class="sidebar-link active">Felhasználók és regisztrációk</a>
           <span class="sidebar-divider" aria-hidden="true"></span>
           <span class="sidebar-link placeholder" aria-disabled="true">Riportok (hamarosan)</span>
           <a href="/admin/beallitasok" class="sidebar-link">Beállítások</a>
@@ -32,13 +31,48 @@
       <main class="admin-container">
         <header class="admin-header">
           <div>
-            <h1>Felhasználókezelés</h1>
+            <h1>Felhasználók és regisztrációk</h1>
             <p class="lead">
-              Hozz létre új adminisztrátorokat és kövesd nyomon a meglévő fiókok állapotát.
+              Hagyd jóvá a beérkező kérelmeket és hozd létre az új adminisztrátori fiókokat egy helyen.
             </p>
+          </div>
+          <div class="admin-actions">
+            <button type="button" class="ghost-btn" data-pending-refresh>
+              Függő regisztrációk frissítése
+            </button>
           </div>
         </header>
         <p id="admin-status" class="status" role="status"></p>
+
+        <section
+          class="auth-card"
+          id="pending-registrations"
+          aria-labelledby="pending-table-title"
+          data-pending-section
+        >
+          <div class="section-header">
+            <div>
+              <h2 id="pending-table-title">Függő regisztrációk</h2>
+              <p class="muted">
+                Hagyd jóvá vagy utasítsd el a beérkezett kérelmeket. A jóváhagyás automatikusan megerősíti az e-mail címet is.
+              </p>
+            </div>
+          </div>
+          <div class="table-wrapper">
+            <table id="pending-table">
+              <thead>
+                <tr>
+                  <th>Név</th>
+                  <th>E-mail</th>
+                  <th>E-mail státusz</th>
+                  <th>Szervezet</th>
+                  <th>Műveletek</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </section>
 
         <section class="auth-card" aria-labelledby="create-admin-title">
           <div class="section-header">

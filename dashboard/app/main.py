@@ -1293,7 +1293,7 @@ def admin_organizations_page() -> FileResponse:
 
 @app.get("/admin/jelentkezok", response_class=FileResponse)
 def admin_pending_page() -> FileResponse:
-    return FileResponse("app/static/admin-pending.html")
+    return FileResponse("app/static/admin-users.html")
 
 
 @app.get("/admin/esemenyek", response_class=FileResponse)
