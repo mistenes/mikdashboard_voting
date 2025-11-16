@@ -835,6 +835,12 @@ button.sidebar-link {
   box-shadow: 0 14px 32px rgba(15, 23, 42, 0.12);
 }
 
+.event-card-selected,
+.event-card-selected:hover {
+  border-color: rgba(59, 130, 246, 0.55);
+  box-shadow: 0 16px 36px rgba(37, 99, 235, 0.22);
+}
+
 .event-card-active {
   border-color: rgba(59, 130, 246, 0.45);
   box-shadow: 0 14px 36px rgba(37, 99, 235, 0.18);
@@ -886,21 +892,66 @@ button.sidebar-link {
   margin-top: 16px;
 }
 
-.delegate-controls {
+.delegate-manage-trigger {
+  margin-left: auto;
+}
+
+
+.delegate-panel-host {
+  margin-top: 20px;
+  display: none;
+}
+
+.delegate-panel-host.delegate-panel-active {
+  display: block;
+}
+
+.delegate-panel-host .delegates-wrapper {
+  margin: 0;
+}
+
+.delegates-wrapper {
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 16px;
+  padding: 20px;
+  background: rgba(247, 250, 255, 0.95);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+.delegate-panel-header {
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
+  gap: 16px;
   align-items: flex-start;
-  gap: 12px;
-  margin-bottom: 12px;
+}
+
+.delegate-panel-header h2 {
+  margin: 4px 0 6px;
+}
+
+.delegate-panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.delegate-panel-body {
+  margin-top: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
 }
 
 .delegate-lock-panel {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  flex: 1 1 100%;
-  max-width: 540px;
+  gap: 12px;
+  padding: 18px;
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  background: rgba(255, 255, 255, 0.92);
 }
 
 .delegate-lock-actions {
@@ -932,12 +983,18 @@ button.sidebar-link {
   margin: 4px 0 0;
 }
 
+.delegate-panel-body .table-scroll {
+  border-width: 0;
+  padding: 0;
+  background: transparent;
+}
+
 .delegate-code-panel {
   flex: 1 1 100%;
   background: rgba(255, 255, 255, 0.9);
   border: 1px solid rgba(148, 163, 184, 0.25);
-  border-radius: 12px;
-  padding: 16px;
+  border-radius: 14px;
+  padding: 18px;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -1013,14 +1070,6 @@ button.sidebar-link {
 .code-meta {
   font-size: 0.85rem;
   color: #475569;
-}
-
-.event-selector {
-  min-width: 220px;
-  border-radius: 12px;
-  border: 1px solid rgba(148, 163, 184, 0.6);
-  padding: 10px 12px;
-  background: rgba(255, 255, 255, 0.92);
 }
 
 .table-scroll {

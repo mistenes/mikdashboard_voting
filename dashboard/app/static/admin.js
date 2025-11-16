@@ -3,7 +3,6 @@ const pageType = body?.dataset?.adminPage || "overview";
 const adminStatus = document.querySelector("#admin-status");
 const signOutButton = document.querySelector("#admin-sign-out");
 const eventListContainer = document.querySelector("#event-list");
-const eventSelector = document.querySelector("#event-selector");
 const delegateTableBody = document.querySelector("#delegate-table-body");
 const createEventForm = document.querySelector("#create-event-form");
 const selectedEventInfo = document.querySelector("#selected-event-info");
@@ -21,11 +20,16 @@ const delegateCodeStatus = document.querySelector("#delegate-code-status");
 const delegateCodeList = document.querySelector("#delegate-code-list");
 const delegateGenerateCodesButton = document.querySelector("#delegate-generate-codes");
 const delegateDownloadCodesButton = document.querySelector("#delegate-download-codes");
+const delegatePanel = document.querySelector("[data-delegate-panel]");
+const delegatePanelRefreshButton = document.querySelector("[data-delegate-refresh]");
+const delegatePanelCloseButton = document.querySelector("[data-delegate-close]");
 const eventTitleInput = createEventForm?.querySelector("#event-title");
 const eventDescriptionInput = createEventForm?.querySelector("#event-description");
 const eventDateInput = createEventForm?.querySelector("#event-date");
 const delegateDeadlineInput = createEventForm?.querySelector("#delegate-deadline");
 const delegateLimitSelect = createEventForm?.querySelector("#delegate-limit");
+const addEventSection = document.querySelector('[data-collapsible="add-event"]');
+const eventListSection = document.querySelector('[data-collapsible="event-list"]');
 
 const defaultEventFormTitle = createEventTitle?.textContent?.trim() || "";
 const defaultEventFormHint = createEventHint?.textContent?.trim() || "";
@@ -44,6 +48,9 @@ const eventState = {
   accessCodes: [],
   accessCodeSummary: null,
 };
+
+let currentDelegateHost = null;
+let delegatePanelDismissed = false;
 
 const eventDateFormatter = new Intl.DateTimeFormat("hu-HU", {
   dateStyle: "medium",
@@ -170,6 +177,101 @@ function attachCollapsible(container, trigger, body, defaultExpanded = false) {
     const isExpanded = trigger.getAttribute("aria-expanded") === "true";
     setCollapsibleState(container, trigger, body, !isExpanded);
   });
+}
+
+function initCollapsibleSection(section, defaultExpanded = false) {
+  if (!section) {
+    return;
+  }
+  const trigger = section.querySelector("[data-collapse-toggle]");
+  const body = section.querySelector("[data-collapse-body]");
+  attachCollapsible(section, trigger, body, defaultExpanded);
+}
+
+function getDelegateHostElement(eventId) {
+  if (!Number.isFinite(eventId)) {
+    return null;
+  }
+  return document.querySelector(`[data-delegate-host="${eventId}"]`);
+}
+
+function detachDelegatePanel() {
+  if (currentDelegateHost) {
+    currentDelegateHost.classList.remove("delegate-panel-active");
+    currentDelegateHost = null;
+  }
+  if (delegatePanel) {
+    delegatePanel.hidden = true;
+  }
+}
+
+function mountDelegatePanel() {
+  if (!delegatePanel) {
+    return;
+  }
+  if (!eventState.selectedEventId) {
+    detachDelegatePanel();
+    return;
+  }
+  const host = getDelegateHostElement(eventState.selectedEventId);
+  if (!host) {
+    detachDelegatePanel();
+    return;
+  }
+  host.appendChild(delegatePanel);
+  delegatePanel.hidden = false;
+  if (currentDelegateHost && currentDelegateHost !== host) {
+    currentDelegateHost.classList.remove("delegate-panel-active");
+  }
+  currentDelegateHost = host;
+  host.classList.add("delegate-panel-active");
+}
+
+async function openDelegatePanelForEvent(eventId, { scrollIntoView = true } = {}) {
+  if (!ensureAdminSession(true)) {
+    return;
+  }
+  if (!Number.isFinite(eventId)) {
+    return;
+  }
+  delegatePanelDismissed = false;
+  const changed = eventState.selectedEventId !== eventId;
+  eventState.selectedEventId = eventId;
+  if (changed) {
+    renderEventsList(eventState.events);
+  }
+  await refreshEventDelegates();
+  await refreshAccessCodes();
+  renderSelectedEventInfo();
+  renderDelegateTable();
+  renderDelegateLockControls();
+  renderAccessCodePanel();
+  mountDelegatePanel();
+  if (scrollIntoView && delegatePanel) {
+    delegatePanel.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+}
+
+function closeDelegatePanel() {
+  delegatePanelDismissed = true;
+  if (!eventState.selectedEventId) {
+    renderSelectedEventInfo();
+    renderDelegateTable();
+    renderDelegateLockControls();
+    renderAccessCodePanel();
+    detachDelegatePanel();
+    return;
+  }
+  eventState.selectedEventId = null;
+  eventState.delegates = [];
+  eventState.accessCodes = [];
+  eventState.accessCodeSummary = null;
+  renderEventsList(eventState.events);
+  renderSelectedEventInfo();
+  renderDelegateTable();
+  renderDelegateLockControls();
+  renderAccessCodePanel();
+  detachDelegatePanel();
 }
 
 function toDateTimeLocalValue(value) {
@@ -1231,6 +1333,10 @@ function renderEventsList(events) {
     if (event.is_active) {
       card.classList.add("event-card-active");
     }
+    if (eventState.selectedEventId === event.id) {
+      card.classList.add("event-card-selected");
+    }
+    card.dataset.eventId = String(event.id);
 
     const header = document.createElement("header");
     header.classList.add("event-head");
@@ -1365,53 +1471,35 @@ function renderEventsList(events) {
     });
     actions.appendChild(deleteButton);
 
+    const delegateButton = document.createElement("button");
+    delegateButton.type = "button";
+    delegateButton.classList.add("primary-btn", "delegate-manage-trigger");
+    delegateButton.textContent =
+      eventState.selectedEventId === event.id
+        ? "Delegáltak megnyitva"
+        : "Delegáltak kezelése";
+    delegateButton.setAttribute(
+      "aria-pressed",
+      eventState.selectedEventId === event.id ? "true" : "false",
+    );
+    delegateButton.addEventListener("click", async () => {
+      await openDelegatePanelForEvent(event.id);
+    });
+    actions.appendChild(delegateButton);
+
     card.appendChild(header);
     card.appendChild(description);
     card.appendChild(meta);
     card.appendChild(details);
     card.appendChild(actions);
 
+    const delegateHost = document.createElement("div");
+    delegateHost.classList.add("delegate-panel-host");
+    delegateHost.dataset.delegateHost = String(event.id);
+    card.appendChild(delegateHost);
+
     eventListContainer.appendChild(card);
   });
-}
-
-function renderEventSelectorControl(events) {
-  if (!eventSelector) {
-    return;
-  }
-  eventSelector.innerHTML = "";
-
-  if (!events.length) {
-    const option = document.createElement("option");
-    option.value = "";
-    option.textContent = "Nincs elérhető esemény";
-    eventSelector.appendChild(option);
-    eventSelector.disabled = true;
-    if (selectedEventInfo) {
-      selectedEventInfo.textContent = "Még nincs elérhető esemény.";
-    }
-    return;
-  }
-
-  eventSelector.disabled = false;
-  events.forEach((event) => {
-    const option = document.createElement("option");
-    option.value = String(event.id);
-    const labels = [event.title];
-    if (event.is_active) {
-      labels.push("(aktív)");
-    }
-    labels.push(event.is_voting_enabled ? "• szavazás engedélyezve" : "• szavazás letiltva");
-    option.textContent = labels.join(" ");
-    eventSelector.appendChild(option);
-  });
-
-  const desiredValue =
-    eventState.selectedEventId && events.some((event) => event.id === eventState.selectedEventId)
-      ? String(eventState.selectedEventId)
-      : String(events[0].id);
-  eventSelector.value = desiredValue;
-  renderSelectedEventInfo();
 }
 
 function currentDelegateInfo(organizationId) {
@@ -1423,15 +1511,24 @@ function renderSelectedEventInfo() {
     return;
   }
   if (!eventState.selectedEventId) {
-    selectedEventInfo.textContent = "Válassz ki egy eseményt.";
+    selectedEventInfo.textContent =
+      "Válaszd ki egy esemény kártyáján a „Delegáltak kezelése” gombot a részletek megjelenítéséhez.";
+    if (delegatePanelRefreshButton) {
+      delegatePanelRefreshButton.disabled = true;
+    }
     return;
   }
   const event = getSelectedEvent();
   if (!event) {
-    selectedEventInfo.textContent = "Válassz ki egy eseményt.";
+    selectedEventInfo.textContent =
+      "Válaszd ki egy esemény kártyáján a „Delegáltak kezelése” gombot a részletek megjelenítéséhez.";
+    if (delegatePanelRefreshButton) {
+      delegatePanelRefreshButton.disabled = true;
+    }
     return;
   }
   const parts = [];
+  parts.push(event.title);
   const eventDateLabel = formatDateTime(event.event_date);
   if (eventDateLabel) {
     parts.push(`Időpont: ${eventDateLabel}`);
@@ -1459,6 +1556,9 @@ function renderSelectedEventInfo() {
     parts.push("Delegált módosítás: engedélyezett");
   }
   selectedEventInfo.textContent = parts.join(" • ");
+  if (delegatePanelRefreshButton) {
+    delegatePanelRefreshButton.disabled = false;
+  }
 }
 
 function renderAccessCodePanel() {
@@ -1475,7 +1575,7 @@ function renderAccessCodePanel() {
 
   if (!eventState.selectedEventId) {
     delegateCodeSummary.textContent =
-      "Válassz ki egy eseményt a belépőkódok kezeléséhez.";
+      "Nyisd meg a megfelelő esemény kártyáját a belépőkódok kezeléséhez.";
     delegateGenerateCodesButton.disabled = true;
     delegateDownloadCodesButton.disabled = true;
     delegateCodeList.innerHTML = "";
@@ -1581,7 +1681,8 @@ function renderDelegateLockControls() {
     delegateLockModeSelect.value = "auto";
     delegateLockModeSelect.disabled = true;
     delegateLockApplyButton.disabled = true;
-    delegateLockMessage.textContent = "Válassz ki egy eseményt a zárolási beállításhoz.";
+    delegateLockMessage.textContent =
+      "Nyisd meg a kívánt eseményt a „Delegáltak kezelése” gombbal a zárolási állapot módosításához.";
     delegateLockMessage.classList.remove("success", "error");
     return;
   }
@@ -1611,7 +1712,8 @@ function renderDelegateTable() {
     const cell = document.createElement("td");
     cell.colSpan = 3;
     cell.classList.add("muted");
-    cell.textContent = "Válassz ki egy eseményt a delegáltak kezeléséhez.";
+    cell.textContent =
+      "Nyisd meg a kezelendő esemény kártyáját a „Delegáltak kezelése” gombbal.";
     row.appendChild(cell);
     delegateTableBody.appendChild(row);
     return;
@@ -1735,6 +1837,7 @@ async function refreshEventDelegates() {
   }
   if (!eventState.selectedEventId) {
     eventState.delegates = [];
+    renderSelectedEventInfo();
     return;
   }
   try {
@@ -1776,30 +1879,38 @@ async function refreshEventData(refreshOrganizations = false, preserveStatus = f
       eventState.delegates = [];
       eventState.accessCodes = [];
       eventState.accessCodeSummary = null;
+      delegatePanelDismissed = false;
       renderEventsList(eventState.events);
-      renderEventSelectorControl(eventState.events);
+      renderSelectedEventInfo();
       renderDelegateTable();
       renderDelegateLockControls();
       renderAccessCodePanel();
+      detachDelegatePanel();
       return;
     }
 
-    if (
-      !eventState.selectedEventId ||
-      !eventState.events.some((event) => event.id === eventState.selectedEventId)
-    ) {
-      const activeEvent = eventState.events.find((event) => event.is_active);
-      eventState.selectedEventId = activeEvent ? activeEvent.id : eventState.events[0].id;
+    const hasSelectedEvent =
+      Number.isFinite(eventState.selectedEventId) &&
+      eventState.events.some((event) => event.id === eventState.selectedEventId);
+
+    if (!hasSelectedEvent) {
+      if (delegatePanelDismissed) {
+        eventState.selectedEventId = null;
+      } else {
+        const activeEvent = eventState.events.find((event) => event.is_active);
+        eventState.selectedEventId = activeEvent ? activeEvent.id : eventState.events[0].id;
+        delegatePanelDismissed = false;
+      }
     }
 
     await refreshEventDelegates();
     await refreshAccessCodes();
 
     renderEventsList(eventState.events);
-    renderEventSelectorControl(eventState.events);
     renderDelegateTable();
     renderDelegateLockControls();
     renderAccessCodePanel();
+    mountDelegatePanel();
   } catch (error) {
     handleAuthError(error);
   }
@@ -1814,6 +1925,7 @@ async function handleEventActivation(eventId, anchor) {
       method: "POST",
     });
     eventState.selectedEventId = eventId;
+    delegatePanelDismissed = false;
     setStatus("Az esemény aktívvá vált.", "success", anchor);
     await refreshEventData();
   } catch (error) {
@@ -1977,6 +2089,8 @@ async function initEventsPage() {
   if (!ensureAdminSession()) {
     return;
   }
+  initCollapsibleSection(addEventSection);
+  initCollapsibleSection(eventListSection, true);
   await refreshEventData(true);
 
   const refreshButton = document.querySelector("[data-admin-refresh]");
@@ -1984,15 +2098,26 @@ async function initEventsPage() {
     await refreshEventData(true);
   });
 
-  eventSelector?.addEventListener("change", async (event) => {
-    const selected = Number.parseInt(event.target.value, 10);
-    eventState.selectedEventId = Number.isFinite(selected) ? selected : null;
-    await refreshEventDelegates();
-    await refreshAccessCodes();
-    renderSelectedEventInfo();
-    renderDelegateTable();
-    renderDelegateLockControls();
-    renderAccessCodePanel();
+  delegatePanelCloseButton?.addEventListener("click", () => {
+    closeDelegatePanel();
+  });
+
+  delegatePanelRefreshButton?.addEventListener("click", async () => {
+    if (!eventState.selectedEventId) {
+      return;
+    }
+    delegatePanelRefreshButton.disabled = true;
+    try {
+      await refreshEventDelegates();
+      await refreshAccessCodes();
+      renderSelectedEventInfo();
+      renderDelegateTable();
+      renderDelegateLockControls();
+      renderAccessCodePanel();
+      mountDelegatePanel();
+    } finally {
+      delegatePanelRefreshButton.disabled = false;
+    }
   });
 
   delegateLockApplyButton?.addEventListener("click", async () => {
@@ -2014,7 +2139,10 @@ async function initEventsPage() {
       return;
     }
     if (!eventState.selectedEventId) {
-      setDelegateCodeStatus("Válassz ki egy eseményt a kódok generálásához.", "error");
+      setDelegateCodeStatus(
+        "Nyisd meg a megfelelő esemény kártyáját, mielőtt belépőkódokat generálsz.",
+        "error",
+      );
       return;
     }
 
@@ -2063,7 +2191,10 @@ async function initEventsPage() {
       return;
     }
     if (!eventState.selectedEventId) {
-      setDelegateCodeStatus("Válassz ki egy eseményt a PDF letöltéséhez.", "error");
+      setDelegateCodeStatus(
+        "Nyisd meg a megfelelő esemény kártyáját a belépőkódok PDF-jének letöltéséhez.",
+        "error",
+      );
       return;
     }
 
@@ -2170,6 +2301,7 @@ async function initEventsPage() {
         exitEventEditMode();
         if (updated?.id) {
           eventState.selectedEventId = updated.id;
+          delegatePanelDismissed = false;
         }
         await refreshEventData(false, true);
       } catch (error) {
@@ -2192,6 +2324,7 @@ async function initEventsPage() {
       resetEventFormPresentation();
       if (created?.id) {
         eventState.selectedEventId = created.id;
+        delegatePanelDismissed = false;
       }
       await refreshEventData(false, true);
     } catch (error) {

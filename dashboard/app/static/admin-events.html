@@ -43,15 +43,34 @@
         </header>
         <p id="admin-status" class="status" role="status"></p>
 
-        <section class="auth-card" aria-labelledby="create-event-title">
-          <div class="section-header">
-            <h2 id="create-event-title">Új esemény létrehozása</h2>
-            <p id="create-event-hint" class="muted">
-              Adj nevet és opcionális leírást a szavazási eseményhez. Szükség esetén azonnal aktiválhatod.
-            </p>
-          </div>
-          <form id="create-event-form" class="event-form">
-            <div class="form-grid">
+        <section
+          class="auth-card collapsible collapsed"
+          aria-labelledby="create-event-title"
+          data-collapsible="add-event"
+        >
+          <header class="section-header collapsible-header">
+            <div>
+              <h2 id="create-event-title">Új esemény létrehozása</h2>
+              <p id="create-event-hint" class="muted">
+                Adj nevet és opcionális leírást a szavazási eseményhez. Szükség esetén azonnal aktiválhatod.
+              </p>
+            </div>
+            <button
+              type="button"
+              class="collapse-toggle"
+              aria-expanded="false"
+              aria-controls="create-event-body"
+              data-collapse-toggle
+              data-collapsed-label="Űrlap megnyitása"
+              data-expanded-label="Űrlap elrejtése"
+            >
+              <span class="collapse-toggle-label" data-collapse-text>Űrlap megnyitása</span>
+              <span class="chevron-icon" aria-hidden="true"></span>
+            </button>
+          </header>
+          <div id="create-event-body" class="collapsible-body" data-collapse-body hidden>
+            <form id="create-event-form" class="event-form">
+              <div class="form-grid">
               <label for="event-title">Esemény neve</label>
               <input
                 type="text"
@@ -97,46 +116,87 @@
               </select>
               <small class="field-hint">Minden szervezet legfeljebb ennyi delegáltat jelölhet ki az eseményre.</small>
             </div>
-            <div class="form-row event-form-actions">
-              <label class="checkbox" data-activate-wrapper>
-                <input type="checkbox" name="activate" />
-                <span>Az esemény legyen azonnal aktív</span>
-              </label>
-              <button
-                type="button"
-                class="ghost-btn is-hidden"
-                id="cancel-event-edit"
-              >
-                Szerkesztés megszakítása
-              </button>
-              <button type="submit" class="primary-btn">Esemény létrehozása</button>
+              <div class="form-row event-form-actions">
+                <label class="checkbox" data-activate-wrapper>
+                  <input type="checkbox" name="activate" />
+                  <span>Az esemény legyen azonnal aktív</span>
+                </label>
+                <button
+                  type="button"
+                  class="ghost-btn is-hidden"
+                  id="cancel-event-edit"
+                >
+                  Szerkesztés megszakítása
+                </button>
+                <button type="submit" class="primary-btn">Esemény létrehozása</button>
+              </div>
+            </form>
+          </div>
+        </section>
+
+        <section
+          class="events-wrapper collapsible expanded"
+          aria-labelledby="event-list-title"
+          data-collapsible="event-list"
+        >
+          <header class="section-header collapsible-header">
+            <div>
+              <h2 id="event-list-title">Eddigi események</h2>
+              <p class="muted">
+                Aktiváld a következő szavazást, tekintsd át az előzményeket és kezeld az eseményhez tartozó delegáltakat.
+              </p>
             </div>
-          </form>
+            <button
+              type="button"
+              class="collapse-toggle"
+              aria-expanded="true"
+              aria-controls="event-list-body"
+              data-collapse-toggle
+              data-collapsed-label="Lista megnyitása"
+              data-expanded-label="Lista elrejtése"
+            >
+              <span class="collapse-toggle-label" data-collapse-text>Lista elrejtése</span>
+              <span class="chevron-icon" aria-hidden="true"></span>
+            </button>
+          </header>
+          <div id="event-list-body" class="collapsible-body">
+            <div id="event-list" class="events-list"></div>
+          </div>
         </section>
 
-        <section class="events-wrapper" aria-labelledby="event-list-title">
-          <div class="section-header">
-            <h2 id="event-list-title">Eddigi események</h2>
-            <p class="muted">Aktiváld a következő szavazást vagy tekintsd át a korábbi eseményeket.</p>
-          </div>
-          <div id="event-list" class="events-list"></div>
-        </section>
-
-        <section class="delegates-wrapper" aria-labelledby="delegate-title">
-          <div class="section-header">
-            <h2 id="delegate-title">Delegáltak kezelése</h2>
-            <p class="muted">
-              Válaszd ki az eseményt, majd állítsd be szervezetenként, hogy kik képviselhetik a tagságot a szavazás során.
-            </p>
-          </div>
-          <div class="delegate-controls">
-            <label for="event-selector" class="muted">Megjelenített esemény</label>
-            <select id="event-selector" class="event-selector"></select>
-            <p id="selected-event-info" class="muted"></p>
+        <section
+          class="delegates-wrapper"
+          aria-labelledby="delegate-title"
+          data-delegate-panel
+          hidden
+        >
+          <header class="delegate-panel-header">
+            <div>
+              <p class="eyebrow">Delegáltak kezelése</p>
+              <h2 id="delegate-title">Delegáltak kezelése</h2>
+              <p id="selected-event-info" class="muted">
+                Válaszd ki a megfelelő eseményt a kártyán belüli gombbal, hogy szerkeszthesd a delegáltakat.
+              </p>
+            </div>
+            <div class="delegate-panel-actions">
+              <button type="button" class="ghost-btn" data-delegate-refresh>
+                Lista frissítése
+              </button>
+              <button type="button" class="ghost-btn" data-delegate-close>
+                Bezárás
+              </button>
+            </div>
+          </header>
+          <div class="delegate-panel-body">
             <div class="delegate-lock-panel">
-              <label for="delegate-lock-mode" class="muted">Delegált módosítási állapot</label>
+              <div>
+                <p class="eyebrow">Delegált módosítási állapot</p>
+                <p class="muted">
+                  Kezeld, hogy a szervezeti delegáltak listája automatikusan zárolódjon a határidőnél, vagy kézzel felülírható legyen.
+                </p>
+              </div>
               <div class="delegate-lock-actions">
-                <select id="delegate-lock-mode" class="event-selector delegate-lock-mode">
+                <select id="delegate-lock-mode" class="delegate-lock-mode">
                   <option value="auto">Automatikus (határidő szerint)</option>
                   <option value="locked">Mindig zárolva</option>
                   <option value="unlocked">Mindig szerkeszthető</option>
@@ -147,40 +207,43 @@
               </div>
               <p id="delegate-lock-message" class="status delegate-lock-message"></p>
             </div>
-          </div>
-          <div class="delegate-code-panel" aria-live="polite">
-            <div class="delegate-code-actions">
-              <p id="delegate-code-summary" class="delegate-code-summary muted">
-                Válassz ki egy eseményt a belépőkódok kezeléséhez.
-              </p>
-              <div class="delegate-code-buttons">
-                <button type="button" id="delegate-generate-codes" class="primary-btn">
-                  Belépőkódok generálása
-                </button>
-                <button type="button" id="delegate-download-codes" class="ghost-btn">
-                  PDF letöltése
-                </button>
+            <div class="delegate-code-panel" aria-live="polite">
+              <div class="delegate-code-actions">
+                <div>
+                  <p class="eyebrow">Belépőkódok</p>
+                  <p id="delegate-code-summary" class="delegate-code-summary muted">
+                    Válassz ki egy eseményt a belépőkódok kezeléséhez.
+                  </p>
+                </div>
+                <div class="delegate-code-buttons">
+                  <button type="button" id="delegate-generate-codes" class="primary-btn">
+                    Belépőkódok generálása
+                  </button>
+                  <button type="button" id="delegate-download-codes" class="ghost-btn">
+                    PDF letöltése
+                  </button>
+                </div>
               </div>
+              <p
+                id="delegate-code-status"
+                class="status delegate-code-status action-status"
+                role="status"
+                hidden
+              ></p>
+              <div id="delegate-code-list" class="delegate-code-list"></div>
             </div>
-            <p
-              id="delegate-code-status"
-              class="status delegate-code-status action-status"
-              role="status"
-              hidden
-            ></p>
-            <div id="delegate-code-list" class="delegate-code-list"></div>
-          </div>
-          <div class="table-scroll">
-            <table class="delegate-table">
-              <thead>
-                <tr>
-                  <th>Szervezet</th>
-                  <th>Jelenlegi delegáltak</th>
-                  <th>Delegáltak kiválasztása</th>
-                </tr>
-              </thead>
-              <tbody id="delegate-table-body"></tbody>
-            </table>
+            <div class="table-scroll">
+              <table class="delegate-table">
+                <thead>
+                  <tr>
+                    <th>Szervezet</th>
+                    <th>Jelenlegi delegáltak</th>
+                    <th>Delegáltak kiválasztása</th>
+                  </tr>
+                </thead>
+                <tbody id="delegate-table-body"></tbody>
+              </table>
+            </div>
           </div>
         </section>
       </main>
