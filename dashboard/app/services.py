@@ -811,9 +811,11 @@ def send_issue_report_email(
     if page_url:
         preview = f"{preview} – {page_url}" if preview else page_url
 
+    escaped_message = html.escape(clean_message).replace("\n", "<br />")
+
     html_lines = [
         f"<p><strong>Felhasználó:</strong> {html.escape(reporter_name)}</p>",
-        f"<p><strong>Üzenet:</strong><br />{html.escape(clean_message).replace('\n', '<br />')}</p>",
+        f"<p><strong>Üzenet:</strong><br />{escaped_message}</p>",
     ]
     text_lines = [
         f"Felhasználó: {reporter_name}",
