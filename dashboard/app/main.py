@@ -106,6 +106,7 @@ from .services import (
     delegate_lock_state,
     delegates_for_event,
     delete_organization,
+    delete_member_invitation,
     delete_voting_event,
     delete_user_account,
     delete_contact_invitation,
@@ -3069,6 +3070,54 @@ def remove_organization_member_endpoint(
             status_code = status.HTTP_404_NOT_FOUND
         else:
             status_code = status.HTTP_400_BAD_REQUEST
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+
+    db.commit()
+    return detail
+
+
+@app.delete(
+    "/api/organizations/{organization_id}/invitations/{invitation_id}",
+    response_model=OrganizationDetail,
+    responses={
+        401: {"model": ErrorResponse},
+        403: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+        400: {"model": ErrorResponse},
+    },
+)
+def delete_member_invitation_endpoint(
+    organization_id: int,
+    invitation_id: int,
+    db: DatabaseDependency,
+    user: Annotated[User, Depends(get_session_user)],
+) -> OrganizationDetail:
+    ensure_organization_membership(user, organization_id)
+    if not (user.is_admin or user.is_organization_contact):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Csak a szervezet kapcsolattartója vonhat vissza tagmeghívókat.",
+        )
+
+    try:
+        delete_member_invitation(
+            db, organization_id=organization_id, invitation_id=invitation_id
+        )
+        db.flush()
+        organization = organization_with_members(db, organization_id)
+        active_event = get_active_voting_event(db)
+        events = upcoming_voting_events(db)
+        site_settings = get_site_settings(db)
+        detail = build_organization_detail(
+            organization, active_event=active_event, events=events, settings=site_settings
+        )
+    except RegistrationError as exc:
+        db.rollback()
+        detail = str(exc)
+        lowered = detail.lower()
+        status_code = (
+            status.HTTP_404_NOT_FOUND if "nem található" in lowered else status.HTTP_400_BAD_REQUEST
+        )
         raise HTTPException(status_code=status_code, detail=detail) from exc
 
     db.commit()

@@ -537,6 +537,7 @@ function renderInvitations(detail, sessionUser) {
   if (!invitationCard || !invitationList) {
     return;
   }
+  bindInvitationActions();
   const isContact = hasContactPrivileges(detail, sessionUser);
   toggleContactActions(isContact);
   if (!isContact) {
@@ -584,10 +585,93 @@ function renderInvitations(detail, sessionUser) {
       ? `Meghívva: ${timestamp}`
       : "Meghívás folyamatban";
 
+    const actions = document.createElement("div");
+    actions.classList.add("pending-invite-actions");
+
+    const revokeButton = document.createElement("button");
+    revokeButton.type = "button";
+    revokeButton.classList.add("danger-btn", "ghost-btn");
+    revokeButton.dataset.revokeInvite = "1";
+    revokeButton.dataset.invitationId = String(invite.id);
+    revokeButton.dataset.inviteEmail = invite.email || "";
+    revokeButton.textContent = "Meghívás visszavonása";
+
+    const statusEl = document.createElement("p");
+    statusEl.classList.add("status", "action-status", "pending-invite-status");
+    statusEl.setAttribute("role", "status");
+
+    actions.appendChild(revokeButton);
+    actions.appendChild(statusEl);
+
     card.appendChild(header);
     card.appendChild(created);
+    card.appendChild(actions);
     invitationList.appendChild(card);
   });
+}
+
+function bindInvitationActions() {
+  if (!invitationList || invitationList.dataset.actionsBound === "1") {
+    return;
+  }
+
+  invitationList.addEventListener("click", async (event) => {
+    const button = event.target.closest("button[data-revoke-invite]");
+    if (!button || !invitationList.contains(button)) {
+      return;
+    }
+
+    event.preventDefault();
+    if (!organizationId || !cachedSessionUser) {
+      return;
+    }
+
+    const invitationId = Number.parseInt(button.dataset.invitationId || "", 10);
+    if (!Number.isInteger(invitationId)) {
+      return;
+    }
+
+    const targetEmail = button.dataset.inviteEmail || "";
+    const confirmMessage = targetEmail
+      ? `Biztosan visszavonod ${targetEmail} meghívását?`
+      : "Biztosan visszavonod a meghívást?";
+    if (!window.confirm(confirmMessage)) {
+      return;
+    }
+
+    const card = button.closest(".pending-invite-card");
+    const statusEl = card?.querySelector(".pending-invite-status");
+    setActionStatus(statusEl, "Meghívás visszavonása folyamatban...", "");
+    button.disabled = true;
+
+    try {
+      const detail = await requestJSON(
+        `/api/organizations/${organizationId}/invitations/${invitationId}`,
+        { method: "DELETE" },
+      );
+      cachedOrganizationDetail = detail;
+      setActionStatus(statusEl, "Meghívás visszavonva.", "success");
+      setTimeout(() => {
+        if (!cachedOrganizationDetail || !cachedSessionUser) {
+          return;
+        }
+        renderInvitations(cachedOrganizationDetail, cachedSessionUser);
+      }, 500);
+    } catch (error) {
+      const message =
+        error?.message || "Nem sikerült visszavonni a meghívót. Próbáld újra később.";
+      setActionStatus(statusEl, message, "error");
+      if (error?.status === 401 || error?.status === 403) {
+        handleAuthError(error);
+      }
+    } finally {
+      if (document.body.contains(button)) {
+        button.disabled = false;
+      }
+    }
+  });
+
+  invitationList.dataset.actionsBound = "1";
 }
 
 function collectDelegateIds(form) {

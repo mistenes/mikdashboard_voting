@@ -1950,6 +1950,20 @@ def delete_contact_invitation(
     session.delete(invitation)
 
 
+def delete_member_invitation(
+    session: Session, *, organization_id: int, invitation_id: int
+) -> None:
+    invitation = session.get(OrganizationInvitation, invitation_id)
+    if invitation is None or invitation.organization_id != organization_id:
+        raise RegistrationError("Nem található tagmeghívó")
+    if invitation.role != InvitationRole.member:
+        raise RegistrationError("Ez a meghívó nem tag szerepkörhöz tartozik")
+    if invitation.accepted_at is not None:
+        raise RegistrationError("A meghívó már felhasználásra került")
+
+    session.delete(invitation)
+
+
 def pending_invitations(
     session: Session, *, organization_id: int, role: InvitationRole | None = None
 ) -> list[OrganizationInvitation]:

@@ -2164,6 +2164,19 @@ button:disabled {
   font-size: 0.9rem;
 }
 
+.pending-invite-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.pending-invite-actions .pending-invite-status {
+  margin: 0;
+  flex: 1 1 220px;
+}
+
 .pending-invite-empty {
   margin: 0;
   padding: 24px;
