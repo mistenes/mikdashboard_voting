@@ -108,6 +108,7 @@ from .services import (
     delete_organization,
     delete_voting_event,
     delete_user_account,
+    delete_contact_invitation,
     get_active_password_reset_token,
     get_active_voting_event,
     get_invitation_by_token,
@@ -2191,6 +2192,50 @@ def create_contact_invitation_endpoint(
                 "sent_via": "existing-user",
             }
         )
+    return detail
+
+
+@app.delete(
+    "/api/admin/organizations/{organization_id}/contact-invitations/{invitation_id}",
+    response_model=OrganizationDetail,
+    responses={
+        401: {"model": ErrorResponse},
+        403: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+        400: {"model": ErrorResponse},
+    },
+)
+def delete_contact_invitation_endpoint(
+    organization_id: int,
+    invitation_id: int,
+    db: DatabaseDependency,
+    admin: Annotated[User, Depends(require_admin)],
+) -> OrganizationDetail:
+    del admin  # explicit auth dependency
+    try:
+        delete_contact_invitation(
+            db,
+            organization_id=organization_id,
+            invitation_id=invitation_id,
+        )
+        db.flush()
+        organization = organization_with_members(db, organization_id)
+        active_event = get_active_voting_event(db)
+        site_settings = get_site_settings(db)
+        detail = build_organization_detail(
+            organization, active_event=active_event, settings=site_settings
+        )
+    except RegistrationError as exc:
+        db.rollback()
+        detail = str(exc)
+        lowered = detail.lower()
+        if "nem található" in lowered:
+            status_code = status.HTTP_404_NOT_FOUND
+        else:
+            status_code = status.HTTP_400_BAD_REQUEST
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+
+    db.commit()
     return detail
 
 

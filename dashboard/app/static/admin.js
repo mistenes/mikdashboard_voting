@@ -857,6 +857,26 @@ function renderOrganizations(items) {
         contactStatus === "invited" ? "Meghívó újraküldése" : "Kapcsolattartó meghívása";
       contactActions.appendChild(contactSubmit);
 
+      if (contactStatus === "invited" && org.contact?.invitation?.id) {
+        const cancelInvite = document.createElement("button");
+        cancelInvite.type = "button";
+        cancelInvite.classList.add("ghost-btn");
+        cancelInvite.textContent = "Meghívó visszavonása";
+        cancelInvite.addEventListener("click", async () => {
+          try {
+            await requestJSON(
+              `/api/admin/organizations/${org.id}/contact-invitations/${org.contact.invitation.id}`,
+              { method: "DELETE" },
+            );
+            setStatus("Kapcsolattartó meghívó visszavonva.", "success", cancelInvite);
+            await loadOrganizations();
+          } catch (error) {
+            handleAuthError(error, cancelInvite);
+          }
+        });
+        contactActions.appendChild(cancelInvite);
+      }
+
       contactForm.appendChild(contactEmailLabel);
       contactForm.appendChild(contactEmailInput);
       contactForm.appendChild(contactFirstLabel);
