@@ -2635,6 +2635,10 @@ body[data-invite-page] .invite-form-card .status {
   padding: 20px;
 }
 
+.issue-reporter__overlay[hidden] {
+  display: none !important;
+}
+
 .issue-reporter__dialog {
   background: #fff;
   border-radius: 18px;
