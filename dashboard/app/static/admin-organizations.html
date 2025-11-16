@@ -43,52 +43,74 @@
         </header>
         <p id="admin-status" class="status" role="status"></p>
 
-        <section class="auth-card" aria-labelledby="add-organization-title">
-          <div class="section-header">
-            <h2 id="add-organization-title">Új szervezet hozzáadása</h2>
-            <p class="muted">Adj meg legalább egy 2 karakteres nevet és opcionálisan banki adatokat.</p>
+        <section
+          class="auth-card collapsible collapsed"
+          aria-labelledby="add-organization-title"
+          data-collapsible="add-organization"
+        >
+          <header class="section-header collapsible-header">
+            <div>
+              <h2 id="add-organization-title">Új szervezet hozzáadása</h2>
+              <p class="muted">
+                Adj meg legalább egy 2 karakteres nevet és opcionálisan banki adatokat.
+              </p>
+            </div>
+            <button
+              type="button"
+              class="collapse-toggle"
+              aria-expanded="false"
+              aria-controls="add-organization-body"
+              data-collapse-toggle
+              data-collapsed-label="Űrlap megnyitása"
+              data-expanded-label="Űrlap elrejtése"
+            >
+              <span class="collapse-toggle-label" data-collapse-text>Űrlap megnyitása</span>
+              <span class="chevron-icon" aria-hidden="true"></span>
+            </button>
+          </header>
+          <div id="add-organization-body" class="collapsible-body" data-collapse-body hidden>
+            <form id="add-organization-form" class="organization-form">
+              <div class="form-grid">
+                <label for="new-organization-name">Szervezet neve</label>
+                <input
+                  type="text"
+                  id="new-organization-name"
+                  name="name"
+                  minlength="2"
+                  maxlength="255"
+                  required
+                  placeholder="Pl. NIT"
+                />
+                <label for="new-organization-bank">Bank neve (opcionális)</label>
+                <input
+                  type="text"
+                  id="new-organization-bank"
+                  name="bank_name"
+                  maxlength="255"
+                  placeholder="Pl. Magyar Bank"
+                />
+                <label for="new-organization-account">Bankszámlaszám (opcionális)</label>
+                <input
+                  type="text"
+                  id="new-organization-account"
+                  name="bank_account_number"
+                  maxlength="255"
+                  placeholder="Pl. 11700000-00000000"
+                />
+                <label for="new-organization-instructions">Utalási megjegyzés (opcionális)</label>
+                <textarea
+                  id="new-organization-instructions"
+                  name="payment_instructions"
+                  rows="3"
+                  maxlength="500"
+                  placeholder="Pl. Közlemény: Név + tagsági díj"
+                ></textarea>
+              </div>
+              <div class="form-row">
+                <button type="submit" class="primary-btn">Szervezet létrehozása</button>
+              </div>
+            </form>
           </div>
-          <form id="add-organization-form" class="organization-form">
-            <div class="form-grid">
-              <label for="new-organization-name">Szervezet neve</label>
-              <input
-                type="text"
-                id="new-organization-name"
-                name="name"
-                minlength="2"
-                maxlength="255"
-                required
-                placeholder="Pl. NIT"
-              />
-              <label for="new-organization-bank">Bank neve (opcionális)</label>
-              <input
-                type="text"
-                id="new-organization-bank"
-                name="bank_name"
-                maxlength="255"
-                placeholder="Pl. Magyar Bank"
-              />
-              <label for="new-organization-account">Bankszámlaszám (opcionális)</label>
-              <input
-                type="text"
-                id="new-organization-account"
-                name="bank_account_number"
-                maxlength="255"
-                placeholder="Pl. 11700000-00000000"
-              />
-              <label for="new-organization-instructions">Utalási megjegyzés (opcionális)</label>
-              <textarea
-                id="new-organization-instructions"
-                name="payment_instructions"
-                rows="3"
-                maxlength="500"
-                placeholder="Pl. Közlemény: Név + tagsági díj"
-              ></textarea>
-            </div>
-            <div class="form-row">
-              <button type="submit" class="primary-btn">Szervezet létrehozása</button>
-            </div>
-          </form>
         </section>
 
         <section class="organizations-wrapper" aria-labelledby="organizations-title">

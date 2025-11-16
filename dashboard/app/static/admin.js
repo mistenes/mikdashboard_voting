@@ -140,6 +140,38 @@ function setDelegateCodeStatus(message = "", type = "") {
   delegateCodeStatus.hidden = !message;
 }
 
+function setCollapsibleState(container, trigger, body, expanded) {
+  const isExpanded = Boolean(expanded);
+  if (trigger) {
+    trigger.setAttribute("aria-expanded", isExpanded ? "true" : "false");
+    const labelTarget = trigger.querySelector("[data-collapse-text]");
+    const label = isExpanded
+      ? trigger.getAttribute("data-expanded-label")
+      : trigger.getAttribute("data-collapsed-label");
+    if (labelTarget && label) {
+      labelTarget.textContent = label;
+    }
+  }
+  if (body) {
+    body.hidden = !isExpanded;
+  }
+  if (container) {
+    container.classList.toggle("collapsed", !isExpanded);
+    container.classList.toggle("expanded", isExpanded);
+  }
+}
+
+function attachCollapsible(container, trigger, body, defaultExpanded = false) {
+  if (!trigger || !body) {
+    return;
+  }
+  setCollapsibleState(container, trigger, body, defaultExpanded);
+  trigger.addEventListener("click", () => {
+    const isExpanded = trigger.getAttribute("aria-expanded") === "true";
+    setCollapsibleState(container, trigger, body, !isExpanded);
+  });
+}
+
 function toDateTimeLocalValue(value) {
   if (!value) {
     return "";
@@ -508,12 +540,19 @@ function renderOrganizations(items) {
 
   items.forEach((org) => {
     const card = document.createElement("article");
-    card.classList.add("organization-card");
+    card.classList.add("organization-card", "collapsible", "collapsed");
+
+    const bodyId = `organization-body-${org.id}`;
+    const orgBody = document.createElement("div");
+    orgBody.classList.add("organization-body", "collapsible-body");
+    orgBody.id = bodyId;
+    orgBody.hidden = true;
 
     const header = document.createElement("header");
-    header.classList.add("organization-head");
+    header.classList.add("organization-head", "collapsible-header");
 
     const titleWrap = document.createElement("div");
+    titleWrap.classList.add("organization-title");
     const title = document.createElement("h3");
     title.textContent = org.name;
     const subtitle = document.createElement("p");
@@ -521,6 +560,22 @@ function renderOrganizations(items) {
     subtitle.textContent = `${org.member_count} tag`;
     titleWrap.appendChild(title);
     titleWrap.appendChild(subtitle);
+
+    const collapseButton = document.createElement("button");
+    collapseButton.type = "button";
+    collapseButton.classList.add("collapse-toggle");
+    collapseButton.setAttribute("aria-expanded", "false");
+    collapseButton.setAttribute("aria-controls", bodyId);
+    collapseButton.setAttribute("data-collapsed-label", "Részletek megnyitása");
+    collapseButton.setAttribute("data-expanded-label", "Részletek elrejtése");
+    const collapseText = document.createElement("span");
+    collapseText.classList.add("collapse-toggle-label");
+    collapseText.setAttribute("data-collapse-text", "");
+    const collapseIcon = document.createElement("span");
+    collapseIcon.classList.add("chevron-icon");
+    collapseIcon.setAttribute("aria-hidden", "true");
+    collapseButton.appendChild(collapseText);
+    collapseButton.appendChild(collapseIcon);
 
     const controls = document.createElement("div");
     controls.classList.add("organization-controls");
@@ -531,30 +586,35 @@ function renderOrganizations(items) {
       ? "Tagsági díj rendezve"
       : "Tagsági díj rendezetlen";
 
-    const toggleButton = document.createElement("button");
-    toggleButton.classList.add("primary-btn");
-    toggleButton.type = "button";
-    toggleButton.textContent = org.fee_paid
+    const feeToggleButton = document.createElement("button");
+    feeToggleButton.classList.add("primary-btn");
+    feeToggleButton.type = "button";
+    feeToggleButton.textContent = org.fee_paid
       ? "Állapot: rendezetté teszem"
       : "Állapot: rendezettre állítom";
-    toggleButton.addEventListener("click", async () => {
+    feeToggleButton.addEventListener("click", async () => {
       try {
         await requestJSON(`/api/admin/organizations/${org.id}/fee`, {
           method: "POST",
           body: JSON.stringify({ fee_paid: !org.fee_paid }),
         });
-        setStatus("Tagsági díj státusz frissítve.", "success", toggleButton);
+        setStatus("Tagsági díj státusz frissítve.", "success", feeToggleButton);
         await loadOrganizations();
       } catch (error) {
-        handleAuthError(error, toggleButton);
+        handleAuthError(error, feeToggleButton);
       }
     });
 
     controls.appendChild(feeBadge);
-    controls.appendChild(toggleButton);
+    controls.appendChild(feeToggleButton);
+
+    const headActions = document.createElement("div");
+    headActions.classList.add("organization-head-actions");
+    headActions.appendChild(collapseButton);
+    headActions.appendChild(controls);
 
     header.appendChild(titleWrap);
-    header.appendChild(controls);
+    header.appendChild(headActions);
 
     const bankSection = document.createElement("section");
     bankSection.classList.add("organization-bank");
@@ -911,12 +971,15 @@ function renderOrganizations(items) {
 
     footer.appendChild(deleteButton);
 
+    orgBody.appendChild(bankSection);
+    orgBody.appendChild(contactSection);
+    orgBody.appendChild(invitationSection);
+    orgBody.appendChild(membersSection);
+    orgBody.appendChild(footer);
+
     card.appendChild(header);
-    card.appendChild(bankSection);
-    card.appendChild(contactSection);
-    card.appendChild(invitationSection);
-    card.appendChild(membersSection);
-    card.appendChild(footer);
+    card.appendChild(orgBody);
+    attachCollapsible(card, collapseButton, orgBody);
 
     container.appendChild(card);
   });
@@ -973,10 +1036,21 @@ async function confirmEventDeletion(title) {
   return second !== null && second.trim().toUpperCase() === "ESEMÉNY TÖRLÉSE";
 }
 
+function initAddOrganizationCollapsible() {
+  const section = document.querySelector('[data-collapsible="add-organization"]');
+  if (!section) {
+    return;
+  }
+  const trigger = section.querySelector("[data-collapse-toggle]");
+  const body = section.querySelector("[data-collapse-body]");
+  attachCollapsible(section, trigger, body);
+}
+
 async function initOrganizationsPage() {
   if (!ensureAdminSession()) {
     return;
   }
+  initAddOrganizationCollapsible();
   await loadOrganizations();
 
   const addOrganizationForm = document.querySelector("#add-organization-form");
