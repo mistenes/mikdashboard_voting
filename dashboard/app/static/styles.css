@@ -15,11 +15,9 @@ body {
 }
 
 body[data-auth-page="password-change"] {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.12), rgba(14, 165, 233, 0.12));
+  background: radial-gradient(circle at top left, rgba(99, 102, 241, 0.2), transparent 55%),
+    radial-gradient(circle at bottom right, rgba(14, 165, 233, 0.18), transparent 60%),
+    #eef2ff;
 }
 
 .auth-container {
@@ -31,38 +29,17 @@ body[data-auth-page="password-change"] {
   backdrop-filter: blur(16px);
 }
 
-.password-change-card {
-  width: min(520px, 100%);
-  padding: clamp(24px, 5vw, 40px);
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-}
-
-.password-change-card__header {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.password-change-card__header .eyebrow {
+.eyebrow {
   margin: 0;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   font-weight: 600;
-  color: #4c1d95;
   font-size: 0.85rem;
+  color: #4c1d95;
 }
 
-.password-change-card__header h1 {
-  margin: 0;
-  font-size: 1.75rem;
-}
-
-.password-change-card__header .lead {
-  margin: 0;
-  color: #475467;
-  line-height: 1.6;
+.auth-hero .eyebrow {
+  color: rgba(248, 250, 252, 0.8);
 }
 
 .auth-summary {
