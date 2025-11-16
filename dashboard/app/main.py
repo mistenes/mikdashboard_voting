@@ -29,6 +29,7 @@ from .models import (
     InvitationRole,
     Organization,
     OrganizationInvitation,
+    SessionToken,
     SiteSettings,
     User,
     VotingAccessCode,
@@ -291,6 +292,7 @@ def startup() -> None:
     ensure_name_columns()
     ensure_event_metadata_columns()
     ensure_delegate_uniqueness_constraints()
+    ensure_session_token_expiration_column()
     seed_admin_user()
     app.state.email_queue = []
 
@@ -459,6 +461,23 @@ def ensure_delegate_uniqueness_constraints() -> None:
             connection.execute(text("DROP INDEX IF EXISTS uq_event_org"))
         else:
             connection.execute(text("ALTER TABLE event_delegates DROP CONSTRAINT uq_event_org"))
+
+
+def ensure_session_token_expiration_column() -> None:
+    with engine.begin() as connection:
+        inspector = inspect(connection)
+        columns = {column["name"] for column in inspector.get_columns("session_tokens")}
+        if "expires_at" in columns:
+            return
+
+        connection.execute(
+            text("ALTER TABLE session_tokens ADD COLUMN expires_at TIMESTAMP")
+        )
+        expiration = SessionToken.default_expiration()
+        connection.execute(
+            text("UPDATE session_tokens SET expires_at = :expires_at WHERE expires_at IS NULL"),
+            {"expires_at": expiration},
+        )
 
 
 def _base64url_encode(data: bytes) -> str:
