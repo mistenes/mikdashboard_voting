@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from functools import lru_cache
 from io import BytesIO
 from typing import Iterable, List, Literal, Optional
+from zipfile import BadZipFile, ZipFile
 
 import logging
 import secrets
@@ -14,6 +16,8 @@ import httpx
 
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
 
 from sqlalchemy import case, delete, func, select
@@ -43,12 +47,126 @@ from .security import hash_password, verify_password
 logger = logging.getLogger(__name__)
 
 
+ELMS_SANS_DOWNLOAD_SOURCES: tuple[tuple[str, str], ...] = (
+    (
+        "zip",
+        "https://fonts.google.com/download?family=Elms%20Sans",
+    ),
+    (
+        "ttf",
+        "https://github.com/google/fonts/raw/main/ofl/elmssans/ElmsSans%5Bwght%5D.ttf",
+    ),
+)
+
+ELMS_SANS_REGULAR_FONT_NAME = "ElmsSans-Regular"
+ELMS_SANS_BOLD_FONT_NAME = "ElmsSans-Bold"
+
+
 DELEGATE_TIMEZONE = ZoneInfo("Europe/Budapest")
 
 ACCESS_CODE_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
 ACCESS_CODE_LENGTH = 8
 ACCESS_CODES_PER_PAGE = 16
 SITE_SETTINGS_SINGLETON_ID = 1
+
+
+def _parse_elms_sans_zip(payload: bytes) -> dict[str, bytes]:
+    fonts: dict[str, bytes] = {}
+    try:
+        with ZipFile(BytesIO(payload)) as archive:
+            for member in archive.namelist():
+                lower_name = member.lower()
+                if lower_name.endswith("elmssans-regular.ttf"):
+                    fonts["regular"] = archive.read(member)
+                elif lower_name.endswith("elmssans-bold.ttf"):
+                    fonts["bold"] = archive.read(member)
+                elif lower_name.endswith("elmssans-variablefont_wght.ttf") or lower_name.endswith(
+                    "elmssans[wght].ttf"
+                ):
+                    data = archive.read(member)
+                    fonts.setdefault("regular", data)
+                    fonts.setdefault("bold", data)
+    except BadZipFile as exc:
+        raise RuntimeError("Érvénytelen Elms Sans ZIP archívum") from exc
+    return fonts
+
+
+def _parse_elms_sans_ttf(payload: bytes) -> dict[str, bytes]:
+    if not payload:
+        return {}
+    return {
+        "regular": payload,
+        "bold": payload,
+    }
+
+
+@lru_cache(maxsize=1)
+def _download_elms_sans_fonts() -> dict[str, bytes]:
+    errors: list[str] = []
+    for source_type, url in ELMS_SANS_DOWNLOAD_SOURCES:
+        try:
+            response = httpx.get(url, timeout=20)
+            response.raise_for_status()
+            if source_type == "zip":
+                fonts = _parse_elms_sans_zip(response.content)
+            else:
+                fonts = _parse_elms_sans_ttf(response.content)
+        except Exception as exc:  # pragma: no cover - network error handling
+            errors.append(f"{url}: {exc}")
+            continue
+
+        if fonts:
+            return fonts
+        errors.append(f"{url}: nem találtunk felhasználható betűkészletet")
+
+    raise RuntimeError("Nem sikerült letölteni az Elms Sans betűt: " + "; ".join(errors))
+
+
+@lru_cache(maxsize=1)
+def _ensure_elms_sans_font_names() -> tuple[str, str]:
+    fonts = _download_elms_sans_fonts()
+    registered = set(pdfmetrics.getRegisteredFontNames())
+
+    if ELMS_SANS_REGULAR_FONT_NAME not in registered:
+        regular_bytes = fonts.get("regular")
+        if not regular_bytes:
+            raise RuntimeError("Hiányzik az Elms Sans regular változata")
+        pdfmetrics.registerFont(TTFont(ELMS_SANS_REGULAR_FONT_NAME, BytesIO(regular_bytes)))
+
+    if ELMS_SANS_BOLD_FONT_NAME not in registered:
+        bold_bytes = fonts.get("bold") or fonts.get("regular")
+        if not bold_bytes:
+            raise RuntimeError("Hiányzik az Elms Sans bold változata")
+        pdfmetrics.registerFont(TTFont(ELMS_SANS_BOLD_FONT_NAME, BytesIO(bold_bytes)))
+
+    return ELMS_SANS_REGULAR_FONT_NAME, ELMS_SANS_BOLD_FONT_NAME
+
+
+def _get_elms_sans_font_names() -> tuple[str, str]:
+    try:
+        return _ensure_elms_sans_font_names()
+    except Exception as exc:  # pragma: no cover - fallback when fonts unreachable
+        logger.warning("Nem sikerült letölteni az Elms Sans betűt, Helvetica lesz használva: %s", exc)
+        return "Helvetica", "Helvetica-Bold"
+
+
+def _fit_text_within_width(
+    text: str,
+    font_name: str,
+    preferred_size: float,
+    max_width: float,
+    *,
+    min_size: float = 8.0,
+) -> float:
+    if not text:
+        return preferred_size
+
+    width_at_preferred = pdfmetrics.stringWidth(text, font_name, preferred_size)
+    if width_at_preferred <= max_width or width_at_preferred == 0:
+        return preferred_size
+
+    scaled_size = max_width * preferred_size / width_at_preferred
+    return max(min_size, scaled_size)
 
 
 def _sanitize_optional_text(value: Optional[str]) -> Optional[str]:
@@ -1220,18 +1338,22 @@ def build_access_code_pdf(event: VotingEvent, codes: list[VotingAccessCode]) -> 
     rows = 4
     cell_width = (width - 2 * margin_x) / columns
     cell_height = (height - top_margin - margin_y) / rows
+    regular_font, bold_font = _get_elms_sans_font_names()
+    border_padding_x = 4 * mm
+    border_padding_y = 6 * mm
+    code_text_margin_x = 6 * mm
 
     def draw_page_header(page_number: int) -> None:
-        pdf.setFont("Helvetica-Bold", 16)
+        pdf.setFont(bold_font, 16)
         pdf.drawString(margin_x, height - margin_y + 5 * mm, event.title or "Szavazási esemény")
         if event.event_date:
-            pdf.setFont("Helvetica", 10)
+            pdf.setFont(regular_font, 10)
             pdf.drawString(
                 margin_x,
                 height - margin_y,
                 event.event_date.strftime("%Y.%m.%d %H:%M"),
             )
-        pdf.setFont("Helvetica", 9)
+        pdf.setFont(regular_font, 9)
         pdf.drawRightString(
             width - margin_x,
             margin_y / 2,
@@ -1240,7 +1362,7 @@ def build_access_code_pdf(event: VotingEvent, codes: list[VotingAccessCode]) -> 
 
     if not codes:
         draw_page_header(1)
-        pdf.setFont("Helvetica", 12)
+        pdf.setFont(regular_font, 12)
         pdf.drawString(
             margin_x,
             height - top_margin,
@@ -1262,18 +1384,30 @@ def build_access_code_pdf(event: VotingEvent, codes: list[VotingAccessCode]) -> 
         row = position // columns
         x = margin_x + column * cell_width
         y = height - top_margin - row * cell_height
+        rect_x = x + border_padding_x
+        rect_y = y - cell_height + border_padding_y
+        rect_width = cell_width - 2 * border_padding_x
+        rect_height = cell_height - 2 * border_padding_y
         pdf.setLineWidth(1)
-        pdf.roundRect(x, y - cell_height + 6 * mm, cell_width - 5 * mm, cell_height - 12 * mm, 6, stroke=1, fill=0)
-        pdf.setFont("Helvetica", 11)
+        pdf.roundRect(rect_x, rect_y, rect_width, rect_height, 6, stroke=1, fill=0)
+        pdf.setFont(regular_font, 11)
         pdf.drawCentredString(
-            x + (cell_width - 5 * mm) / 2,
-            y - cell_height + 12 * mm,
+            rect_x + rect_width / 2,
+            rect_y + rect_height - 8 * mm,
             "MIK egyszer használható belépőkód",
         )
-        pdf.setFont("Helvetica-Bold", 22)
+        code_max_width = rect_width - (2 * code_text_margin_x)
+        font_size = _fit_text_within_width(
+            code.code,
+            bold_font,
+            22,
+            code_max_width,
+            min_size=12,
+        )
+        pdf.setFont(bold_font, font_size)
         pdf.drawCentredString(
-            x + (cell_width - 5 * mm) / 2,
-            y - (cell_height / 2),
+            rect_x + rect_width / 2,
+            rect_y + rect_height / 2,
             code.code,
         )
 
