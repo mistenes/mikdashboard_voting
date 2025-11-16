@@ -56,6 +56,7 @@ from .schemas import (
     OrganizationDetail,
     OrganizationEventAssignment,
     OrganizationEventDelegate,
+    OrganizationBillingUpdate,
     OrganizationFeeUpdate,
     OrganizationInvitationRead,
     OrganizationMembershipInfo,
