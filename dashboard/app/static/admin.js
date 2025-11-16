@@ -1515,10 +1515,10 @@ function renderEventsList(events) {
     toggle.addEventListener("change", async () => {
       await handleVotingAccessToggle(event, toggle);
     });
-    const toggleLabel = document.createElement("span");
-    toggleLabel.textContent = "Szavazási felület engedélyezése";
+    const accessToggleLabel = document.createElement("span");
+    accessToggleLabel.textContent = "Szavazási felület engedélyezése";
     toggleWrapper.appendChild(toggle);
-    toggleWrapper.appendChild(toggleLabel);
+    toggleWrapper.appendChild(accessToggleLabel);
     actions.appendChild(toggleWrapper);
 
     if (!event.is_active) {
