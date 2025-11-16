@@ -1,15 +1,66 @@
 const form = document.querySelector('#password-change-form');
-const statusEl = document.querySelector('#password-change-status');
+const summaryEl = document.querySelector('[data-summary]');
+const summaryTitleEl = summaryEl?.querySelector('[data-summary-title]');
+const summaryBodyEl = summaryEl?.querySelector('[data-summary-body]');
+const submitButton = form?.querySelector('[data-submit]');
+const defaultSubmitLabel = submitButton?.textContent?.trim() || 'Jelszó frissítése';
 
-function setStatus(message, type = '') {
-  if (!statusEl) {
+const SUMMARY_STATES = ['info', 'pending', 'success', 'error'];
+
+function setSummary(state, title, detail) {
+  if (!summaryEl) {
     return;
   }
-  statusEl.textContent = message || '';
-  statusEl.classList.remove('error', 'success');
-  if (type) {
-    statusEl.classList.add(type);
+  const nextState = SUMMARY_STATES.includes(state) ? state : 'info';
+  SUMMARY_STATES.forEach((variant) => summaryEl.classList.remove(`auth-summary--${variant}`));
+  summaryEl.classList.add(`auth-summary--${nextState}`);
+  if (summaryTitleEl && title) {
+    summaryTitleEl.textContent = title;
   }
+  if (summaryBodyEl && typeof detail === 'string') {
+    summaryBodyEl.textContent = detail;
+  }
+}
+
+function toggleBusy(isBusy, label) {
+  if (!submitButton) {
+    return;
+  }
+  submitButton.disabled = Boolean(isBusy);
+  submitButton.dataset.loading = isBusy ? 'true' : 'false';
+  submitButton.textContent = isBusy ? label || 'Jelszó frissítése…' : defaultSubmitLabel;
+}
+
+function clearFieldErrors() {
+  form?.querySelectorAll('[data-field]').forEach((field) => {
+    field.removeAttribute('data-invalid');
+    const errorEl = field.querySelector('[data-field-error]');
+    if (errorEl) {
+      errorEl.textContent = '';
+    }
+  });
+}
+
+function setFieldError(fieldName, message) {
+  const field = form?.querySelector(`[data-field="${fieldName}"]`);
+  if (!field) {
+    return;
+  }
+  if (message) {
+    field.setAttribute('data-invalid', 'true');
+  } else {
+    field.removeAttribute('data-invalid');
+  }
+  const errorEl = field.querySelector('[data-field-error]');
+  if (errorEl) {
+    errorEl.textContent = message || '';
+  }
+}
+
+function disableFormInputs(disabled) {
+  form?.querySelectorAll('input').forEach((input) => {
+    input.disabled = Boolean(disabled);
+  });
 }
 
 function requireSession() {
@@ -23,7 +74,7 @@ function requireSession() {
 
 const currentToken = requireSession();
 if (!currentToken) {
-  setStatus('A jelszó frissítéséhez jelentkezz be újra.', 'error');
+  setSummary('error', 'Lejárt munkamenet', 'A jelszó frissítéséhez jelentkezz be újra.');
 }
 
 form?.addEventListener('submit', async (event) => {
@@ -38,16 +89,31 @@ form?.addEventListener('submit', async (event) => {
   const newPassword = formData.get('newPassword');
   const confirmPassword = formData.get('confirmPassword');
 
+  clearFieldErrors();
+
   if (!currentPassword || !newPassword) {
-    setStatus('Minden mező kitöltése kötelező.', 'error');
+    if (!currentPassword) {
+      setFieldError('currentPassword', 'Add meg a jelenlegi jelszavad.');
+    }
+    if (!newPassword) {
+      setFieldError('newPassword', 'Add meg az új jelszavad.');
+    }
+    setSummary('error', 'Hiányzó adatok', 'Minden mező kitöltése kötelező.');
+    return;
+  }
+  if (newPassword?.length < 8) {
+    setFieldError('newPassword', 'Legalább 8 karakter hosszú jelszót adj meg.');
+    setSummary('error', 'Túl rövid jelszó', 'Válassz legalább 8 karakteres jelszót.');
     return;
   }
   if (newPassword !== confirmPassword) {
-    setStatus('Az új jelszavak nem egyeznek.', 'error');
+    setFieldError('confirmPassword', 'Az új jelszavak nem egyeznek.');
+    setSummary('error', 'Nem egyeznek a jelszavak', 'Győződj meg róla, hogy mindkét mezőben ugyanaz szerepel.');
     return;
   }
 
-  setStatus('Jelszó frissítése folyamatban...');
+  setSummary('pending', 'Jelszó frissítése folyamatban…', 'Kérjük, várj néhány másodpercet.');
+  toggleBusy(true);
 
   try {
     const response = await fetch('/api/change-password', {
@@ -62,28 +128,30 @@ form?.addEventListener('submit', async (event) => {
       }),
     });
 
+    let payload = null;
     if (!response.ok) {
-      let message = '';
       try {
-        const payload = await response.json();
-        message = payload?.detail || '';
+        payload = await response.json();
       } catch (_) {
-        message = await response.text();
+        payload = { detail: await response.text() };
       }
-      throw new Error(message || 'A jelszó frissítése nem sikerült.');
+      throw new Error(payload?.detail || 'A jelszó frissítése nem sikerült.');
     }
 
-    const payload = await response.json();
+    payload = payload || (await response.json());
     sessionStorage.setItem('authToken', payload.token);
     sessionStorage.setItem('mustChangePassword', payload.must_change_password ? '1' : '0');
 
-    setStatus(payload.message || 'A jelszavad frissült.', 'success');
+    disableFormInputs(true);
+    setSummary('success', payload.message || 'A jelszavad frissült.', 'Átirányítunk a vezérlőpultra.');
+    toggleBusy(true, 'Átirányítás...');
 
     setTimeout(() => {
       const isAdmin = sessionStorage.getItem('isAdmin') === '1';
       window.location.href = isAdmin ? '/admin' : '/';
     }, 1200);
   } catch (error) {
-    setStatus(error?.message || 'Nem sikerült frissíteni a jelszót.', 'error');
+    toggleBusy(false);
+    setSummary('error', 'Nem sikerült frissíteni a jelszót.', error?.message || 'Ismételd meg később.');
   }
 });

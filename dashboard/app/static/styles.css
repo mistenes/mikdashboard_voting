@@ -31,6 +31,157 @@ body[data-auth-page="password-change"] {
   backdrop-filter: blur(16px);
 }
 
+.password-change-card {
+  width: min(520px, 100%);
+  padding: clamp(24px, 5vw, 40px);
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.password-change-card__header {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.password-change-card__header .eyebrow {
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  color: #4c1d95;
+  font-size: 0.85rem;
+}
+
+.password-change-card__header h1 {
+  margin: 0;
+  font-size: 1.75rem;
+}
+
+.password-change-card__header .lead {
+  margin: 0;
+  color: #475467;
+  line-height: 1.6;
+}
+
+.auth-summary {
+  border-radius: 16px;
+  padding: 20px;
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  background: #f8f9ff;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.auth-summary__title {
+  margin: 0 0 6px;
+  font-weight: 600;
+}
+
+.auth-summary__detail {
+  margin: 0;
+  color: #475467;
+}
+
+.auth-summary--pending {
+  border-color: rgba(245, 158, 11, 0.4);
+  background: #fffaf0;
+}
+
+.auth-summary--success {
+  border-color: rgba(16, 185, 129, 0.5);
+  background: #ecfdf5;
+}
+
+.auth-summary--error {
+  border-color: rgba(239, 68, 68, 0.5);
+  background: #fef2f2;
+}
+
+.auth-guidance {
+  background: rgba(15, 23, 42, 0.03);
+  border-radius: 16px;
+  padding: 16px 20px;
+}
+
+.auth-guidance h2 {
+  margin: 0 0 8px;
+  font-size: 1rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #4c1d95;
+}
+
+.auth-guidance ul {
+  margin: 0;
+  padding-left: 18px;
+  color: #475467;
+  line-height: 1.5;
+}
+
+.auth-form.enhanced {
+  gap: 20px;
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.form-field label {
+  font-weight: 600;
+}
+
+.form-field[data-invalid='true'] label {
+  color: #b91c1c;
+}
+
+.form-field__error {
+  min-height: 20px;
+  margin: 0;
+  font-size: 0.9rem;
+  color: #b91c1c;
+}
+
+.auth-input {
+  width: 100%;
+}
+
+.auth-input__field {
+  border: 1px solid rgba(148, 163, 184, 0.5);
+  border-radius: 12px;
+  padding: 4px;
+  transition: border-color 0.2s ease;
+}
+
+.auth-input input {
+  width: 100%;
+  border: none;
+  padding: 10px;
+  font-size: 1rem;
+  background: transparent;
+}
+
+.auth-input input:focus {
+  outline: none;
+}
+
+.form-field[data-invalid='true'] .auth-input__field {
+  border-color: rgba(239, 68, 68, 0.6);
+}
+
+.form-footnote {
+  margin: 0;
+  font-size: 0.95rem;
+  color: #475467;
+  text-align: center;
+}
+
+[data-submit][data-loading='true'] {
+  opacity: 0.8;
+}
+
 .auth-form {
   display: flex;
   flex-direction: column;
