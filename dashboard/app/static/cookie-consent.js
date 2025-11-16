@@ -107,6 +107,7 @@ function initBetaBanner() {
 
   banner.appendChild(content);
   document.body.prepend(banner);
+  document.body.classList.add("has-beta-banner");
 }
 
 function initIssueReporter() {

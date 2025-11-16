@@ -2577,9 +2577,12 @@ body[data-invite-page] .invite-form-card .status {
 }
 
 .beta-banner {
-  position: sticky;
+  position: fixed;
   top: 0;
+  left: 0;
+  right: 0;
   z-index: 1200;
+  width: 100%;
   background: #fef3c7;
   color: #7c2d12;
   border-bottom: 1px solid #fcd34d;
@@ -2602,6 +2605,10 @@ body[data-invite-page] .invite-form-card .status {
 
 .beta-banner__text {
   line-height: 1.4;
+}
+
+.has-beta-banner {
+  padding-top: 56px;
 }
 
 .issue-reporter__trigger {
