@@ -828,6 +828,8 @@ button.sidebar-link {
   background: rgba(255, 255, 255, 0.85);
   box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
   transition: transform 0.2s ease, box-shadow 0.2s ease;
+  display: flex;
+  flex-direction: column;
 }
 
 .event-card:hover {
@@ -849,9 +851,49 @@ button.sidebar-link {
 .event-head {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   gap: 12px;
-  margin-bottom: 8px;
+  margin-bottom: 0;
+}
+
+.event-head-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.event-headline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.event-head-summary {
+  font-size: 0.85rem;
+  color: #475569;
+}
+
+.event-card-toggle {
+  margin-left: auto;
+}
+
+.event-card-body {
+  margin-top: 16px;
+  display: grid;
+  gap: 16px;
+}
+
+.event-card-body[hidden] {
+  display: none;
+}
+
+.event-card-collapsed .event-card-body {
+  display: none;
+}
+
+.event-card-expanded .event-card-body {
+  display: grid;
 }
 
 .event-meta {

@@ -44,6 +44,7 @@ const eventState = {
   events: [],
   delegates: [],
   selectedEventId: null,
+  expandedEventId: null,
   editingEventId: null,
   accessCodes: [],
   accessCodeSummary: null,
@@ -227,6 +228,23 @@ function mountDelegatePanel() {
   host.classList.add("delegate-panel-active");
 }
 
+function toggleEventCard(eventId) {
+  if (!Number.isFinite(eventId)) {
+    return;
+  }
+  if (eventState.expandedEventId === eventId) {
+    if (eventState.selectedEventId === eventId) {
+      closeDelegatePanel({ preserveExpansion: false });
+      return;
+    }
+    eventState.expandedEventId = null;
+    renderEventsList(eventState.events);
+    return;
+  }
+  eventState.expandedEventId = eventId;
+  renderEventsList(eventState.events);
+}
+
 async function openDelegatePanelForEvent(eventId, { scrollIntoView = true } = {}) {
   if (!ensureAdminSession(true)) {
     return;
@@ -235,9 +253,11 @@ async function openDelegatePanelForEvent(eventId, { scrollIntoView = true } = {}
     return;
   }
   delegatePanelDismissed = false;
-  const changed = eventState.selectedEventId !== eventId;
+  const selectionChanged = eventState.selectedEventId !== eventId;
+  const expansionChanged = eventState.expandedEventId !== eventId;
   eventState.selectedEventId = eventId;
-  if (changed) {
+  eventState.expandedEventId = eventId;
+  if (selectionChanged || expansionChanged) {
     renderEventsList(eventState.events);
   }
   await refreshEventDelegates();
@@ -252,9 +272,14 @@ async function openDelegatePanelForEvent(eventId, { scrollIntoView = true } = {}
   }
 }
 
-function closeDelegatePanel() {
+function closeDelegatePanel(options = {}) {
+  const { preserveExpansion = true } = options;
   delegatePanelDismissed = true;
   if (!eventState.selectedEventId) {
+    if (!preserveExpansion) {
+      eventState.expandedEventId = null;
+      renderEventsList(eventState.events);
+    }
     renderSelectedEventInfo();
     renderDelegateTable();
     renderDelegateLockControls();
@@ -266,6 +291,9 @@ function closeDelegatePanel() {
   eventState.delegates = [];
   eventState.accessCodes = [];
   eventState.accessCodeSummary = null;
+  if (!preserveExpansion) {
+    eventState.expandedEventId = null;
+  }
   renderEventsList(eventState.events);
   renderSelectedEventInfo();
   renderDelegateTable();
@@ -1336,21 +1364,76 @@ function renderEventsList(events) {
     if (eventState.selectedEventId === event.id) {
       card.classList.add("event-card-selected");
     }
+    const isExpanded = eventState.expandedEventId === event.id;
+    card.classList.toggle("event-card-expanded", isExpanded);
+    card.classList.toggle("event-card-collapsed", !isExpanded);
     card.dataset.eventId = String(event.id);
 
     const header = document.createElement("header");
     header.classList.add("event-head");
 
+    const headContent = document.createElement("div");
+    headContent.classList.add("event-head-main");
+
+    const headline = document.createElement("div");
+    headline.classList.add("event-headline");
+
     const title = document.createElement("h3");
     title.textContent = event.title;
-    header.appendChild(title);
+    headline.appendChild(title);
 
     const badge = document.createElement("span");
     badge.classList.add("badge");
     const votingEnabled = Boolean(event.is_voting_enabled);
     badge.classList.add(votingEnabled ? "badge-success" : "badge-muted");
     badge.textContent = votingEnabled ? "Aktív" : "Inaktív";
-    header.appendChild(badge);
+    headline.appendChild(badge);
+
+    headContent.appendChild(headline);
+
+    const summary = document.createElement("p");
+    summary.classList.add("muted", "event-head-summary");
+    const summaryParts = [];
+    const eventDateLabel = formatDateTime(event.event_date);
+    if (eventDateLabel) {
+      summaryParts.push(`Időpont: ${eventDateLabel}`);
+    }
+    const deadlineLabel = formatDateTime(event.delegate_deadline);
+    if (deadlineLabel) {
+      summaryParts.push(`Delegált határidő: ${deadlineLabel}`);
+    }
+    summaryParts.push(`Összes delegált: ${event.delegate_count}`);
+    if (event.delegate_limit) {
+      summaryParts.push(`Keret: ${event.delegate_limit}/szervezet`);
+    }
+    summary.textContent =
+      summaryParts.filter(Boolean).join(" • ") ||
+      "Nyisd meg a kártyát a részletek megtekintéséhez.";
+    headContent.appendChild(summary);
+
+    header.appendChild(headContent);
+
+    const toggleButton = document.createElement("button");
+    toggleButton.type = "button";
+    toggleButton.classList.add("collapse-toggle", "event-card-toggle");
+    toggleButton.setAttribute("aria-expanded", isExpanded ? "true" : "false");
+    const toggleLabel = document.createElement("span");
+    toggleLabel.classList.add("collapse-toggle-label");
+    toggleLabel.textContent = isExpanded
+      ? "Esemény bezárása"
+      : "Esemény megnyitása";
+    const toggleChevron = document.createElement("span");
+    toggleChevron.classList.add("chevron-icon");
+    toggleButton.appendChild(toggleLabel);
+    toggleButton.appendChild(toggleChevron);
+    toggleButton.addEventListener("click", () => {
+      toggleEventCard(event.id);
+    });
+    header.appendChild(toggleButton);
+
+    const body = document.createElement("div");
+    body.classList.add("event-card-body");
+    body.hidden = !isExpanded;
 
     const description = document.createElement("p");
     description.classList.add("muted");
@@ -1371,13 +1454,11 @@ function renderEventsList(events) {
 
     const details = document.createElement("ul");
     details.classList.add("event-details");
-    const eventDateLabel = formatDateTime(event.event_date);
     if (eventDateLabel) {
       const item = document.createElement("li");
       item.textContent = `Esemény időpontja: ${eventDateLabel}`;
       details.appendChild(item);
     }
-    const deadlineLabel = formatDateTime(event.delegate_deadline);
     if (deadlineLabel) {
       const item = document.createElement("li");
       item.textContent = `Delegált határidő: ${deadlineLabel}`;
@@ -1474,29 +1555,35 @@ function renderEventsList(events) {
     const delegateButton = document.createElement("button");
     delegateButton.type = "button";
     delegateButton.classList.add("primary-btn", "delegate-manage-trigger");
-    delegateButton.textContent =
-      eventState.selectedEventId === event.id
-        ? "Delegáltak megnyitva"
-        : "Delegáltak kezelése";
+    const isSelected = eventState.selectedEventId === event.id;
+    delegateButton.textContent = isSelected
+      ? "Delegáltak bezárása"
+      : "Delegáltak kezelése";
     delegateButton.setAttribute(
       "aria-pressed",
-      eventState.selectedEventId === event.id ? "true" : "false",
+      isSelected ? "true" : "false",
     );
     delegateButton.addEventListener("click", async () => {
+      if (eventState.selectedEventId === event.id) {
+        closeDelegatePanel();
+        return;
+      }
       await openDelegatePanelForEvent(event.id);
     });
     actions.appendChild(delegateButton);
 
-    card.appendChild(header);
-    card.appendChild(description);
-    card.appendChild(meta);
-    card.appendChild(details);
-    card.appendChild(actions);
+    body.appendChild(description);
+    body.appendChild(meta);
+    body.appendChild(details);
+    body.appendChild(actions);
 
     const delegateHost = document.createElement("div");
     delegateHost.classList.add("delegate-panel-host");
     delegateHost.dataset.delegateHost = String(event.id);
-    card.appendChild(delegateHost);
+    body.appendChild(delegateHost);
+
+    card.appendChild(header);
+    card.appendChild(body);
 
     eventListContainer.appendChild(card);
   });
@@ -1876,6 +1963,7 @@ async function refreshEventData(refreshOrganizations = false, preserveStatus = f
 
     if (!eventState.events.length) {
       eventState.selectedEventId = null;
+      eventState.expandedEventId = null;
       eventState.delegates = [];
       eventState.accessCodes = [];
       eventState.accessCodeSummary = null;
@@ -1901,6 +1989,13 @@ async function refreshEventData(refreshOrganizations = false, preserveStatus = f
         eventState.selectedEventId = activeEvent ? activeEvent.id : eventState.events[0].id;
         delegatePanelDismissed = false;
       }
+    }
+
+    const hasExpandedEvent =
+      Number.isFinite(eventState.expandedEventId) &&
+      eventState.events.some((event) => event.id === eventState.expandedEventId);
+    if (!hasExpandedEvent) {
+      eventState.expandedEventId = eventState.selectedEventId;
     }
 
     await refreshEventDelegates();
