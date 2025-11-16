@@ -362,6 +362,12 @@ class SimpleMessageResponse(BaseModel):
     message: str
 
 
+class IssueReportRequest(BaseModel):
+    name: constr(strip_whitespace=True, min_length=1, max_length=150)
+    message: constr(strip_whitespace=True, min_length=5, max_length=2000)
+    page_url: Optional[constr(strip_whitespace=True, max_length=500)] = None
+
+
 class VotingO2AuthResponse(BaseModel):
     redirect: AnyHttpUrl
     expires_in: int

@@ -7,6 +7,7 @@ from io import BytesIO
 from typing import Iterable, List, Literal, Optional
 from zipfile import BadZipFile, ZipFile
 
+import html
 import logging
 import secrets
 import string
@@ -779,7 +780,97 @@ def queue_admin_invitation_email(
         extra={"admin_email": recipient_email, "admin_id": getattr(admin, "id", None)},
     )
 
-    return login_link
+
+def send_issue_report_email(
+    *,
+    name: str,
+    message: str,
+    api_key: str | None = None,
+    sender_email: str | None = None,
+    sender_name: str | None = None,
+    recipient_email: str = "mistenes@me.com",
+    page_url: str | None = None,
+    user_agent: str | None = None,
+) -> None:
+    clean_message = (message or "").strip()
+    if not clean_message:
+        raise RegistrationError("Írd le röviden a tapasztalt hibát.")
+
+    reporter_name = (name or "").strip() or "Ismeretlen felhasználó"
+
+    if not api_key or not sender_email:
+        logger.error(
+            "Issue report email attempted without Brevo configuration; email will not be sent",
+            extra={"recipient_email": recipient_email},
+        )
+        raise RegistrationError(
+            "A hibajelentő jelenleg nem elérhető. Kérjük, próbáld meg később vagy jelezd a fejlesztőnek más csatornán."
+        )
+
+    preview = " ".join(clean_message.split())[:120]
+    if page_url:
+        preview = f"{preview} – {page_url}" if preview else page_url
+
+    html_lines = [
+        f"<p><strong>Felhasználó:</strong> {html.escape(reporter_name)}</p>",
+        f"<p><strong>Üzenet:</strong><br />{html.escape(clean_message).replace('\n', '<br />')}</p>",
+    ]
+    text_lines = [
+        f"Felhasználó: {reporter_name}",
+        "Üzenet:",
+        clean_message,
+    ]
+
+    if page_url:
+        html_lines.append(f"<p><strong>Oldal:</strong> {html.escape(page_url)}</p>")
+        text_lines.append(f"Oldal: {page_url}")
+
+    if user_agent:
+        html_lines.append(f"<p><strong>Böngésző:</strong> {html.escape(user_agent)}</p>")
+        text_lines.append(f"Böngésző: {user_agent}")
+
+    payload = {
+        "sender": {"email": sender_email, "name": sender_name or sender_email},
+        "to": [{"email": recipient_email, "name": "Fejlesztő"}],
+        "subject": f"MIK Dashboard hibajelentés – {preview or reporter_name}",
+        "htmlContent": "".join(html_lines),
+        "textContent": "\n".join(text_lines),
+    }
+
+    headers = {
+        "accept": "application/json",
+        "api-key": api_key,
+        "content-type": "application/json",
+    }
+
+    logger.info(
+        "Dispatching issue report email",
+        extra={"recipient_email": recipient_email, "reporter": reporter_name, "page_url": page_url},
+    )
+
+    try:
+        response = httpx.post(
+            "https://api.brevo.com/v3/smtp/email",
+            json=payload,
+            headers=headers,
+            timeout=15.0,
+        )
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        logger.exception("Issue report email request failed")
+        raise RegistrationError(
+            "Nem sikerült elküldeni a hibajelentést. Kérjük, próbáld újra később."
+        ) from exc
+
+    _log_brevo_delivery(
+        "issue_report",
+        response,
+        extra={
+            "recipient_email": recipient_email,
+            "reporter_name": reporter_name,
+            "page_url": page_url,
+        },
+    )
 
 
 def queue_password_reset_email(

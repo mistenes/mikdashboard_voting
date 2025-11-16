@@ -73,6 +73,7 @@ from .schemas import (
     RegistrationResponse,
     SessionUser,
     SimpleMessageResponse,
+    IssueReportRequest,
     VerificationResponse,
     VotingAccessCodeBatch,
     VotingAccessCodeGenerateRequest,
@@ -144,6 +145,7 @@ from .services import (
     voting_access_code_summary,
     reset_admin_temporary_password,
     delete_admin_account,
+    send_issue_report_email,
     VotingAccessCodeError,
     VotingAccessCodeUnavailableError,
 )
@@ -1750,6 +1752,33 @@ def logout(
         )
 
     return SimpleMessageResponse(message="Sikeres kijelentkezés")
+
+
+@app.post(
+    "/api/report-issue",
+    response_model=SimpleMessageResponse,
+    responses={400: {"model": ErrorResponse}},
+)
+def submit_issue_report(
+    payload: IssueReportRequest, request: Request
+) -> SimpleMessageResponse:
+    try:
+        send_issue_report_email(
+            name=payload.name,
+            message=payload.message,
+            api_key=BREVO_API_KEY,
+            sender_email=BREVO_SENDER_EMAIL,
+            sender_name=BREVO_SENDER_NAME,
+            page_url=payload.page_url or request.headers.get("referer") or str(request.url),
+            user_agent=request.headers.get("user-agent"),
+        )
+    except RegistrationError as exc:
+        detail = str(exc).strip() or "Nem sikerült elküldeni a hibajelentést."
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail) from exc
+
+    return SimpleMessageResponse(
+        message="Köszönjük! A hibajelentést továbbítottuk a fejlesztőnek."
+    )
 
 
 def _process_password_reset_request(
