@@ -1,3 +1,5 @@
+import "./cookie-consent.js";
+
 const registrationForm = document.querySelector("#registration-form");
 const registrationStatus = document.querySelector("#registration-status");
 const organizationSelect = document.querySelector("#org-select");

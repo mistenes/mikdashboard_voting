@@ -1,3 +1,5 @@
+import "./cookie-consent.js";
+
 const body = document.body;
 const pageType = body?.dataset?.adminPage || "overview";
 const adminStatus = document.querySelector("#admin-status");

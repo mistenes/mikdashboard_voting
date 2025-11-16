@@ -1,3 +1,5 @@
+import "./cookie-consent.js";
+
 const body = document.body;
 const pageType = body?.dataset?.memberPage || "tagok";
 const statusEl = document.querySelector("#member-status");

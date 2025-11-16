@@ -1,3 +1,5 @@
+import "./cookie-consent.js";
+
 const loginForm = document.querySelector("#login-form");
 const loginStatus = document.querySelector("#login-status");
 const emailInput = document.querySelector("#login-email");

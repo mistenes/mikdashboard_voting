@@ -1,3 +1,5 @@
+import "./cookie-consent.js";
+
 const form = document.querySelector('#password-change-form');
 const summaryEl = document.querySelector('[data-summary]');
 const summaryTitleEl = summaryEl?.querySelector('[data-summary-title]');

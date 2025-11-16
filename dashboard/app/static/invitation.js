@@ -1,3 +1,5 @@
+import "./cookie-consent.js";
+
 const statusEl = document.querySelector("#invite-status");
 const organizationEl = document.querySelector("#invite-organization");
 const emailEl = document.querySelector("#invite-email");
