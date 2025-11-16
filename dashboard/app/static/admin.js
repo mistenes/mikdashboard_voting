@@ -720,8 +720,8 @@ function renderOrganizations(items) {
     feeToggleButton.classList.add("primary-btn");
     feeToggleButton.type = "button";
     feeToggleButton.textContent = org.fee_paid
-      ? "Állapot: rendezetté teszem"
-      : "Állapot: rendezettre állítom";
+      ? "Fizetetlenre állítom"
+      : "Fizetettre állítom";
     feeToggleButton.addEventListener("click", async () => {
       try {
         await requestJSON(`/api/admin/organizations/${org.id}/fee`, {
