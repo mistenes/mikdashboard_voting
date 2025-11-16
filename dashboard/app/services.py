@@ -68,6 +68,7 @@ ACCESS_CODE_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
 ACCESS_CODE_LENGTH = 8
 ACCESS_CODES_PER_PAGE = 12
 SITE_SETTINGS_SINGLETON_ID = 1
+SESSION_TOKEN_TTL_HOURS = 24
 
 
 def _parse_access_code_font_zip(payload: bytes) -> dict[str, bytes]:
@@ -907,18 +908,32 @@ def verify_email(session: Session, token_value: str) -> User:
 
 
 def create_session_token(session: Session, *, user: User) -> SessionToken:
-    token = SessionToken(user=user)
+    session.query(SessionToken).where(SessionToken.user_id == user.id).delete()
+    token = SessionToken(
+        user=user, expires_at=SessionToken.default_expiration(SESSION_TOKEN_TTL_HOURS)
+    )
     session.add(token)
     session.flush()
     return token
 
 
 def resolve_session_user(session: Session, token_value: str) -> Optional[User]:
+    now = datetime.utcnow()
     stmt = select(SessionToken).where(SessionToken.token == token_value)
     session_token = session.scalar(stmt)
     if not session_token:
         return None
+    if session_token.expires_at <= now:
+        session.delete(session_token)
+        session.flush()
+        return None
     return session_token.user
+
+
+def revoke_session_token(session: Session, token_value: str) -> bool:
+    deleted = session.query(SessionToken).where(SessionToken.token == token_value).delete()
+    session.flush()
+    return bool(deleted)
 
 
 def authenticate_user(session: Session, *, email: str, password: str) -> User:

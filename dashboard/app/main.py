@@ -124,6 +124,7 @@ from .services import (
     build_access_code_pdf,
     reset_voting_events,
     remove_member_from_organization,
+    revoke_session_token,
     generate_voting_access_codes,
     resolve_session_user,
     search_organizations,
@@ -1702,6 +1703,34 @@ def login(request: LoginRequest, db: DatabaseDependency) -> LoginResponse:
         must_change_password=user.must_change_password,
         is_organization_contact=user.is_organization_contact,
     )
+
+
+@app.post(
+    "/api/logout",
+    response_model=SimpleMessageResponse,
+    responses={401: {"model": ErrorResponse}},
+)
+def logout(
+    credentials: Annotated[
+        HTTPAuthorizationCredentials | None, Depends(bearer_scheme)
+    ],
+    db: DatabaseDependency,
+) -> SimpleMessageResponse:
+    if credentials is None or credentials.scheme.lower() != "bearer":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Hiányzó vagy érvénytelen Bearer jogosultsági fejléc",
+        )
+
+    revoked = revoke_session_token(db, credentials.credentials)
+    db.commit()
+    if not revoked:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Érvénytelen vagy lejárt munkamenet token",
+        )
+
+    return SimpleMessageResponse(message="Sikeres kijelentkezés")
 
 
 def _process_password_reset_request(

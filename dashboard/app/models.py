@@ -144,8 +144,17 @@ class SessionToken(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     token = Column(String, unique=True, nullable=False, default=lambda: uuid.uuid4().hex)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    expires_at = Column(
+        DateTime,
+        nullable=False,
+        default=lambda: datetime.utcnow() + timedelta(hours=24),
+    )
 
     user = relationship("User")
+
+    @staticmethod
+    def default_expiration(hours: int = 24) -> datetime:
+        return datetime.utcnow() + timedelta(hours=hours)
 
 
 class VotingEvent(Base):
