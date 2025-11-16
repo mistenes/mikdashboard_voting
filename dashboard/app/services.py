@@ -66,7 +66,7 @@ DELEGATE_TIMEZONE = ZoneInfo("Europe/Budapest")
 
 ACCESS_CODE_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
 ACCESS_CODE_LENGTH = 8
-ACCESS_CODES_PER_PAGE = 16
+ACCESS_CODES_PER_PAGE = 12
 SITE_SETTINGS_SINGLETON_ID = 1
 
 
@@ -1331,17 +1331,17 @@ def build_access_code_pdf(event: VotingEvent, codes: list[VotingAccessCode]) -> 
     buffer = BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=A4)
     width, height = A4
-    margin_x = 20 * mm
-    margin_y = 25 * mm
-    top_margin = 35 * mm
-    columns = 4
+    margin_x = 25 * mm
+    margin_y = 30 * mm
+    top_margin = 45 * mm
+    columns = 3
     rows = 4
     cell_width = (width - 2 * margin_x) / columns
     cell_height = (height - top_margin - margin_y) / rows
     regular_font, bold_font = _get_elms_sans_font_names()
-    border_padding_x = 4 * mm
-    border_padding_y = 6 * mm
-    code_text_margin_x = 6 * mm
+    border_padding_x = 6 * mm
+    border_padding_y = 8 * mm
+    code_text_margin_x = 8 * mm
 
     def draw_page_header(page_number: int) -> None:
         pdf.setFont(bold_font, 16)
