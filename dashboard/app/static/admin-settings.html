@@ -40,6 +40,39 @@
         </header>
         <p id="admin-status" class="status" role="status"></p>
 
+        <section class="auth-card" aria-labelledby="bank-settings-title">
+          <div class="section-header">
+            <h2 id="bank-settings-title">Banki adatok</h2>
+            <p class="muted">
+              A tagsági díj rendezéséhez szükséges banki információk minden szervezetnél azonosak. A közlemény mező automatikusan a szervezet nevét jeleníti meg.
+            </p>
+          </div>
+          <form id="bank-settings-form" class="organization-bank-form">
+            <label for="global-bank-name">Bank neve</label>
+            <input
+              type="text"
+              id="global-bank-name"
+              name="bank_name"
+              maxlength="255"
+              placeholder="Pl. Magyar Bank"
+            />
+            <label for="global-bank-account">Bankszámlaszám</label>
+            <input
+              type="text"
+              id="global-bank-account"
+              name="bank_account_number"
+              maxlength="255"
+              placeholder="Pl. 11700000-00000000"
+            />
+            <p class="muted small-print">
+              A közlemény rovat minden esetben a szervezet nevét tartalmazza, így a tagok könnyen azonosíthatók.
+            </p>
+            <div class="organization-bank-actions">
+              <button type="submit" class="primary-btn">Banki adatok mentése</button>
+            </div>
+          </form>
+        </section>
+
         <section class="auth-card" aria-labelledby="event-reset-title">
           <div class="section-header">
             <h2 id="event-reset-title">Szavazási események alaphelyzetbe állítása</h2>

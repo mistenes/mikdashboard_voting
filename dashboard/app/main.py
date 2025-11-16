@@ -8,16 +8,19 @@ import logging
 import os
 import time
 from datetime import datetime
-from typing import Annotated, List
+from typing import Annotated, List, Optional
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
-from fastapi.responses import FileResponse
+from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response, status
+from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
+from markupsafe import Markup, escape
 from sqlalchemy.orm import Session
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import inspect, text
 
 import httpx
+from pydantic import ValidationError
 
 from .database import Base, SessionLocal, engine
 from .models import (
@@ -26,16 +29,21 @@ from .models import (
     InvitationRole,
     Organization,
     OrganizationInvitation,
+    SiteSettings,
     User,
+    VotingAccessCode,
     VotingEvent,
 )
 from .schemas import (
     ActiveEventInfo,
+    BankSettingsResponse,
+    BankSettingsUpdate,
     AdminDecisionRequest,
     AdminDecisionResponse,
     AdminUserCreateRequest,
     AdminUserCreateResponse,
     AdminUserRead,
+    DelegateLockUpdateRequest,
     ErrorResponse,
     EventDelegateAssignmentRequest,
     EventDelegateInfo,
@@ -43,12 +51,12 @@ from .schemas import (
     InvitationCreateRequest,
     LoginRequest,
     LoginResponse,
-    OrganizationBillingUpdate,
     OrganizationContactInfo,
     OrganizationCreateRequest,
     OrganizationDetail,
     OrganizationEventAssignment,
     OrganizationEventDelegate,
+    OrganizationBillingUpdate,
     OrganizationFeeUpdate,
     OrganizationInvitationRead,
     OrganizationMembershipInfo,
@@ -65,6 +73,10 @@ from .schemas import (
     SessionUser,
     SimpleMessageResponse,
     VerificationResponse,
+    VotingAccessCodeBatch,
+    VotingAccessCodeGenerateRequest,
+    VotingAccessCodeInfo,
+    VotingAccessCodeUserInfo,
     VotingAuthRequest,
     VotingAuthResponse,
     VotingEventAccessUpdate,
@@ -89,6 +101,7 @@ from .services import (
     create_session_token,
     create_voting_event,
     decide_registration,
+    delegate_lock_state,
     delegates_for_event,
     delete_organization,
     delete_voting_event,
@@ -105,25 +118,39 @@ from .services import (
     pending_registrations,
     queue_password_reset_email,
     queue_invitation_email,
+    queue_admin_invitation_email,
     queue_verification_email,
     register_user,
+    build_access_code_pdf,
     reset_voting_events,
     remove_member_from_organization,
+    generate_voting_access_codes,
     resolve_session_user,
     search_organizations,
     set_active_voting_event,
     set_event_delegates_for_organization,
+    set_delegate_lock_override,
     set_voting_event_accessibility,
-    set_organization_billing_details,
+    update_site_bank_settings,
+    get_site_settings,
+    validate_password_strength,
     set_organization_fee_status,
     update_voting_event,
+    redeem_voting_access_code,
     verify_email,
     verify_recaptcha,
+    voting_access_code_summary,
+    reset_admin_temporary_password,
+    delete_admin_account,
+    VotingAccessCodeError,
+    VotingAccessCodeUnavailableError,
 )
 from .security import hash_password
 
 
 logger = logging.getLogger(__name__)
+
+templates = Jinja2Templates(directory="app/templates")
 
 ADMIN_EMAILS = {
     email.strip().lower()
@@ -151,8 +178,16 @@ VOTING_APP_BASE_URL = (
 )
 VOTING_AUTH_TTL_SECONDS = int(os.getenv("VOTING_AUTH_TTL_SECONDS", "60"))
 BREVO_API_KEY = os.getenv("BREVO_API_KEY", "").strip()
-BREVO_SENDER_EMAIL = os.getenv("BREVO_SENDER_EMAIL", "").strip()
-BREVO_SENDER_NAME = os.getenv("BREVO_SENDER_NAME", "MIK Dashboard").strip() or "MIK Dashboard"
+_DEFAULT_BREVO_SENDER_EMAIL = "noreply@mikegyesulet.hu"
+_DEFAULT_BREVO_SENDER_NAME = "MIK Egyesület"
+BREVO_SENDER_EMAIL = (
+    os.getenv("BREVO_SENDER_EMAIL", _DEFAULT_BREVO_SENDER_EMAIL).strip()
+    or _DEFAULT_BREVO_SENDER_EMAIL
+)
+BREVO_SENDER_NAME = (
+    os.getenv("BREVO_SENDER_NAME", _DEFAULT_BREVO_SENDER_NAME).strip()
+    or _DEFAULT_BREVO_SENDER_NAME
+)
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").strip()
 _VOTING_O2AUTH_SECRET_BYTES = VOTING_O2AUTH_SECRET.encode("utf-8")
 VOTING_SYNC_TIMEOUT_SECONDS = float(os.getenv("VOTING_SYNC_TIMEOUT_SECONDS", "5"))
@@ -245,9 +280,11 @@ def startup() -> None:
     Base.metadata.create_all(bind=engine)
     ensure_fee_paid_column()
     ensure_billing_columns()
+    ensure_site_settings_row()
     ensure_is_admin_column()
     ensure_voting_delegate_column()
     ensure_must_change_password_column()
+    ensure_seed_password_changed_column()
     ensure_organization_contact_column()
     ensure_nullable_organization_column()
     ensure_name_columns()
@@ -287,6 +324,15 @@ def ensure_billing_columns() -> None:
             )
 
 
+def ensure_site_settings_row() -> None:
+    db = SessionLocal()
+    try:
+        get_site_settings(db)
+        db.commit()
+    finally:
+        db.close()
+
+
 def ensure_is_admin_column() -> None:
     with engine.begin() as connection:
         inspector = inspect(connection)
@@ -319,6 +365,22 @@ def ensure_must_change_password_column() -> None:
             connection.execute(
                 text(
                     "ALTER TABLE users ADD COLUMN must_change_password BOOLEAN NOT NULL DEFAULT FALSE"
+                )
+            )
+
+
+def ensure_seed_password_changed_column() -> None:
+    with engine.begin() as connection:
+        inspector = inspect(connection)
+        columns = {column["name"] for column in inspector.get_columns("users")}
+        if "seed_password_changed_at" not in columns:
+            connection.execute(
+                text("ALTER TABLE users ADD COLUMN seed_password_changed_at TIMESTAMP")
+            )
+            connection.execute(
+                text(
+                    "UPDATE users SET seed_password_changed_at = updated_at "
+                    "WHERE is_admin = TRUE AND must_change_password = FALSE"
                 )
             )
 
@@ -376,6 +438,10 @@ def ensure_event_metadata_columns() -> None:
             connection.execute(
                 text("ALTER TABLE voting_events ADD COLUMN delegate_limit INTEGER")
             )
+        if "delegate_lock_override" not in columns:
+            connection.execute(
+                text("ALTER TABLE voting_events ADD COLUMN delegate_lock_override VARCHAR")
+            )
 
 
 def ensure_delegate_uniqueness_constraints() -> None:
@@ -411,7 +477,10 @@ def _validate_voting_auth_request(payload: VotingAuthRequest) -> None:
         )
 
     canonical_email = payload.email.lower()
-    message = f"{payload.timestamp}:{canonical_email}:{payload.password}".encode("utf-8")
+    normalized_code = (payload.code or "").strip().upper()
+    message = (
+        f"{payload.timestamp}:{canonical_email}:{payload.password}:{normalized_code}"
+    ).encode("utf-8")
     expected_signature = hmac.new(
         _VOTING_O2AUTH_SECRET_BYTES, message, hashlib.sha256
     ).hexdigest()
@@ -475,8 +544,12 @@ def seed_admin_user() -> None:
         salt, password_hash = hash_password(ADMIN_PASSWORD)
 
         if existing:
-            existing.password_salt = salt
-            existing.password_hash = password_hash
+            if existing.seed_password_changed_at is None:
+                existing.password_salt = salt
+                existing.password_hash = password_hash
+                existing.must_change_password = True
+                existing.seed_password_changed_at = None
+
             existing.organization = None
             existing.is_admin = True
             existing.is_email_verified = True
@@ -484,7 +557,6 @@ def seed_admin_user() -> None:
             existing.first_name = ADMIN_FIRST_NAME
             existing.last_name = ADMIN_LAST_NAME
             existing.is_voting_delegate = True
-            existing.must_change_password = True
         else:
             user = User(
                 email=ADMIN_EMAIL,
@@ -498,6 +570,7 @@ def seed_admin_user() -> None:
                 admin_decision=ApprovalDecision.approved,
                 is_voting_delegate=True,
                 must_change_password=True,
+                seed_password_changed_at=None,
             )
             session.add(user)
 
@@ -516,6 +589,28 @@ DatabaseDependency = Annotated[Session, Depends(get_db)]
 
 
 bearer_scheme = HTTPBearer(auto_error=False)
+
+
+def organization_bank_details(
+    organization: Organization,
+    *,
+    settings: Optional[SiteSettings] = None,
+) -> tuple[Optional[str], Optional[str], Optional[str]]:
+    bank_name: Optional[str] = None
+    bank_account_number: Optional[str] = None
+    if settings is not None:
+        raw_name = settings.bank_name or ""
+        raw_account = settings.bank_account_number or ""
+        bank_name = raw_name.strip() or None
+        bank_account_number = raw_account.strip() or None
+    if not bank_name:
+        bank_name = (organization.bank_name or "").strip() or None
+    if not bank_account_number:
+        bank_account_number = (organization.bank_account_number or "").strip() or None
+    payment_instructions = (organization.name or "").strip() or None
+    if not payment_instructions:
+        payment_instructions = (organization.payment_instructions or "").strip() or None
+    return bank_name, bank_account_number, payment_instructions
 
 
 def get_session_user(
@@ -547,16 +642,23 @@ def require_admin(user: Annotated[User, Depends(get_session_user)]) -> User:
     return user
 
 
-def membership_info(organization: Organization | None) -> OrganizationMembershipInfo | None:
+def membership_info(
+    organization: Organization | None,
+    *,
+    settings: Optional[SiteSettings] = None,
+) -> OrganizationMembershipInfo | None:
     if organization is None:
         return None
+    bank_name, bank_account_number, payment_instructions = organization_bank_details(
+        organization, settings=settings
+    )
     return OrganizationMembershipInfo(
         id=organization.id,
         name=organization.name,
         fee_paid=organization.fee_paid,
-        bank_name=organization.bank_name,
-        bank_account_number=organization.bank_account_number,
-        payment_instructions=organization.payment_instructions,
+        bank_name=bank_name,
+        bank_account_number=bank_account_number,
+        payment_instructions=payment_instructions,
     )
 
 
@@ -583,9 +685,24 @@ def event_delegate_count(event: VotingEvent | None) -> int:
     return count
 
 
+def event_access_code_counts(event: VotingEvent | None) -> tuple[int, int, int]:
+    if event is None:
+        return (0, 0, 0)
+    codes = getattr(event, "access_codes", None) or []
+    total = len(codes)
+    used = 0
+    for code in codes:
+        if getattr(code, "used_at", None):
+            used += 1
+    available = max(total - used, 0)
+    return total, available, used
+
+
 def active_event_info(event: VotingEvent | None) -> ActiveEventInfo | None:
     if event is None:
         return None
+    lock_state = delegate_lock_state(event)
+    total_codes, available_codes, used_codes = event_access_code_counts(event)
     return ActiveEventInfo(
         id=event.id,
         title=event.title,
@@ -595,6 +712,13 @@ def active_event_info(event: VotingEvent | None) -> ActiveEventInfo | None:
         is_voting_enabled=event.is_voting_enabled,
         delegate_count=event_delegate_count(event),
         delegate_limit=getattr(event, "delegate_limit", None),
+        delegates_locked=lock_state.locked,
+        delegate_lock_mode=lock_state.mode,
+        delegate_lock_reason=lock_state.reason,
+        delegate_lock_message=lock_state.message,
+        access_codes_total=total_codes,
+        access_codes_available=available_codes,
+        access_codes_used=used_codes,
     )
 
 
@@ -664,11 +788,8 @@ def build_organization_event_assignment(
         )
         delegate_user_ids.append(user.id)
 
-    can_manage = bool(
-        event.is_active
-        or event.delegate_deadline is None
-        or event.delegate_deadline >= current_time
-    )
+    lock_state = delegate_lock_state(event, current_time=current_time)
+    can_manage = not lock_state.locked
 
     return OrganizationEventAssignment(
         event_id=event.id,
@@ -683,6 +804,10 @@ def build_organization_event_assignment(
         delegate_user_ids=delegate_user_ids,
         delegates=entries,
         can_manage_delegates=can_manage,
+        delegates_locked=lock_state.locked,
+        delegate_lock_mode=lock_state.mode,
+        delegate_lock_reason=lock_state.reason,
+        delegate_lock_message=lock_state.message,
     )
 
 
@@ -691,6 +816,7 @@ def build_organization_detail(
     *,
     active_event: VotingEvent | None,
     events: list[VotingEvent] | None = None,
+    settings: Optional[SiteSettings] = None,
 ) -> OrganizationDetail:
     members = [build_member_payload(member, organization) for member in organization.users]
     active_delegate_user_ids: list[int] = []
@@ -735,15 +861,19 @@ def build_organization_detail(
                 continue
             upcoming_assignments.append(assignment)
 
+    bank_name, bank_account_number, payment_instructions = organization_bank_details(
+        organization, settings=settings
+    )
+
     return OrganizationDetail(
         id=organization.id,
         name=organization.name,
         fee_paid=organization.fee_paid,
         member_count=len(members),
         members=members,
-        bank_name=organization.bank_name,
-        bank_account_number=organization.bank_account_number,
-        payment_instructions=organization.payment_instructions,
+        bank_name=bank_name,
+        bank_account_number=bank_account_number,
+        payment_instructions=payment_instructions,
         active_event=active_event_info(active_event),
         active_event_delegate_user_id=active_delegate_user_id,
         active_event_delegate_user_ids=active_delegate_user_ids,
@@ -755,6 +885,8 @@ def build_organization_detail(
 
 def build_event_read(event: VotingEvent) -> VotingEventRead:
     delegate_count = event_delegate_count(event)
+    lock_state = delegate_lock_state(event)
+    total_codes, available_codes, used_codes = event_access_code_counts(event)
     return VotingEventRead(
         id=event.id,
         title=event.title,
@@ -767,6 +899,49 @@ def build_event_read(event: VotingEvent) -> VotingEventRead:
         created_at=event.created_at,
         delegate_count=delegate_count,
         can_delete=not event.is_active,
+        delegates_locked=lock_state.locked,
+        delegate_lock_mode=lock_state.mode,
+        delegate_lock_reason=lock_state.reason,
+        delegate_lock_message=lock_state.message,
+        access_codes_total=total_codes,
+        access_codes_available=available_codes,
+        access_codes_used=used_codes,
+    )
+
+
+def build_access_code_batch(
+    event: VotingEvent,
+    codes: list[VotingAccessCode],
+    total: int,
+    available: int,
+    used: int,
+) -> VotingAccessCodeBatch:
+    items: list[VotingAccessCodeInfo] = []
+    for code in codes:
+        used_by = getattr(code, "used_by_user", None)
+        used_by_payload = None
+        if used_by:
+            used_by_payload = VotingAccessCodeUserInfo(
+                id=used_by.id,
+                email=used_by.email,
+                first_name=used_by.first_name,
+                last_name=used_by.last_name,
+            )
+        items.append(
+            VotingAccessCodeInfo(
+                code=code.code,
+                created_at=code.created_at,
+                used_at=code.used_at,
+                used_by=used_by_payload,
+            )
+        )
+    return VotingAccessCodeBatch(
+        event_id=event.id,
+        event_title=event.title,
+        total=total,
+        available=available,
+        used=used,
+        codes=items,
     )
 
 
@@ -798,14 +973,297 @@ def login_page() -> FileResponse:
     return FileResponse("app/static/login.html")
 
 
-@app.get("/elfelejtett-jelszo", response_class=FileResponse)
-def password_reset_request_page() -> FileResponse:
-    return FileResponse("app/static/password-reset-request.html")
+def render_password_reset_request_page(
+    request: Request,
+    *,
+    email: str = "",
+    status_message: str = "",
+    status_state: str = "idle",
+    form_complete: bool = False,
+    email_error: str = "",
+):
+    allowed_states = {"idle", "pending", "success", "error"}
+    state = status_state if status_state in allowed_states else "idle"
+    return templates.TemplateResponse(
+        "password-reset-request.html",
+        {
+            "request": request,
+            "prefill_email": email or "",
+            "status_message": status_message,
+            "status_state": state,
+            "form_complete": form_complete,
+            "email_error": email_error,
+            "email_invalid": bool(email_error),
+        },
+    )
 
 
-@app.get("/elfelejtett-jelszo/{token}", response_class=FileResponse)
-def password_reset_confirm_page(token: str) -> FileResponse:
-    return FileResponse("app/static/password-reset-confirm.html")
+def _password_reset_summary(email: str | None) -> Markup:
+    email_value = (email or "").strip()
+    if email_value:
+        return Markup(
+            "A <strong>{}</strong> fiókhoz tartozó jelszót állítjuk vissza. Adj meg egy új jelszót.".format(
+                escape(email_value)
+            )
+        )
+    return Markup("Adj meg egy új jelszót az alábbi mezőkben.")
+
+
+def render_password_reset_confirm_page(
+    request: Request,
+    *,
+    token: str,
+    summary_message: Markup | str = "",
+    summary_state: str = "pending",
+    status_message: str = "",
+    status_state: str = "idle",
+    form_visible: bool = False,
+    requires_verify: bool = False,
+    account_email: str = "",
+    new_password_error: str = "",
+    confirm_password_error: str = "",
+):
+    allowed_summary_states = {"pending", "success", "error"}
+    allowed_status_states = {"idle", "success", "error"}
+    summary = summary_state if summary_state in allowed_summary_states else "pending"
+    status = status_state if status_state in allowed_status_states else "idle"
+    if not isinstance(summary_message, Markup):
+        summary_message = Markup(summary_message)
+    return templates.TemplateResponse(
+        "password-reset-confirm.html",
+        {
+            "request": request,
+            "reset_token": token,
+            "summary_message": summary_message,
+            "summary_state": summary,
+            "status_message": status_message,
+            "status_state": status,
+            "form_visible": form_visible,
+            "requires_verify": requires_verify,
+            "account_email": account_email,
+            "new_password_error": new_password_error,
+            "confirm_password_error": confirm_password_error,
+        },
+    )
+
+
+@app.get("/elfelejtett-jelszo", response_class=HTMLResponse)
+def password_reset_request_page(
+    request: Request, email: str | None = None
+):
+    return render_password_reset_request_page(request, email=email or "")
+
+
+@app.post("/elfelejtett-jelszo", response_class=HTMLResponse)
+def submit_password_reset_form(
+    request: Request,
+    db: DatabaseDependency,
+    email: str = Form(""),
+):
+    email_value = (email or "").strip()
+
+    if not email_value:
+        message = "Add meg az e-mail címedet."
+        return render_password_reset_request_page(
+            request,
+            email=email_value,
+            status_message=message,
+            status_state="error",
+            form_complete=False,
+            email_error=message,
+        )
+
+    try:
+        payload = PasswordResetRequest(email=email_value)
+    except ValidationError:
+        message = "Érvényes e-mail címet adj meg."
+        return render_password_reset_request_page(
+            request,
+            email=email_value,
+            status_message=message,
+            status_state="error",
+            form_complete=False,
+            email_error=message,
+        )
+
+    try:
+        confirmation, _ = _process_password_reset_request(
+            payload.email, request, db
+        )
+    except (PasswordResetError, RegistrationError) as exc:
+        detail = str(exc).strip() or "Nem sikerült feldolgozni a kérést."
+        return render_password_reset_request_page(
+            request,
+            email=email_value,
+            status_message=detail,
+            status_state="error",
+            form_complete=False,
+        )
+
+    return render_password_reset_request_page(
+        request,
+        email=payload.email,
+        status_message=confirmation,
+        status_state="success",
+        form_complete=True,
+    )
+
+
+@app.get("/elfelejtett-jelszo/{token}", response_class=HTMLResponse)
+def password_reset_confirm_page(
+    request: Request, token: str, db: DatabaseDependency
+) -> HTMLResponse:
+    try:
+        reset_token = get_active_password_reset_token(db, token=token)
+    except PasswordResetError as exc:
+        detail = str(exc).strip() or "A jelszó-visszaállító link lejárt vagy érvénytelen."
+        return render_password_reset_confirm_page(
+            request,
+            token=token,
+            summary_message=Markup(escape(detail)),
+            summary_state="error",
+            status_message="Kérj új jelszó-visszaállító linket a bejelentkezési oldalról.",
+            status_state="error",
+            form_visible=False,
+            requires_verify=False,
+        )
+
+    user_email = getattr(reset_token.user, "email", "") or ""
+    summary_message = _password_reset_summary(user_email)
+
+    return render_password_reset_confirm_page(
+        request,
+        token=token,
+        summary_message=summary_message,
+        summary_state="success",
+        status_message="A jelszó-visszaállító link érvényes. Állíts be új jelszót az alábbi mezőkben.",
+        status_state="success",
+        form_visible=True,
+        requires_verify=False,
+        account_email=user_email,
+    )
+
+
+@app.post("/elfelejtett-jelszo/{token}", response_class=HTMLResponse)
+def submit_password_reset_confirm_form(
+    request: Request,
+    token: str,
+    db: DatabaseDependency,
+    password: str = Form(""),
+    password_confirm: str = Form(""),
+) -> HTMLResponse:
+    try:
+        reset_token = get_active_password_reset_token(db, token=token)
+    except PasswordResetError as exc:
+        detail = str(exc).strip() or "A jelszó-visszaállító link lejárt vagy érvénytelen."
+        return render_password_reset_confirm_page(
+            request,
+            token=token,
+            summary_message=Markup(escape(detail)),
+            summary_state="error",
+            status_message="Kérj új jelszó-visszaállító linket a bejelentkezési oldalról.",
+            status_state="error",
+            form_visible=False,
+            requires_verify=False,
+        )
+
+    user_email = getattr(reset_token.user, "email", "") or ""
+    summary_message = _password_reset_summary(user_email)
+
+    password_value = (password or "").strip()
+    confirm_value = (password_confirm or "").strip()
+    new_password_error = ""
+    confirm_password_error = ""
+
+    if not password_value:
+        new_password_error = "Add meg az új jelszót."
+    else:
+        try:
+            validate_password_strength(password_value)
+        except RegistrationError as exc:
+            new_password_error = str(exc).strip() or "Nem sikerült menteni az új jelszót."
+
+    if not confirm_value:
+        confirm_password_error = "Ismételd meg az új jelszót."
+    elif password_value != confirm_value:
+        confirm_password_error = "A két jelszó nem egyezik."
+
+    if new_password_error or confirm_password_error:
+        status_message = (
+            new_password_error or confirm_password_error or "Ellenőrizd a kiemelt mezőket."
+        )
+        return render_password_reset_confirm_page(
+            request,
+            token=token,
+            summary_message=summary_message,
+            summary_state="success",
+            status_message=status_message,
+            status_state="error",
+            form_visible=True,
+            requires_verify=False,
+            account_email=user_email,
+            new_password_error=new_password_error,
+            confirm_password_error=confirm_password_error,
+        )
+
+    try:
+        complete_password_reset(
+            db,
+            token=token,
+            new_password=password_value,
+        )
+        db.commit()
+    except PasswordResetError as exc:
+        db.rollback()
+        detail = str(exc).strip() or "A jelszó-visszaállító link lejárt vagy érvénytelen."
+        return render_password_reset_confirm_page(
+            request,
+            token=token,
+            summary_message=Markup(escape(detail)),
+            summary_state="error",
+            status_message="Kérj új jelszó-visszaállító linket a bejelentkezési oldalról.",
+            status_state="error",
+            form_visible=False,
+            requires_verify=False,
+        )
+    except RegistrationError as exc:
+        db.rollback()
+        detail = str(exc).strip() or "Nem sikerült menteni az új jelszót."
+        return render_password_reset_confirm_page(
+            request,
+            token=token,
+            summary_message=summary_message,
+            summary_state="success",
+            status_message=detail,
+            status_state="error",
+            form_visible=True,
+            requires_verify=False,
+            account_email=user_email,
+            new_password_error=detail,
+            confirm_password_error="",
+        )
+
+    success_summary = (
+        Markup(
+            "Az új jelszót beállítottuk a <strong>{}</strong> fiókhoz. Most már bejelentkezhetsz.".format(
+                escape(user_email)
+            )
+        )
+        if user_email
+        else Markup("Az új jelszó beállítása sikeres. Most már bejelentkezhetsz.")
+    )
+
+    return render_password_reset_confirm_page(
+        request,
+        token=token,
+        summary_message=success_summary,
+        summary_state="success",
+        status_message="Az új jelszó beállítása sikeres. Most már bejelentkezhetsz.",
+        status_state="success",
+        form_visible=False,
+        requires_verify=False,
+        account_email=user_email,
+    )
 
 
 @app.get("/register", response_class=FileResponse)
@@ -851,6 +1309,44 @@ def admin_users_page() -> FileResponse:
 @app.get("/admin/beallitasok", response_class=FileResponse)
 def admin_settings_page() -> FileResponse:
     return FileResponse("app/static/admin-settings.html")
+
+
+@app.get(
+    "/api/admin/settings/bank",
+    response_model=BankSettingsResponse,
+    responses={401: {"model": ErrorResponse}},
+)
+def get_bank_settings_endpoint(
+    db: DatabaseDependency,
+    _: Annotated[User, Depends(require_admin)],
+) -> BankSettingsResponse:
+    settings = get_site_settings(db)
+    return BankSettingsResponse(
+        bank_name=settings.bank_name,
+        bank_account_number=settings.bank_account_number,
+    )
+
+
+@app.post(
+    "/api/admin/settings/bank",
+    response_model=BankSettingsResponse,
+    responses={401: {"model": ErrorResponse}},
+)
+def update_bank_settings_endpoint(
+    payload: BankSettingsUpdate,
+    db: DatabaseDependency,
+    _: Annotated[User, Depends(require_admin)],
+) -> BankSettingsResponse:
+    settings = update_site_bank_settings(
+        db,
+        bank_name=payload.bank_name,
+        bank_account_number=payload.bank_account_number,
+    )
+    db.commit()
+    return BankSettingsResponse(
+        bank_name=settings.bank_name,
+        bank_account_number=settings.bank_account_number,
+    )
 
 
 @app.get("/szervezetek/{organization_id}/dij", response_class=FileResponse)
@@ -908,6 +1404,8 @@ def create_voting_o2auth_session(
         )
 
     requested_view = (launch.view if launch else "default") or "default"
+    provided_code = (launch.code if launch else None) or ""
+    normalized_code_input = provided_code.strip()
 
     if requested_view == "admin" and not user.is_admin:
         raise HTTPException(
@@ -924,6 +1422,31 @@ def create_voting_o2auth_session(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Nem vagy kijelölve a szavazási eseményre ennél a szervezetnél.",
             )
+
+    requires_access_code = requested_view == "default" and not user.is_admin
+    if requires_access_code:
+        _, total_codes, available_codes, _ = voting_access_code_summary(
+            db, active_event.id
+        )
+        if total_codes == 0 or available_codes <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Ehhez az eseményhez már nincs szabad belépőkód. Kérjük, vedd fel a kapcsolatot az adminisztrátorral.",
+            )
+        try:
+            redeem_voting_access_code(
+                db,
+                event_id=active_event.id,
+                code_value=normalized_code_input,
+                user=user,
+            )
+            db.commit()
+        except VotingAccessCodeError as exc:
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=exc.message,
+            ) from exc
 
     token = generate_voting_o2auth_token(
         user,
@@ -983,6 +1506,34 @@ def authenticate_for_voting(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="A szavazási felület még nem elérhető ehhez az eseményhez.",
         )
+
+    requires_access_code = bool(
+        active_event and not user.is_admin and is_delegate
+    )
+    if requires_access_code:
+        code_value = (payload.code or "").strip()
+        _, total_codes, available_codes, _ = voting_access_code_summary(
+            db, active_event.id
+        )
+        if total_codes == 0 or available_codes <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Ehhez az eseményhez már nincs szabad belépőkód. Kérjük, vedd fel a kapcsolatot az adminisztrátorral.",
+            )
+        try:
+            redeem_voting_access_code(
+                db,
+                event_id=active_event.id,
+                code_value=code_value,
+                user=user,
+            )
+            db.commit()
+        except VotingAccessCodeError as exc:
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=exc.message,
+            ) from exc
 
     return VotingAuthResponse(
         email=user.email,
@@ -1153,6 +1704,66 @@ def login(request: LoginRequest, db: DatabaseDependency) -> LoginResponse:
     )
 
 
+def _process_password_reset_request(
+    email: str, request: Request, db: Session
+) -> tuple[str, str]:
+    email_delivery_available = bool(BREVO_API_KEY and BREVO_SENDER_EMAIL)
+    confirmation = (
+        "Ha a megadott e-mail címmel létezik fiók, elküldtük a jelszó-"
+        "visszaállító e-mailt."
+        if email_delivery_available
+        else (
+            "Ha a megadott e-mail címmel létezik fiók, az adminisztrátor "
+            "hamarosan felveszi veled a kapcsolatot a jelszó visszaállításához."
+        )
+    )
+    reset_token = issue_password_reset_token(
+        db,
+        email=email,
+        ttl_minutes=PASSWORD_RESET_TOKEN_TTL_MINUTES,
+    )
+    if not reset_token:
+        db.rollback()
+        return confirmation, "none"
+
+    try:
+        if email_delivery_available:
+            link = queue_password_reset_email(
+                reset_token,
+                base_url=PUBLIC_BASE_URL,
+                api_key=BREVO_API_KEY or None,
+                sender_email=BREVO_SENDER_EMAIL or None,
+                sender_name=BREVO_SENDER_NAME,
+            )
+            delivery_method = "brevo"
+        else:
+            logger.warning(
+                "Password reset email queued for manual follow-up",
+                extra={
+                    "request_ip": request.client.host if request.client else None,
+                    "user_email": getattr(reset_token.user, "email", None),
+                },
+            )
+            base = PUBLIC_BASE_URL.rstrip("/") if PUBLIC_BASE_URL else ""
+            reset_path = f"/elfelejtett-jelszo/{reset_token.token}"
+            link = f"{base}{reset_path}" if base else reset_path
+            delivery_method = "manual"
+        db.commit()
+    except (RegistrationError, PasswordResetError) as exc:
+        db.rollback()
+        raise
+
+    request.app.state.email_queue.append(
+        {
+            "email": reset_token.user.email,
+            "token": reset_token.token,
+            "reset_link": link,
+            "sent_via": delivery_method,
+        }
+    )
+    return confirmation, delivery_method
+
+
 @app.post(
     "/api/password-reset/request",
     response_model=SimpleMessageResponse,
@@ -1161,39 +1772,13 @@ def login(request: LoginRequest, db: DatabaseDependency) -> LoginResponse:
 def request_password_reset(
     payload: PasswordResetRequest, request: Request, db: DatabaseDependency
 ) -> SimpleMessageResponse:
-    confirmation = (
-        "Ha a megadott e-mail címmel létezik fiók, hamarosan levelet küldünk a folytatáshoz."
-    )
-    reset_token = issue_password_reset_token(
-        db,
-        email=payload.email,
-        ttl_minutes=PASSWORD_RESET_TOKEN_TTL_MINUTES,
-    )
-    if not reset_token:
-        db.rollback()
-        return SimpleMessageResponse(message=confirmation)
-
     try:
-        link = queue_password_reset_email(
-            reset_token,
-            base_url=PUBLIC_BASE_URL,
-            api_key=BREVO_API_KEY or None,
-            sender_email=BREVO_SENDER_EMAIL or None,
-            sender_name=BREVO_SENDER_NAME,
+        confirmation, _ = _process_password_reset_request(
+            payload.email, request, db
         )
-        db.commit()
-    except (RegistrationError, PasswordResetError) as exc:
-        db.rollback()
+    except (PasswordResetError, RegistrationError) as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
-    request.app.state.email_queue.append(
-        {
-            "email": reset_token.user.email,
-            "token": reset_token.token,
-            "reset_link": link,
-            "sent_via": "brevo" if BREVO_API_KEY and BREVO_SENDER_EMAIL else "noop",
-        }
-    )
     return SimpleMessageResponse(message=confirmation)
 
 
@@ -1283,13 +1868,14 @@ def current_user(
     user: Annotated[User, Depends(get_session_user)], db: DatabaseDependency
 ) -> SessionUser:
     active_event = get_active_voting_event(db)
+    site_settings = get_site_settings(db)
     return SessionUser(
         id=user.id,
         email=user.email,
         first_name=user.first_name,
         last_name=user.last_name,
         is_admin=user.is_admin,
-        organization=membership_info(user.organization),
+        organization=membership_info(user.organization, settings=site_settings),
         is_voting_delegate=user.is_voting_delegate,
         active_event=active_event_info(active_event),
         is_organization_contact=user.is_organization_contact,
@@ -1359,13 +1945,13 @@ def create_organization_endpoint(
         organization = create_organization(
             db,
             name=payload.name,
-            bank_name=payload.bank_name,
-            bank_account_number=payload.bank_account_number,
-            payment_instructions=payload.payment_instructions,
         )
         db.flush()
         active_event = get_active_voting_event(db)
-        detail = build_organization_detail(organization, active_event=active_event)
+        site_settings = get_site_settings(db)
+        detail = build_organization_detail(
+            organization, active_event=active_event, settings=site_settings
+        )
     except RegistrationError as exc:
         db.rollback()
         raise HTTPException(
@@ -1389,7 +1975,13 @@ def admin_organizations(
 ) -> List[OrganizationDetail]:
     organizations = organizations_with_members(db)
     active_event = get_active_voting_event(db)
-    return [build_organization_detail(org, active_event=active_event) for org in organizations]
+    site_settings = get_site_settings(db)
+    return [
+        build_organization_detail(
+            org, active_event=active_event, settings=site_settings
+        )
+        for org in organizations
+    ]
 
 
 @app.post(
@@ -1409,7 +2001,10 @@ def update_organization_fee(
         )
         db.flush()
         active_event = get_active_voting_event(db)
-        detail = build_organization_detail(organization, active_event=active_event)
+        site_settings = get_site_settings(db)
+        detail = build_organization_detail(
+            organization, active_event=active_event, settings=site_settings
+        )
     except RegistrationError as exc:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
@@ -1429,23 +2024,10 @@ def update_organization_billing(
     db: DatabaseDependency,
     _: Annotated[User, Depends(require_admin)],
 ) -> OrganizationDetail:
-    try:
-        organization = set_organization_billing_details(
-            db,
-            organization_id=organization_id,
-            bank_name=payload.bank_name,
-            bank_account_number=payload.bank_account_number,
-            payment_instructions=payload.payment_instructions,
-        )
-        db.flush()
-        active_event = get_active_voting_event(db)
-        detail = build_organization_detail(organization, active_event=active_event)
-    except RegistrationError as exc:
-        db.rollback()
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-
-    db.commit()
-    return detail
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail="A banki adatokat mostantól a Beállítások oldalon lehet módosítani.",
+    )
 
 
 @app.post(
@@ -1484,7 +2066,10 @@ def create_contact_invitation_endpoint(
         db.flush()
         organization = organization_with_members(db, organization_id)
         active_event = get_active_voting_event(db)
-        detail = build_organization_detail(organization, active_event=active_event)
+        site_settings = get_site_settings(db)
+        detail = build_organization_detail(
+            organization, active_event=active_event, settings=site_settings
+        )
         link: str | None = None
         if invitation is not None:
             link = queue_invitation_email(
@@ -1745,6 +2330,133 @@ def update_event_accessibility(
     return build_event_read(event)
 
 
+@app.post(
+    "/api/admin/events/{event_id}/delegate-lock",
+    response_model=VotingEventRead,
+    responses={
+        401: {"model": ErrorResponse},
+        400: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+    },
+)
+def update_delegate_lock_state(
+    event_id: int,
+    payload: DelegateLockUpdateRequest,
+    db: DatabaseDependency,
+    _: Annotated[User, Depends(require_admin)],
+) -> VotingEventRead:
+    try:
+        event = set_delegate_lock_override(db, event_id=event_id, mode=payload.mode)
+        db.flush()
+        db.refresh(event, attribute_names=["delegates"])
+    except RegistrationError as exc:
+        db.rollback()
+        detail = str(exc)
+        lowered = detail.lower()
+        status_code = (
+            status.HTTP_404_NOT_FOUND
+            if "nem található" in lowered
+            else status.HTTP_400_BAD_REQUEST
+        )
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+
+    db.commit()
+    _sync_active_event(db)
+    return build_event_read(event)
+
+
+@app.get(
+    "/api/admin/events/{event_id}/codes",
+    response_model=VotingAccessCodeBatch,
+    responses={401: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+)
+def list_event_access_codes(
+    event_id: int,
+    db: DatabaseDependency,
+    _: Annotated[User, Depends(require_admin)],
+) -> VotingAccessCodeBatch:
+    event = db.get(VotingEvent, event_id)
+    if event is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Nem található szavazási esemény",
+        )
+    codes, total, available, used = voting_access_code_summary(db, event_id)
+    return build_access_code_batch(event, codes, total, available, used)
+
+
+@app.post(
+    "/api/admin/events/{event_id}/codes",
+    response_model=VotingAccessCodeBatch,
+    responses={
+        401: {"model": ErrorResponse},
+        400: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+    },
+)
+def generate_event_access_codes(
+    event_id: int,
+    payload: VotingAccessCodeGenerateRequest,
+    db: DatabaseDependency,
+    _: Annotated[User, Depends(require_admin)],
+) -> VotingAccessCodeBatch:
+    event = db.get(VotingEvent, event_id)
+    if event is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Nem található szavazási esemény",
+        )
+    try:
+        generate_voting_access_codes(
+            db, event_id=event_id, regenerate=payload.regenerate
+        )
+        db.flush()
+        db.refresh(event, attribute_names=["access_codes"])
+    except VotingAccessCodeUnavailableError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=exc.message
+        ) from exc
+    except RegistrationError as exc:
+        db.rollback()
+        detail = str(exc)
+        lowered = detail.lower()
+        status_code = (
+            status.HTTP_404_NOT_FOUND if "nem található" in lowered else status.HTTP_400_BAD_REQUEST
+        )
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+
+    db.commit()
+    refreshed = db.get(VotingEvent, event_id)
+    codes, total, available, used = voting_access_code_summary(db, event_id)
+    return build_access_code_batch(refreshed or event, codes, total, available, used)
+
+
+@app.get(
+    "/api/admin/events/{event_id}/codes.pdf",
+    response_class=Response,
+    responses={401: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+)
+def download_event_access_codes_pdf(
+    event_id: int,
+    db: DatabaseDependency,
+    _: Annotated[User, Depends(require_admin)],
+) -> Response:
+    event = db.get(VotingEvent, event_id)
+    if event is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Nem található szavazási esemény",
+        )
+    codes, total, available, used = voting_access_code_summary(db, event_id)
+    pdf_bytes = build_access_code_pdf(event, codes)
+    filename = f"esemeny-{event.id}-belepokodok.pdf"
+    headers = {
+        "Content-Disposition": f"attachment; filename=\"{filename}\"",
+    }
+    return Response(content=pdf_bytes, media_type="application/pdf", headers=headers)
+
+
 @app.get(
     "/api/admin/events/{event_id}/delegates",
     response_model=List[EventDelegateInfo],
@@ -1891,6 +2603,14 @@ def create_admin_account_endpoint(
             first_name=payload.first_name,
             last_name=payload.last_name,
         )
+        queue_admin_invitation_email(
+            admin_user,
+            temporary_password,
+            base_url=PUBLIC_BASE_URL,
+            api_key=BREVO_API_KEY or None,
+            sender_email=BREVO_SENDER_EMAIL or None,
+            sender_name=BREVO_SENDER_NAME or None,
+        )
         db.commit()
     except RegistrationError as exc:
         db.rollback()
@@ -1903,6 +2623,88 @@ def create_admin_account_endpoint(
     return AdminUserCreateResponse(
         message=message, admin=admin_user, temporary_password=temporary_password
     )
+
+
+@app.post(
+    "/api/admin/admins/{admin_id}/resend-invite",
+    response_model=SimpleMessageResponse,
+    responses={
+        400: {"model": ErrorResponse},
+        401: {"model": ErrorResponse},
+        403: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+    },
+)
+def resend_admin_invitation(
+    admin_id: int,
+    db: DatabaseDependency,
+    current_admin: Annotated[User, Depends(require_admin)],
+) -> SimpleMessageResponse:
+    if admin_id == current_admin.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A saját adminisztrátori fiókhoz nem küldhetsz új meghívót.",
+        )
+
+    try:
+        admin_user, temporary_password = reset_admin_temporary_password(
+            db, user_id=admin_id
+        )
+        queue_admin_invitation_email(
+            admin_user,
+            temporary_password,
+            base_url=PUBLIC_BASE_URL,
+            api_key=BREVO_API_KEY or None,
+            sender_email=BREVO_SENDER_EMAIL or None,
+            sender_name=BREVO_SENDER_NAME or None,
+        )
+        db.commit()
+    except RegistrationError as exc:
+        db.rollback()
+        detail = str(exc)
+        status_code_value = (
+            status.HTTP_404_NOT_FOUND
+            if "nem található" in detail.lower()
+            else status.HTTP_400_BAD_REQUEST
+        )
+        raise HTTPException(status_code=status_code_value, detail=detail) from exc
+
+    message = "Új meghívó e-mail elküldve az adminisztrátornak."
+    return SimpleMessageResponse(message=message)
+
+
+@app.delete(
+    "/api/admin/admins/{admin_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+    responses={
+        400: {"model": ErrorResponse},
+        401: {"model": ErrorResponse},
+        403: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+    },
+)
+def delete_admin(
+    admin_id: int,
+    db: DatabaseDependency,
+    current_admin: Annotated[User, Depends(require_admin)],
+) -> Response:
+    try:
+        delete_admin_account(
+            db, admin_id=admin_id, acting_admin_id=current_admin.id
+        )
+        db.commit()
+    except RegistrationError as exc:
+        db.rollback()
+        detail = str(exc)
+        status_code_value = (
+            status.HTTP_404_NOT_FOUND
+            if "nem található" in detail.lower()
+            else status.HTTP_400_BAD_REQUEST
+        )
+        raise HTTPException(status_code=status_code_value, detail=detail) from exc
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @app.delete(
@@ -1982,8 +2784,9 @@ def organization_detail_endpoint(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     active_event = get_active_voting_event(db)
     events = upcoming_voting_events(db)
+    site_settings = get_site_settings(db)
     return build_organization_detail(
-        organization, active_event=active_event, events=events
+        organization, active_event=active_event, events=events, settings=site_settings
     )
 
 
@@ -2042,8 +2845,12 @@ def create_member_invitation_endpoint(
         organization = organization_with_members(db, organization_id)
         active_event = get_active_voting_event(db)
         events = upcoming_voting_events(db)
+        site_settings = get_site_settings(db)
         detail = build_organization_detail(
-            organization, active_event=active_event, events=events
+            organization,
+            active_event=active_event,
+            events=events,
+            settings=site_settings,
         )
         link: str | None = None
         if invitation is not None:
@@ -2125,10 +2932,12 @@ def remove_organization_member_endpoint(
         organization = organization_with_members(db, organization_id)
         active_event = get_active_voting_event(db)
         events = upcoming_voting_events(db)
+        site_settings = get_site_settings(db)
         detail = build_organization_detail(
             organization,
             active_event=active_event,
             events=events,
+            settings=site_settings,
         )
     except RegistrationError as exc:
         db.rollback()
@@ -2179,8 +2988,12 @@ def set_organization_event_delegates(
         organization = organization_with_members(db, organization_id)
         active_event = get_active_voting_event(db)
         events = upcoming_voting_events(db)
+        site_settings = get_site_settings(db)
         detail = build_organization_detail(
-            organization, active_event=active_event, events=events
+            organization,
+            active_event=active_event,
+            events=events,
+            settings=site_settings,
         )
     except RegistrationError as exc:
         db.rollback()

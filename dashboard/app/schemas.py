@@ -8,6 +8,9 @@ from pydantic import AnyHttpUrl, BaseModel, EmailStr, Field, constr
 from .models import ApprovalDecision, InvitationRole
 
 
+DelegateLockMode = Literal["auto", "locked", "unlocked"]
+
+
 class OrganizationRead(BaseModel):
     id: int
     name: str
@@ -114,6 +117,13 @@ class ActiveEventInfo(BaseModel):
     is_voting_enabled: bool = False
     delegate_count: int = 0
     delegate_limit: Optional[int] = None
+    delegates_locked: bool = False
+    delegate_lock_mode: DelegateLockMode = "auto"
+    delegate_lock_reason: Optional[str] = None
+    delegate_lock_message: Optional[str] = None
+    access_codes_total: int = 0
+    access_codes_available: int = 0
+    access_codes_used: int = 0
 
 
 class OrganizationMember(BaseModel):
@@ -168,6 +178,10 @@ class OrganizationEventAssignment(BaseModel):
     delegate_user_ids: list[int] = Field(default_factory=list)
     delegates: list[OrganizationEventDelegate] = Field(default_factory=list)
     can_manage_delegates: bool = False
+    delegates_locked: bool = False
+    delegate_lock_mode: DelegateLockMode = "auto"
+    delegate_lock_reason: Optional[str] = None
+    delegate_lock_message: Optional[str] = None
 
 
 class OrganizationDetail(BaseModel):
@@ -197,6 +211,16 @@ class OrganizationBillingUpdate(BaseModel):
     payment_instructions: Optional[str] = None
 
 
+class BankSettingsResponse(BaseModel):
+    bank_name: Optional[str] = None
+    bank_account_number: Optional[str] = None
+
+
+class BankSettingsUpdate(BaseModel):
+    bank_name: Optional[constr(strip_whitespace=True, max_length=255)] = None
+    bank_account_number: Optional[constr(strip_whitespace=True, max_length=255)] = None
+
+
 class PublicConfigResponse(BaseModel):
     recaptcha_site_key: Optional[str]
     captcha_provider: Optional[str]
@@ -204,9 +228,6 @@ class PublicConfigResponse(BaseModel):
 
 class OrganizationCreateRequest(BaseModel):
     name: constr(strip_whitespace=True, min_length=2, max_length=255)
-    bank_name: Optional[constr(strip_whitespace=True, max_length=255)] = None
-    bank_account_number: Optional[constr(strip_whitespace=True, max_length=255)] = None
-    payment_instructions: Optional[constr(strip_whitespace=True, max_length=500)] = None
 
 
 class OrganizationMembershipInfo(BaseModel):
@@ -255,6 +276,10 @@ class VotingEventAccessUpdate(BaseModel):
     is_voting_enabled: bool
 
 
+class DelegateLockUpdateRequest(BaseModel):
+    mode: DelegateLockMode
+
+
 class VotingEventRead(BaseModel):
     id: int
     title: str
@@ -267,6 +292,40 @@ class VotingEventRead(BaseModel):
     created_at: datetime
     delegate_count: int = 0
     can_delete: bool = False
+    delegates_locked: bool = False
+    delegate_lock_mode: DelegateLockMode = "auto"
+    delegate_lock_reason: Optional[str] = None
+    delegate_lock_message: Optional[str] = None
+    access_codes_total: int = 0
+    access_codes_available: int = 0
+    access_codes_used: int = 0
+
+
+class VotingAccessCodeUserInfo(BaseModel):
+    id: Optional[int] = None
+    email: Optional[EmailStr] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+
+
+class VotingAccessCodeInfo(BaseModel):
+    code: constr(strip_whitespace=True, min_length=4, max_length=32)
+    created_at: datetime
+    used_at: Optional[datetime] = None
+    used_by: Optional[VotingAccessCodeUserInfo] = None
+
+
+class VotingAccessCodeBatch(BaseModel):
+    event_id: int
+    event_title: str
+    total: int
+    available: int
+    used: int
+    codes: list[VotingAccessCodeInfo] = Field(default_factory=list)
+
+
+class VotingAccessCodeGenerateRequest(BaseModel):
+    regenerate: bool = True
 
 
 class InvitationCreateRequest(BaseModel):
@@ -310,6 +369,7 @@ class VotingO2AuthResponse(BaseModel):
 
 class VotingO2AuthLaunchRequest(BaseModel):
     view: Literal["default", "admin", "public"] = "default"
+    code: Optional[constr(strip_whitespace=True, max_length=64)] = None
 
 
 class VotingAuthRequest(BaseModel):
@@ -317,6 +377,7 @@ class VotingAuthRequest(BaseModel):
     password: str
     timestamp: int
     signature: constr(strip_whitespace=True, min_length=1)
+    code: Optional[constr(strip_whitespace=True, max_length=64)] = None
 
 
 class VotingAuthResponse(BaseModel):

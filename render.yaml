@@ -30,9 +30,9 @@ services:
       - key: BREVO_API_KEY
         sync: false
       - key: BREVO_SENDER_EMAIL
-        value: noreply@mikdashboard.hu
+        value: noreply@mikegyesulet.hu
       - key: BREVO_SENDER_NAME
-        value: MIK Dashboard
+        value: MIK Egyesület
       - key: RECAPTCHA_SITE_KEY
         value: ""
       - key: RECAPTCHA_SECRET_KEY

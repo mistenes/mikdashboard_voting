@@ -9,6 +9,9 @@ const openVotingAdminButton = document.querySelector("#open-voting-admin");
 const openVotingPublicButton = document.querySelector("#open-voting-public");
 const votingHelper = document.querySelector("#voting-helper");
 const eventSummary = document.querySelector("#current-event-summary");
+const votingCodeWrapper = document.querySelector("#voting-code-wrapper");
+const votingCodeInput = document.querySelector("#voting-access-code");
+const votingCodeStatus = document.querySelector("#voting-code-status");
 const invitationCard = document.querySelector("#member-invitations-card");
 const invitationForm = document.querySelector("#member-invite-form");
 const invitationStatus = document.querySelector("#member-invite-status");
@@ -33,6 +36,15 @@ const eventDateFormatter = new Intl.DateTimeFormat("hu-HU", {
   dateStyle: "long",
   timeStyle: "short",
 });
+
+if (votingCodeStatus) {
+  votingCodeStatus.hidden = true;
+}
+if (votingCodeInput) {
+  votingCodeInput.addEventListener("blur", () => {
+    votingCodeInput.value = normalizeVotingCodeInput(votingCodeInput.value);
+  });
+}
 
 function extractOrganizationId() {
   const match = window.location.pathname.match(/\/szervezetek\/(\d+)\//);
@@ -62,6 +74,52 @@ function setVotingHelper(message = "") {
     return;
   }
   votingHelper.textContent = message || "";
+}
+
+function setVotingCodeStatus(message = "", type = "") {
+  if (!votingCodeStatus) {
+    return;
+  }
+  votingCodeStatus.textContent = message || "";
+  votingCodeStatus.classList.remove("error", "success");
+  if (message && type) {
+    votingCodeStatus.classList.add(type);
+  }
+  votingCodeStatus.hidden = !message;
+}
+
+function normalizeVotingCodeInput(value) {
+  const cleaned = (value || "")
+    .toUpperCase()
+    .replace(/[^0-9A-Z]/g, "")
+    .slice(0, 8);
+  if (!cleaned) {
+    return "";
+  }
+  const chunks = cleaned.match(/.{1,4}/g) || [];
+  return chunks.join("-");
+}
+
+function getVotingCodeValue() {
+  if (!votingCodeInput) {
+    return "";
+  }
+  return normalizeVotingCodeInput(votingCodeInput.value);
+}
+
+function configureVotingCodeField({ visible, disabled }) {
+  if (votingCodeWrapper) {
+    votingCodeWrapper.classList.toggle("is-hidden", !visible);
+  }
+  if (votingCodeInput) {
+    votingCodeInput.disabled = Boolean(disabled);
+    if (!visible) {
+      votingCodeInput.value = "";
+    }
+  }
+  if (!visible) {
+    setVotingCodeStatus("");
+  }
 }
 
 function applyVotingBusyState() {
@@ -756,7 +814,17 @@ function renderEventAssignments(detail, sessionUser) {
     if (!eventDetail.can_manage_delegates) {
       const notice = document.createElement("p");
       notice.classList.add("muted");
-      notice.textContent = "A delegáltak kiosztása lezárult ehhez az eseményhez.";
+      notice.textContent =
+        eventDetail.delegate_lock_message ||
+        "A delegáltak kiosztása lezárult ehhez az eseményhez.";
+      card.appendChild(notice);
+    } else if (
+      eventDetail.delegate_lock_mode === "unlocked" &&
+      eventDetail.delegate_lock_message
+    ) {
+      const notice = document.createElement("p");
+      notice.classList.add("muted");
+      notice.textContent = eventDetail.delegate_lock_message;
       card.appendChild(notice);
     }
 
@@ -915,9 +983,16 @@ function renderUnpaid(detail) {
   const bankAccountEl = document.querySelector("#bank-account");
   const instructionsEl = document.querySelector("#bank-instructions");
 
-  bankNameEl.textContent = detail.bank_name || "Nincs megadva";
-  bankAccountEl.textContent = detail.bank_account_number || "Nincs megadva";
-  instructionsEl.textContent = detail.payment_instructions || "Nincs megadva";
+  const nameFallback = detail.payment_instructions || detail.name || "Nincs megadva";
+  if (bankNameEl) {
+    bankNameEl.textContent = detail.bank_name || "Nincs megadva";
+  }
+  if (bankAccountEl) {
+    bankAccountEl.textContent = detail.bank_account_number || "Nincs megadva";
+  }
+  if (instructionsEl) {
+    instructionsEl.textContent = nameFallback;
+  }
 }
 
 function renderVoting(detail, sessionUser) {
@@ -929,6 +1004,8 @@ function renderVoting(detail, sessionUser) {
   markVotingButtonState(openVotingButton, { available: false, hidden: false });
   markVotingButtonState(openVotingAdminButton, { available: false, hidden: true });
   markVotingButtonState(openVotingPublicButton, { available: false, hidden: true });
+  configureVotingCodeField({ visible: false, disabled: true });
+  setVotingCodeStatus("");
 
   const activeEvent = detail.active_event || sessionUser.active_event || null;
   const eventName = activeEvent?.title || "szavazási esemény";
@@ -1002,14 +1079,42 @@ function renderVoting(detail, sessionUser) {
   }
 
   markVotingButtonState(openVotingButton, { available: true, hidden: false });
-  setVotingHelper(
-    `A gombra kattintva új lapon nyílik meg a(z) "${eventName}" szavazási felület.`,
-  );
+  const requiresAccessCode = !isAdmin;
+  configureVotingCodeField({ visible: requiresAccessCode, disabled: false });
+  const baseMessage = `A gombra kattintva új lapon nyílik meg a(z) "${eventName}" szavazási felület.`;
+  const helperMessage = requiresAccessCode
+    ? `${baseMessage} A belépéshez add meg a kiosztott belépőkódot.`
+    : baseMessage;
+  setVotingHelper(helperMessage);
 }
 
 async function launchVoting(view = "default") {
   if (!organizationId) {
     return;
+  }
+
+  const isDefaultView = !view || view === "default";
+  const payload = {};
+  const isAdminUser = Boolean(cachedSessionUser?.is_admin);
+  const requiresAccessCode = isDefaultView && !isAdminUser;
+
+  if (view && view !== "default") {
+    payload.view = view;
+  }
+
+  if (requiresAccessCode) {
+    const normalizedCode = getVotingCodeValue();
+    if (!normalizedCode || normalizedCode.replace(/[^0-9A-Z]/g, "").length !== 8) {
+      setVotingCodeStatus("Kérjük, add meg a kiosztott belépőkódot a belépéshez.", "error");
+      return;
+    }
+    if (votingCodeInput) {
+      votingCodeInput.value = normalizedCode;
+    }
+    payload.code = normalizedCode;
+    setVotingCodeStatus("Belépőkód ellenőrzése folyamatban...", "");
+  } else {
+    setVotingCodeStatus("");
   }
 
   try {
@@ -1019,22 +1124,28 @@ async function launchVoting(view = "default") {
       view === "admin"
         ? "Admin nézet megnyitása folyamatban..."
         : view === "public"
-          ? "Nyilvános nézet megnyitása folyamatban..."
-          : "Szavazási felület megnyitása folyamatban...";
+      ? "Nyilvános nézet megnyitása folyamatban..."
+      : "Szavazási felület megnyitása folyamatban...";
     setStatus(statusMessage, "");
     const options = { method: "POST" };
-    if (view && view !== "default") {
-      options.body = JSON.stringify({ view });
+    if (Object.keys(payload).length) {
+      options.body = JSON.stringify(payload);
     }
     const response = await requestJSON(
       `/api/organizations/${organizationId}/voting/o2auth`,
       options,
     );
+    if (requiresAccessCode) {
+      setVotingCodeStatus("A belépőkódot elfogadtuk. Átirányítás...", "success");
+    }
     window.location.href = response.redirect;
   } catch (error) {
     const message =
       error?.message || "Nem sikerült megnyitni a szavazási felületet. Próbáld újra később.";
     setStatus(message, "error");
+    if (requiresAccessCode) {
+      setVotingCodeStatus(message, "error");
+    }
     if (cachedOrganizationDetail && cachedSessionUser) {
       renderVoting(cachedOrganizationDetail, cachedSessionUser);
     }

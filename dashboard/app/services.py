@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Iterable, List, Optional
+from io import BytesIO
+from typing import Iterable, List, Literal, Optional
 
 import logging
 import secrets
@@ -10,9 +12,15 @@ import uuid
 
 import httpx
 
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.units import mm
+from reportlab.pdfgen import canvas
+
 from sqlalchemy import case, delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
+
+from zoneinfo import ZoneInfo
 
 from .models import (
     ApprovalDecision,
@@ -23,14 +31,61 @@ from .models import (
     OrganizationInvitation,
     PasswordResetToken,
     SessionToken,
-    VotingEvent,
+    SiteSettings,
     User,
     VerificationStatus,
+    VotingAccessCode,
+    VotingEvent,
 )
 from .security import hash_password, verify_password
 
 
 logger = logging.getLogger(__name__)
+
+
+DELEGATE_TIMEZONE = ZoneInfo("Europe/Budapest")
+
+ACCESS_CODE_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
+ACCESS_CODE_LENGTH = 8
+ACCESS_CODES_PER_PAGE = 16
+SITE_SETTINGS_SINGLETON_ID = 1
+
+
+def _sanitize_optional_text(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
+def _mark_admin_password_initialized(user: User) -> None:
+    if user.is_admin and user.seed_password_changed_at is None:
+        user.seed_password_changed_at = datetime.utcnow()
+
+
+def ensure_site_settings(session: Session) -> SiteSettings:
+    settings = session.get(SiteSettings, SITE_SETTINGS_SINGLETON_ID)
+    if settings is None:
+        settings = SiteSettings(id=SITE_SETTINGS_SINGLETON_ID)
+        session.add(settings)
+        session.flush()
+    return settings
+
+
+def get_site_settings(session: Session) -> SiteSettings:
+    return ensure_site_settings(session)
+
+
+def update_site_bank_settings(
+    session: Session,
+    *,
+    bank_name: Optional[str] = None,
+    bank_account_number: Optional[str] = None,
+) -> SiteSettings:
+    settings = ensure_site_settings(session)
+    settings.bank_name = _sanitize_optional_text(bank_name)
+    settings.bank_account_number = _sanitize_optional_text(bank_account_number)
+    return settings
 
 
 def _log_brevo_delivery(kind: str, response: httpx.Response, *, extra: dict | None = None) -> None:
@@ -62,6 +117,16 @@ class AuthenticationError(Exception):
 
 
 class PasswordResetError(Exception):
+    pass
+
+
+class VotingAccessCodeError(Exception):
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.message = message
+
+
+class VotingAccessCodeUnavailableError(VotingAccessCodeError):
     pass
 
 
@@ -137,7 +202,10 @@ def issue_password_reset_token(
         return None
 
     user = session.scalar(select(User).where(User.email == normalized_email).limit(1))
-    if not user or not user.is_email_verified:
+    if not user:
+        return None
+
+    if user.admin_decision == ApprovalDecision.denied:
         return None
 
     now = datetime.utcnow()
@@ -201,6 +269,16 @@ def complete_password_reset(
     user.password_salt = salt
     user.password_hash = password_hash
     user.must_change_password = False
+    _mark_admin_password_initialized(user)
+
+    if not user.is_email_verified:
+        user.is_email_verified = True
+        now = datetime.utcnow()
+        for token in getattr(user, "verification_tokens", []) or []:
+            token.status = VerificationStatus.confirmed
+            if token.confirmed_at is None:
+                token.confirmed_at = now
+
     reset_token.used_at = datetime.utcnow()
     session.flush()
     return user
@@ -254,10 +332,51 @@ def create_admin_account(
         must_change_password=True,
         is_voting_delegate=False,
         is_organization_contact=False,
+        seed_password_changed_at=None,
     )
     session.add(user)
     session.flush()
     return user, password
+
+
+def reset_admin_temporary_password(
+    session: Session, *, user_id: int
+) -> tuple[User, str]:
+    user = session.get(User, user_id)
+    if user is None or not user.is_admin:
+        raise RegistrationError("Nem található adminisztrátori fiók.")
+
+    password = _generate_admin_password()
+    salt, password_hash = hash_password(password)
+    user.password_salt = salt
+    user.password_hash = password_hash
+    user.must_change_password = True
+    user.seed_password_changed_at = None
+    user.is_email_verified = True
+    user.updated_at = datetime.utcnow()
+    session.flush()
+    return user, password
+
+
+def delete_admin_account(
+    session: Session, *, admin_id: int, acting_admin_id: int | None = None
+) -> None:
+    admin_user = session.get(User, admin_id)
+    if admin_user is None or not admin_user.is_admin:
+        raise RegistrationError("Nem található adminisztrátori fiók.")
+
+    if acting_admin_id is not None and admin_user.id == acting_admin_id:
+        raise RegistrationError("A saját adminisztrátori fiókodat nem törölheted.")
+
+    total_admins = session.scalar(
+        select(func.count()).select_from(User).where(User.is_admin.is_(True))
+    )
+    if total_admins is not None and total_admins <= 1:
+        raise RegistrationError(
+            "Legalább egy adminisztrátornak maradnia kell a rendszerben."
+        )
+
+    session.delete(admin_user)
 
 
 def queue_verification_email(
@@ -451,6 +570,99 @@ def queue_invitation_email(
     return accept_link
 
 
+def queue_admin_invitation_email(
+    admin: User,
+    temporary_password: str,
+    *,
+    base_url: str = "",
+    api_key: str | None = None,
+    sender_email: str | None = None,
+    sender_name: str | None = None,
+) -> str:
+    if not api_key or not sender_email:
+        logger.error(
+            "Admin invitation email attempted without Brevo configuration; email will not be sent",
+            extra={"admin_email": getattr(admin, "email", None)},
+        )
+        raise RegistrationError(
+            "Az adminisztrátori meghívó e-mail küldése jelenleg nem elérhető. Vedd fel a kapcsolatot a rendszer adminisztrátorával."
+        )
+
+    if not temporary_password:
+        raise RegistrationError("Az ideiglenes jelszó hiányzik a meghívó e-mail küldéséhez.")
+
+    base = base_url.rstrip("/") if base_url else ""
+    login_link = f"{base}/" if base else "/"
+
+    recipient_email = getattr(admin, "email", None)
+    logger.info(
+        "Dispatching Brevo admin invitation email",
+        extra={"admin_email": recipient_email, "admin_id": getattr(admin, "id", None)},
+    )
+
+    recipient_name_parts = [admin.last_name or "", admin.first_name or ""]
+    recipient_name = " ".join(part for part in recipient_name_parts if part).strip()
+    if not recipient_name:
+        recipient_name = recipient_email or "Adminisztrátor"
+
+    html_content = (
+        f"<p>Kedves {recipient_name}!</p>"
+        "<p>Adminisztrátori hozzáférést kaptál a MIK Dashboard rendszerhez.</p>"
+        f"<p>A belépéshez használd az alábbi ideiglenes jelszót: <strong>{temporary_password}</strong></p>"
+        f"<p>Belépés: <a href=\"{login_link}\">{login_link}</a></p>"
+        "<p>A jelszót az első bejelentkezés után kötelező megváltoztatni.</p>"
+    )
+
+    text_content = (
+        "Kedves {name}!\n"
+        "Adminisztrátori hozzáférést kaptál a MIK Dashboard rendszerhez.\n"
+        "A belépéshez használd az alábbi ideiglenes jelszót: {password}\n"
+        "Belépés: {link}\n"
+        "A jelszót az első bejelentkezés után kötelező megváltoztatni."
+    ).format(name=recipient_name, password=temporary_password, link=login_link)
+
+    payload = {
+        "sender": {"email": sender_email, "name": sender_name or sender_email},
+        "to": [{"email": recipient_email, "name": recipient_name}],
+        "subject": "Adminisztrátori meghívó a MIK Dashboard rendszerbe",
+        "htmlContent": html_content,
+        "textContent": text_content,
+    }
+
+    headers = {
+        "accept": "application/json",
+        "api-key": api_key,
+        "content-type": "application/json",
+    }
+
+    try:
+        response = httpx.post(
+            "https://api.brevo.com/v3/smtp/email",
+            json=payload,
+            headers=headers,
+            timeout=15.0,
+        )
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        logger.exception("Brevo admin invitation email request failed with status error")
+        raise RegistrationError(
+            "Nem sikerült elküldeni az adminisztrátori meghívó e-mailt. Próbáld újra később."
+        ) from exc
+    except httpx.HTTPError as exc:
+        logger.exception("Brevo admin invitation email request failed")
+        raise RegistrationError(
+            "Nem sikerült elküldeni az adminisztrátori meghívó e-mailt. Próbáld újra később."
+        ) from exc
+
+    _log_brevo_delivery(
+        "admin_invite",
+        response,
+        extra={"admin_email": recipient_email, "admin_id": getattr(admin, "id", None)},
+    )
+
+    return login_link
+
+
 def queue_password_reset_email(
     token: PasswordResetToken,
     *,
@@ -465,11 +677,11 @@ def queue_password_reset_email(
 
     if not api_key or not sender_email:
         logger.error(
-            "Password reset email attempted without Brevo configuration; email will not be sent",
-            extra={"user_email": getattr(token.user, 'email', None)},
+            "Password reset email attempted without Brevo configuration",
+            extra={"user_email": getattr(token.user, "email", None)},
         )
         raise PasswordResetError(
-            "A jelszó-visszaállító e-mailek küldése jelenleg nem elérhető. Vedd fel a kapcsolatot az adminisztrátorral."
+            "A jelszó-visszaállító e-mail küldéséhez nincs beállítva e-mail szolgáltató."
         )
 
     user = token.user
@@ -622,6 +834,7 @@ def change_user_password(
     user.password_salt = salt
     user.password_hash = password_hash
     user.must_change_password = False
+    _mark_admin_password_initialized(user)
 
     session.query(SessionToken).where(SessionToken.user_id == user.id).delete()
     session.flush()
@@ -661,9 +874,6 @@ def create_organization(
     session: Session,
     *,
     name: str,
-    bank_name: Optional[str] = None,
-    bank_account_number: Optional[str] = None,
-    payment_instructions: Optional[str] = None,
 ) -> Organization:
     cleaned = name.strip()
     if len(cleaned) < 2:
@@ -675,17 +885,8 @@ def create_organization(
     if session.scalar(existing_stmt):
         raise RegistrationError("Ilyen nevű szervezet már létezik.")
 
-    def sanitize(value: Optional[str]) -> Optional[str]:
-        if value is None:
-            return None
-        stripped = value.strip()
-        return stripped or None
-
     organization = Organization(
         name=cleaned,
-        bank_name=sanitize(bank_name),
-        bank_account_number=sanitize(bank_account_number),
-        payment_instructions=sanitize(payment_instructions),
     )
     session.add(organization)
     session.flush()
@@ -725,30 +926,6 @@ def set_organization_fee_status(
     if organization is None:
         raise RegistrationError("Nem található szervezet")
     organization.fee_paid = fee_paid
-    return organization
-
-
-def set_organization_billing_details(
-    session: Session,
-    *,
-    organization_id: int,
-    bank_name: Optional[str] = None,
-    bank_account_number: Optional[str] = None,
-    payment_instructions: Optional[str] = None,
-) -> Organization:
-    organization = session.get(Organization, organization_id)
-    if organization is None:
-        raise RegistrationError("Nem található szervezet")
-
-    def sanitize(value: Optional[str]) -> Optional[str]:
-        if value is None:
-            return None
-        stripped = value.strip()
-        return stripped or None
-
-    organization.bank_name = sanitize(bank_name)
-    organization.bank_account_number = sanitize(bank_account_number)
-    organization.payment_instructions = sanitize(payment_instructions)
     return organization
 
 
@@ -806,11 +983,313 @@ def _normalize_datetime(value: datetime) -> datetime:
     return value.astimezone(timezone.utc).replace(tzinfo=None)
 
 
+DelegateLockMode = Literal["auto", "locked", "unlocked"]
+DelegateLockReason = Literal[
+    "deadline_passed",
+    "deadline_pending",
+    "manual_locked",
+    "manual_unlocked",
+    "manual_unlocked_after_deadline",
+    "no_deadline",
+]
+
+
+@dataclass
+class DelegateLockState:
+    locked: bool
+    mode: DelegateLockMode
+    reason: DelegateLockReason
+    message: str
+
+
+def delegate_lock_state(
+    event: VotingEvent, *, current_time: datetime | None = None
+) -> DelegateLockState:
+    if current_time is None:
+        current_time = datetime.utcnow()
+
+    if current_time.tzinfo is None:
+        current_reference = current_time.replace(tzinfo=timezone.utc)
+    else:
+        current_reference = current_time.astimezone(timezone.utc)
+
+    override = (event.delegate_lock_override or "").strip().lower() or None
+
+    if override == "locked":
+        return DelegateLockState(
+            locked=True,
+            mode="locked",
+            reason="manual_locked",
+            message="A delegáltak módosítása adminisztrátori döntés alapján zárolva.",
+        )
+
+    deadline = getattr(event, "delegate_deadline", None)
+    deadline_passed = False
+    if deadline is not None:
+        if deadline.tzinfo is None:
+            localized_deadline = deadline.replace(tzinfo=DELEGATE_TIMEZONE)
+            comparison_time = current_reference.astimezone(DELEGATE_TIMEZONE)
+        else:
+            localized_deadline = deadline.astimezone(timezone.utc)
+            comparison_time = current_reference
+        deadline_passed = localized_deadline < comparison_time
+
+    if override == "unlocked":
+        reason: DelegateLockReason
+        if deadline_passed:
+            reason = "manual_unlocked_after_deadline"
+            message = (
+                "A delegált kijelölési határidő lejárt, de az adminisztrátor feloldotta a zárolást."
+            )
+        else:
+            reason = "manual_unlocked"
+            message = "A delegáltak módosítása adminisztrátori döntés alapján engedélyezett."
+        return DelegateLockState(
+            locked=False,
+            mode="unlocked",
+            reason=reason,
+            message=message,
+        )
+
+    if deadline is None:
+        return DelegateLockState(
+            locked=False,
+            mode="auto",
+            reason="no_deadline",
+            message="A delegáltak módosítása engedélyezett.",
+        )
+
+    if deadline_passed:
+        return DelegateLockState(
+            locked=True,
+            mode="auto",
+            reason="deadline_passed",
+            message="A delegált kijelölési határidő lejárt, ezért a módosítás zárolva.",
+        )
+
+    return DelegateLockState(
+        locked=False,
+        mode="auto",
+        reason="deadline_pending",
+        message="A delegáltak módosítása engedélyezett a határidőig.",
+    )
+
+
+def set_delegate_lock_override(
+    session: Session, event_id: int, *, mode: DelegateLockMode
+) -> VotingEvent:
+    event = session.get(VotingEvent, event_id)
+    if event is None:
+        raise RegistrationError("Nem található szavazási esemény")
+
+    if mode == "auto":
+        event.delegate_lock_override = None
+    elif mode == "locked":
+        event.delegate_lock_override = "locked"
+    elif mode == "unlocked":
+        event.delegate_lock_override = "unlocked"
+    else:  # pragma: no cover - defensive
+        raise RegistrationError("Érvénytelen zárolási mód")
+
+    session.flush()
+    return event
+
+
+def _canonicalize_access_code(value: str) -> str:
+    cleaned = "".join(ch for ch in (value or "").upper() if ch.isalnum())
+    if not cleaned:
+        return ""
+    if len(cleaned) != ACCESS_CODE_LENGTH:
+        raise VotingAccessCodeError(
+            "A megadott egyszer használható kód formátuma érvénytelen."
+        )
+    grouped = [cleaned[i : i + 4] for i in range(0, len(cleaned), 4)]
+    return "-".join(grouped)
+
+
+def _generate_access_code(existing: set[str]) -> str:
+    while True:
+        raw = "".join(secrets.choice(ACCESS_CODE_ALPHABET) for _ in range(ACCESS_CODE_LENGTH))
+        formatted = "-".join(raw[i : i + 4] for i in range(0, len(raw), 4))
+        if formatted not in existing:
+            return formatted
+
+
+def list_voting_access_codes(session: Session, event_id: int) -> list[VotingAccessCode]:
+    stmt = (
+        select(VotingAccessCode)
+        .where(VotingAccessCode.event_id == event_id)
+        .options(selectinload(VotingAccessCode.used_by_user))
+        .order_by(VotingAccessCode.code.asc())
+    )
+    return list(session.scalars(stmt))
+
+
+def generate_voting_access_codes(
+    session: Session,
+    event_id: int,
+    *,
+    regenerate: bool = True,
+) -> list[VotingAccessCode]:
+    event = session.get(VotingEvent, event_id)
+    if event is None:
+        raise RegistrationError("Nem található szavazási esemény")
+
+    delegate_total = session.scalar(
+        select(func.count(EventDelegate.id)).where(EventDelegate.event_id == event_id)
+    )
+    if not delegate_total:
+        raise VotingAccessCodeUnavailableError(
+            "Nem található kijelölt delegált ehhez az eseményhez."
+        )
+
+    if regenerate:
+        session.execute(
+            delete(VotingAccessCode).where(VotingAccessCode.event_id == event_id)
+        )
+        session.flush()
+
+    existing_codes = set(
+        session.scalars(
+            select(VotingAccessCode.code).where(VotingAccessCode.event_id == event_id)
+        )
+    )
+
+    missing = max(delegate_total - len(existing_codes), 0)
+    for _ in range(missing):
+        new_code = _generate_access_code(existing_codes)
+        existing_codes.add(new_code)
+        session.add(VotingAccessCode(event_id=event_id, code=new_code))
+
+    session.flush()
+    return list_voting_access_codes(session, event_id)
+
+
+def redeem_voting_access_code(
+    session: Session,
+    *,
+    event_id: int,
+    code_value: str,
+    user: User,
+) -> VotingAccessCode:
+    if not code_value:
+        raise VotingAccessCodeError(
+            "Egyszer használható belépőkód megadása szükséges a belépéshez."
+        )
+
+    canonical = _canonicalize_access_code(code_value)
+
+    stmt = (
+        select(VotingAccessCode)
+        .where(
+            VotingAccessCode.event_id == event_id,
+            VotingAccessCode.code == canonical,
+        )
+        .limit(1)
+    )
+    record = session.scalar(stmt)
+    if record is None:
+        raise VotingAccessCodeError("A megadott egyszer használható kód érvénytelen.")
+    if record.used_at:
+        raise VotingAccessCodeError("Ezt a belépőkódot már felhasználták.")
+
+    record.used_at = datetime.utcnow()
+    record.used_by_user_id = user.id if user and user.id else None
+    session.flush()
+    return record
+
+
+def voting_access_code_summary(
+    session: Session, event_id: int
+) -> tuple[list[VotingAccessCode], int, int, int]:
+    codes = list_voting_access_codes(session, event_id)
+    total = len(codes)
+    used = sum(1 for code in codes if code.used_at)
+    available = total - used
+    return codes, total, available, used
+
+
+def build_access_code_pdf(event: VotingEvent, codes: list[VotingAccessCode]) -> bytes:
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=A4)
+    width, height = A4
+    margin_x = 20 * mm
+    margin_y = 25 * mm
+    top_margin = 35 * mm
+    columns = 4
+    rows = 4
+    cell_width = (width - 2 * margin_x) / columns
+    cell_height = (height - top_margin - margin_y) / rows
+
+    def draw_page_header(page_number: int) -> None:
+        pdf.setFont("Helvetica-Bold", 16)
+        pdf.drawString(margin_x, height - margin_y + 5 * mm, event.title or "Szavazási esemény")
+        if event.event_date:
+            pdf.setFont("Helvetica", 10)
+            pdf.drawString(
+                margin_x,
+                height - margin_y,
+                event.event_date.strftime("%Y.%m.%d %H:%M"),
+            )
+        pdf.setFont("Helvetica", 9)
+        pdf.drawRightString(
+            width - margin_x,
+            margin_y / 2,
+            f"Oldal {page_number}",
+        )
+
+    if not codes:
+        draw_page_header(1)
+        pdf.setFont("Helvetica", 12)
+        pdf.drawString(
+            margin_x,
+            height - top_margin,
+            "Ehhez az eseményhez még nem generáltunk belépőkódokat.",
+        )
+        pdf.save()
+        buffer.seek(0)
+        return buffer.read()
+
+    draw_page_header(1)
+
+    for index, code in enumerate(codes):
+        if index and index % ACCESS_CODES_PER_PAGE == 0:
+            pdf.showPage()
+            draw_page_header((index // ACCESS_CODES_PER_PAGE) + 1)
+
+        position = index % ACCESS_CODES_PER_PAGE
+        column = position % columns
+        row = position // columns
+        x = margin_x + column * cell_width
+        y = height - top_margin - row * cell_height
+        pdf.setLineWidth(1)
+        pdf.roundRect(x, y - cell_height + 6 * mm, cell_width - 5 * mm, cell_height - 12 * mm, 6, stroke=1, fill=0)
+        pdf.setFont("Helvetica", 11)
+        pdf.drawCentredString(
+            x + (cell_width - 5 * mm) / 2,
+            y - cell_height + 12 * mm,
+            "MIK egyszer használható belépőkód",
+        )
+        pdf.setFont("Helvetica-Bold", 22)
+        pdf.drawCentredString(
+            x + (cell_width - 5 * mm) / 2,
+            y - (cell_height / 2),
+            code.code,
+        )
+
+    pdf.save()
+    buffer.seek(0)
+    return buffer.read()
+
+
 def list_voting_events(session: Session) -> List[VotingEvent]:
     stmt = (
         select(VotingEvent)
         .options(
             selectinload(VotingEvent.delegates).selectinload(EventDelegate.user),
+            selectinload(VotingEvent.access_codes).selectinload(
+                VotingAccessCode.used_by_user
+            ),
         )
         .order_by(VotingEvent.created_at.desc())
     )
@@ -822,6 +1301,9 @@ def upcoming_voting_events(session: Session) -> List[VotingEvent]:
         select(VotingEvent)
         .options(
             selectinload(VotingEvent.delegates).selectinload(EventDelegate.user),
+            selectinload(VotingEvent.access_codes).selectinload(
+                VotingAccessCode.used_by_user
+            ),
         )
         .order_by(
             case((VotingEvent.event_date.is_(None), 1), else_=0),
@@ -836,7 +1318,12 @@ def get_active_voting_event(session: Session) -> Optional[VotingEvent]:
     stmt = (
         select(VotingEvent)
         .where(VotingEvent.is_active.is_(True))
-        .options(selectinload(VotingEvent.delegates).selectinload(EventDelegate.user))
+        .options(
+            selectinload(VotingEvent.delegates).selectinload(EventDelegate.user),
+            selectinload(VotingEvent.access_codes).selectinload(
+                VotingAccessCode.used_by_user
+            ),
+        )
         .limit(1)
     )
     return session.scalar(stmt)
@@ -1011,6 +1498,10 @@ def set_event_delegates_for_organization(
     event = session.get(VotingEvent, event_id)
     if event is None:
         raise RegistrationError("Nem található szavazási esemény")
+
+    lock_state = delegate_lock_state(event)
+    if lock_state.locked:
+        raise RegistrationError(lock_state.message)
 
     organization = session.get(Organization, organization_id)
     if organization is None:

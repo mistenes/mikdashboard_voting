@@ -313,10 +313,11 @@ function normalizeView(value) {
   return normalized === 'admin' || normalized === 'public' ? normalized : 'default';
 }
 
-function createSignedVotingAuthPayload(email, password) {
+function createSignedVotingAuthPayload(email, password, code = '') {
   const timestamp = Math.floor(Date.now() / 1000);
   const canonicalEmail = email.trim().toLowerCase();
-  const signaturePayload = `${timestamp}:${canonicalEmail}:${password}`;
+  const normalizedCode = (code || '').trim().toUpperCase();
+  const signaturePayload = `${timestamp}:${canonicalEmail}:${password}:${normalizedCode}`;
   const signature = crypto
     .createHmac('sha256', O2AUTH_SECRET)
     .update(signaturePayload)
@@ -324,6 +325,7 @@ function createSignedVotingAuthPayload(email, password) {
   return {
     email: canonicalEmail,
     password,
+    code: normalizedCode,
     timestamp,
     signature,
   };
@@ -499,7 +501,7 @@ function refreshSession(res, sessionId, user) {
   setSessionCookie(res, sessionId);
 }
 
-async function authenticateAgainstDashboard(email, password) {
+async function authenticateAgainstDashboard(email, password, code = '') {
   if (!normalizedDashboardBaseUrl) {
     return {
       ok: false,
@@ -508,7 +510,7 @@ async function authenticateAgainstDashboard(email, password) {
     };
   }
 
-  const signedPayload = createSignedVotingAuthPayload(email, password);
+  const signedPayload = createSignedVotingAuthPayload(email, password, code);
   let lastError = null;
 
   const signedResult = await sendDashboardRequest(
@@ -639,7 +641,7 @@ app.get('/api/auth/session', (req, res) => {
 });
 
 app.post('/api/auth/login', async (req, res) => {
-  const { email, username, password } = req.body || {};
+  const { email, username, password, code } = req.body || {};
   const identifier = (email || username || '').trim();
   if (!identifier || !password) {
     res.status(400).json({ detail: 'Az email cím és jelszó megadása kötelező.' });
@@ -658,7 +660,7 @@ app.post('/api/auth/login', async (req, res) => {
 
   let dashboardResult = null;
   if (dashboardEmail) {
-    dashboardResult = await authenticateAgainstDashboard(dashboardEmail, password);
+    dashboardResult = await authenticateAgainstDashboard(dashboardEmail, password, code);
     if (dashboardResult.ok) {
       const { data } = dashboardResult;
       const sessionEmail = (data.email || dashboardEmail).trim() || dashboardEmail;

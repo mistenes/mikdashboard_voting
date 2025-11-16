@@ -75,6 +75,7 @@ class User(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     is_voting_delegate = Column(Boolean, default=False, nullable=False)
     must_change_password = Column(Boolean, default=False, nullable=False)
+    seed_password_changed_at = Column(DateTime, nullable=True)
     is_organization_contact = Column(Boolean, default=False, nullable=False)
 
     organization = relationship("Organization", back_populates="users")
@@ -96,6 +97,9 @@ class User(Base):
         "OrganizationInvitation",
         back_populates="accepted_by_user",
         foreign_keys="OrganizationInvitation.accepted_by_user_id",
+    )
+    redeemed_access_codes = relationship(
+        "VotingAccessCode", back_populates="used_by_user"
     )
 
 
@@ -155,6 +159,7 @@ class VotingEvent(Base):
     is_active = Column(Boolean, default=False, nullable=False)
     is_voting_enabled = Column(Boolean, default=False, nullable=False)
     delegate_limit = Column(Integer, nullable=True)
+    delegate_lock_override = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
@@ -162,6 +167,9 @@ class VotingEvent(Base):
 
     delegates = relationship(
         "EventDelegate", back_populates="event", cascade="all, delete-orphan"
+    )
+    access_codes = relationship(
+        "VotingAccessCode", back_populates="event", cascade="all, delete-orphan"
     )
 
 
@@ -182,6 +190,28 @@ class EventDelegate(Base):
     event = relationship("VotingEvent", back_populates="delegates")
     organization = relationship("Organization", back_populates="event_delegates")
     user = relationship("User", back_populates="event_delegations")
+
+
+class VotingAccessCode(Base):
+    __tablename__ = "voting_access_codes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    event_id = Column(Integer, ForeignKey("voting_events.id"), nullable=False, index=True)
+    code = Column(String, unique=True, nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    used_at = Column(DateTime, nullable=True)
+    used_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+
+    event = relationship("VotingEvent", back_populates="access_codes")
+    used_by_user = relationship("User", back_populates="redeemed_access_codes")
+
+
+class SiteSettings(Base):
+    __tablename__ = "site_settings"
+
+    id = Column(Integer, primary_key=True, default=1)
+    bank_name = Column(String, nullable=True)
+    bank_account_number = Column(String, nullable=True)
 
 
 class OrganizationInvitation(Base):
