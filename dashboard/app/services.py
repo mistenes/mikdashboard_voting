@@ -47,19 +47,19 @@ from .security import hash_password, verify_password
 logger = logging.getLogger(__name__)
 
 
-ELMS_SANS_DOWNLOAD_SOURCES: tuple[tuple[str, str], ...] = (
+ACCESS_CODE_FONT_DOWNLOAD_SOURCES: tuple[tuple[str, str], ...] = (
     (
         "zip",
-        "https://fonts.google.com/download?family=Elms%20Sans",
+        "https://fonts.google.com/download?family=Noto%20Sans",
     ),
     (
         "ttf",
-        "https://github.com/google/fonts/raw/main/ofl/elmssans/ElmsSans%5Bwght%5D.ttf",
+        "https://github.com/google/fonts/raw/main/ofl/notosans/NotoSans-Regular.ttf",
     ),
 )
 
-ELMS_SANS_REGULAR_FONT_NAME = "ElmsSans-Regular"
-ELMS_SANS_BOLD_FONT_NAME = "ElmsSans-Bold"
+ACCESS_CODE_REGULAR_FONT_NAME = "NotoSans-Regular"
+ACCESS_CODE_BOLD_FONT_NAME = "NotoSans-Bold"
 
 
 DELEGATE_TIMEZONE = ZoneInfo("Europe/Budapest")
@@ -70,28 +70,28 @@ ACCESS_CODES_PER_PAGE = 12
 SITE_SETTINGS_SINGLETON_ID = 1
 
 
-def _parse_elms_sans_zip(payload: bytes) -> dict[str, bytes]:
+def _parse_access_code_font_zip(payload: bytes) -> dict[str, bytes]:
     fonts: dict[str, bytes] = {}
     try:
         with ZipFile(BytesIO(payload)) as archive:
             for member in archive.namelist():
                 lower_name = member.lower()
-                if lower_name.endswith("elmssans-regular.ttf"):
+                if lower_name.endswith("notosans-regular.ttf"):
                     fonts["regular"] = archive.read(member)
-                elif lower_name.endswith("elmssans-bold.ttf"):
+                elif lower_name.endswith("notosans-bold.ttf"):
                     fonts["bold"] = archive.read(member)
-                elif lower_name.endswith("elmssans-variablefont_wght.ttf") or lower_name.endswith(
-                    "elmssans[wght].ttf"
+                elif lower_name.endswith("notosans-variablefont_wdthwght.ttf") or lower_name.endswith(
+                    "notosans[wdth,wght].ttf"
                 ):
                     data = archive.read(member)
                     fonts.setdefault("regular", data)
                     fonts.setdefault("bold", data)
     except BadZipFile as exc:
-        raise RuntimeError("Érvénytelen Elms Sans ZIP archívum") from exc
+        raise RuntimeError("Érvénytelen Noto Sans ZIP archívum") from exc
     return fonts
 
 
-def _parse_elms_sans_ttf(payload: bytes) -> dict[str, bytes]:
+def _parse_access_code_font_ttf(payload: bytes) -> dict[str, bytes]:
     if not payload:
         return {}
     return {
@@ -101,16 +101,16 @@ def _parse_elms_sans_ttf(payload: bytes) -> dict[str, bytes]:
 
 
 @lru_cache(maxsize=1)
-def _download_elms_sans_fonts() -> dict[str, bytes]:
+def _download_access_code_fonts() -> dict[str, bytes]:
     errors: list[str] = []
-    for source_type, url in ELMS_SANS_DOWNLOAD_SOURCES:
+    for source_type, url in ACCESS_CODE_FONT_DOWNLOAD_SOURCES:
         try:
             response = httpx.get(url, timeout=20)
             response.raise_for_status()
             if source_type == "zip":
-                fonts = _parse_elms_sans_zip(response.content)
+                fonts = _parse_access_code_font_zip(response.content)
             else:
-                fonts = _parse_elms_sans_ttf(response.content)
+                fonts = _parse_access_code_font_ttf(response.content)
         except Exception as exc:  # pragma: no cover - network error handling
             errors.append(f"{url}: {exc}")
             continue
@@ -119,34 +119,34 @@ def _download_elms_sans_fonts() -> dict[str, bytes]:
             return fonts
         errors.append(f"{url}: nem találtunk felhasználható betűkészletet")
 
-    raise RuntimeError("Nem sikerült letölteni az Elms Sans betűt: " + "; ".join(errors))
+    raise RuntimeError("Nem sikerült letölteni a Noto Sans betűt: " + "; ".join(errors))
 
 
 @lru_cache(maxsize=1)
-def _ensure_elms_sans_font_names() -> tuple[str, str]:
-    fonts = _download_elms_sans_fonts()
+def _ensure_access_code_font_names() -> tuple[str, str]:
+    fonts = _download_access_code_fonts()
     registered = set(pdfmetrics.getRegisteredFontNames())
 
-    if ELMS_SANS_REGULAR_FONT_NAME not in registered:
+    if ACCESS_CODE_REGULAR_FONT_NAME not in registered:
         regular_bytes = fonts.get("regular")
         if not regular_bytes:
-            raise RuntimeError("Hiányzik az Elms Sans regular változata")
-        pdfmetrics.registerFont(TTFont(ELMS_SANS_REGULAR_FONT_NAME, BytesIO(regular_bytes)))
+            raise RuntimeError("Hiányzik a Noto Sans regular változata")
+        pdfmetrics.registerFont(TTFont(ACCESS_CODE_REGULAR_FONT_NAME, BytesIO(regular_bytes)))
 
-    if ELMS_SANS_BOLD_FONT_NAME not in registered:
+    if ACCESS_CODE_BOLD_FONT_NAME not in registered:
         bold_bytes = fonts.get("bold") or fonts.get("regular")
         if not bold_bytes:
-            raise RuntimeError("Hiányzik az Elms Sans bold változata")
-        pdfmetrics.registerFont(TTFont(ELMS_SANS_BOLD_FONT_NAME, BytesIO(bold_bytes)))
+            raise RuntimeError("Hiányzik a Noto Sans bold változata")
+        pdfmetrics.registerFont(TTFont(ACCESS_CODE_BOLD_FONT_NAME, BytesIO(bold_bytes)))
 
-    return ELMS_SANS_REGULAR_FONT_NAME, ELMS_SANS_BOLD_FONT_NAME
+    return ACCESS_CODE_REGULAR_FONT_NAME, ACCESS_CODE_BOLD_FONT_NAME
 
 
-def _get_elms_sans_font_names() -> tuple[str, str]:
+def _get_access_code_font_names() -> tuple[str, str]:
     try:
-        return _ensure_elms_sans_font_names()
+        return _ensure_access_code_font_names()
     except Exception as exc:  # pragma: no cover - fallback when fonts unreachable
-        logger.warning("Nem sikerült letölteni az Elms Sans betűt, Helvetica lesz használva: %s", exc)
+        logger.warning("Nem sikerült letölteni a Noto Sans betűt, Helvetica lesz használva: %s", exc)
         return "Helvetica", "Helvetica-Bold"
 
 
@@ -1338,7 +1338,7 @@ def build_access_code_pdf(event: VotingEvent, codes: list[VotingAccessCode]) -> 
     rows = 4
     cell_width = (width - 2 * margin_x) / columns
     cell_height = (height - top_margin - margin_y) / rows
-    regular_font, bold_font = _get_elms_sans_font_names()
+    regular_font, bold_font = _get_access_code_font_names()
     border_padding_x = 6 * mm
     border_padding_y = 8 * mm
     code_text_margin_x = 8 * mm
