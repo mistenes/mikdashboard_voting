@@ -211,6 +211,16 @@ class OrganizationBillingUpdate(BaseModel):
     payment_instructions: Optional[str] = None
 
 
+class BankSettingsResponse(BaseModel):
+    bank_name: Optional[str] = None
+    bank_account_number: Optional[str] = None
+
+
+class BankSettingsUpdate(BaseModel):
+    bank_name: Optional[constr(strip_whitespace=True, max_length=255)] = None
+    bank_account_number: Optional[constr(strip_whitespace=True, max_length=255)] = None
+
+
 class PublicConfigResponse(BaseModel):
     recaptcha_site_key: Optional[str]
     captcha_provider: Optional[str]
@@ -218,9 +228,6 @@ class PublicConfigResponse(BaseModel):
 
 class OrganizationCreateRequest(BaseModel):
     name: constr(strip_whitespace=True, min_length=2, max_length=255)
-    bank_name: Optional[constr(strip_whitespace=True, max_length=255)] = None
-    bank_account_number: Optional[constr(strip_whitespace=True, max_length=255)] = None
-    payment_instructions: Optional[constr(strip_whitespace=True, max_length=500)] = None
 
 
 class OrganizationMembershipInfo(BaseModel):

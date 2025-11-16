@@ -753,75 +753,36 @@ function renderOrganizations(items) {
     bankTitle.textContent = "Banki adatok";
     bankSection.appendChild(bankTitle);
 
-    const bankForm = document.createElement("form");
-    bankForm.classList.add("organization-bank-form");
+    const bankDetails = document.createElement("dl");
+    bankDetails.classList.add("bank-details");
 
-    const bankNameLabel = document.createElement("label");
-    bankNameLabel.setAttribute("for", `bank-name-${org.id}`);
-    bankNameLabel.textContent = "Bank neve";
-    const bankNameInput = document.createElement("input");
-    bankNameInput.id = `bank-name-${org.id}`;
-    bankNameInput.name = "bank_name";
-    bankNameInput.type = "text";
-    bankNameInput.placeholder = "Pl. Magyar Bank";
-    bankNameInput.value = org.bank_name || "";
+    const createBankRow = (label, value) => {
+      const wrapper = document.createElement("div");
+      const term = document.createElement("dt");
+      term.textContent = label;
+      const detail = document.createElement("dd");
+      detail.textContent = value || "Nincs megadva";
+      wrapper.appendChild(term);
+      wrapper.appendChild(detail);
+      return wrapper;
+    };
 
-    const bankAccountLabel = document.createElement("label");
-    bankAccountLabel.setAttribute("for", `bank-account-${org.id}`);
-    bankAccountLabel.textContent = "Bankszámlaszám";
-    const bankAccountInput = document.createElement("input");
-    bankAccountInput.id = `bank-account-${org.id}`;
-    bankAccountInput.name = "bank_account_number";
-    bankAccountInput.type = "text";
-    bankAccountInput.placeholder = "Pl. 11700000-00000000";
-    bankAccountInput.value = org.bank_account_number || "";
+    bankDetails.appendChild(
+      createBankRow("Bank neve", org.bank_name || "Nincs megadva"),
+    );
+    bankDetails.appendChild(
+      createBankRow("Bankszámlaszám", org.bank_account_number || "Nincs megadva"),
+    );
+    const instructionsValue = org.payment_instructions || org.name || "Nincs megadva";
+    bankDetails.appendChild(createBankRow("Közlemény", instructionsValue));
 
-    const instructionsLabel = document.createElement("label");
-    instructionsLabel.setAttribute("for", `bank-instructions-${org.id}`);
-    instructionsLabel.textContent = "Utalási megjegyzés";
-    const instructionsInput = document.createElement("textarea");
-    instructionsInput.id = `bank-instructions-${org.id}`;
-    instructionsInput.name = "payment_instructions";
-    instructionsInput.rows = 3;
-    instructionsInput.placeholder = "Pl. Közlemény: Név + tagsági díj";
-    instructionsInput.value = org.payment_instructions || "";
+    bankSection.appendChild(bankDetails);
 
-    const bankActions = document.createElement("div");
-    bankActions.classList.add("organization-bank-actions");
-
-    const saveButton = document.createElement("button");
-    saveButton.type = "submit";
-    saveButton.classList.add("primary-btn");
-    saveButton.textContent = "Banki adatok mentése";
-
-    bankForm.appendChild(bankNameLabel);
-    bankForm.appendChild(bankNameInput);
-    bankForm.appendChild(bankAccountLabel);
-    bankForm.appendChild(bankAccountInput);
-    bankForm.appendChild(instructionsLabel);
-    bankForm.appendChild(instructionsInput);
-    bankActions.appendChild(saveButton);
-    bankForm.appendChild(bankActions);
-
-    bankForm.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      try {
-        await requestJSON(`/api/admin/organizations/${org.id}/billing`, {
-          method: "POST",
-          body: JSON.stringify({
-            bank_name: bankNameInput.value,
-            bank_account_number: bankAccountInput.value,
-            payment_instructions: instructionsInput.value,
-          }),
-        });
-        setStatus("Banki adatok frissítve.", "success", saveButton);
-        await loadOrganizations();
-      } catch (error) {
-        handleAuthError(error, saveButton);
-      }
-    });
-
-    bankSection.appendChild(bankForm);
+    const bankNote = document.createElement("p");
+    bankNote.classList.add("muted", "small-print");
+    bankNote.innerHTML =
+      'A banki adatokat minden szervezet azonosan használja. Módosításuk a <a href="/admin/beallitasok">Beállítások</a> oldalon történik, a közlemény mező automatikusan a szervezet nevét tartalmazza.';
+    bankSection.appendChild(bankNote);
 
     const contactSection = document.createElement("section");
     contactSection.classList.add("organization-contact");
@@ -1197,9 +1158,6 @@ async function initOrganizationsPage() {
     const formData = new FormData(addOrganizationForm);
     const payload = {
       name: formData.get("name"),
-      bank_name: formData.get("bank_name"),
-      bank_account_number: formData.get("bank_account_number"),
-      payment_instructions: formData.get("payment_instructions"),
     };
     try {
       await requestJSON("/api/admin/organizations", {
@@ -2708,47 +2666,103 @@ async function initSettingsPage() {
     return;
   }
 
-  const resetButton = document.querySelector("[data-reset-events]");
-  if (!resetButton) {
-    return;
+  const bankForm = document.querySelector("#bank-settings-form");
+  const bankNameInput = document.querySelector("#global-bank-name");
+  const bankAccountInput = document.querySelector("#global-bank-account");
+  const bankSubmitButton = bankForm?.querySelector('button[type="submit"]') || null;
+
+  async function loadBankSettings() {
+    if (!bankForm) {
+      return;
+    }
+    try {
+      const settings = await requestJSON("/api/admin/settings/bank");
+      if (bankNameInput) {
+        bankNameInput.value = settings?.bank_name || "";
+      }
+      if (bankAccountInput) {
+        bankAccountInput.value = settings?.bank_account_number || "";
+      }
+      if (bankSubmitButton) {
+        setStatus("", "", bankSubmitButton);
+      }
+    } catch (error) {
+      if (bankSubmitButton) {
+        handleAuthError(error, bankSubmitButton);
+      } else {
+        handleAuthError(error);
+      }
+    }
   }
 
-  resetButton.addEventListener("click", async () => {
-    if (!ensureAdminSession(true)) {
-      return;
-    }
+  if (bankForm) {
+    await loadBankSettings();
+    bankForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (!ensureAdminSession(true)) {
+        return;
+      }
+      const payload = {
+        bank_name: bankNameInput?.value || "",
+        bank_account_number: bankAccountInput?.value || "",
+      };
+      try {
+        const response = await requestJSON("/api/admin/settings/bank", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+        if (bankNameInput) {
+          bankNameInput.value = response?.bank_name || "";
+        }
+        if (bankAccountInput) {
+          bankAccountInput.value = response?.bank_account_number || "";
+        }
+        setStatus("Banki adatok frissítve.", "success", bankSubmitButton);
+      } catch (error) {
+        handleAuthError(error, bankSubmitButton);
+      }
+    });
+  }
 
-    const confirmed = window.confirm(
-      "Biztosan törölni szeretnéd az összes szavazási eseményt? Ez a művelet végleges.",
-    );
-    if (!confirmed) {
-      return;
-    }
+  const resetButton = document.querySelector("[data-reset-events]");
+  if (resetButton) {
+    resetButton.addEventListener("click", async () => {
+      if (!ensureAdminSession(true)) {
+        return;
+      }
 
-    const keyword = window.prompt(
-      "A folytatáshoz írd be a következő kulcsszót: TÖRLÉS",
-    );
-    if (!keyword || keyword.trim().toUpperCase() !== "TÖRLÉS") {
-      setStatus(
-        "A művelet megszakítva. A megerősítő kulcsszó nem egyezett.",
-        "error",
-        resetButton,
+      const confirmed = window.confirm(
+        "Biztosan törölni szeretnéd az összes szavazási eseményt? Ez a művelet végleges.",
       );
-      return;
-    }
+      if (!confirmed) {
+        return;
+      }
 
-    resetButton.disabled = true;
-    try {
-      setStatus("Szavazási események törlése folyamatban...", "", resetButton);
-      const response = await requestJSON("/api/admin/events/reset", { method: "POST" });
-      const message = response?.message || "Az események törlése megtörtént.";
-      setStatus(message, "success", resetButton);
-    } catch (error) {
-      handleAuthError(error, resetButton);
-    } finally {
-      resetButton.disabled = false;
-    }
-  });
+      const keyword = window.prompt(
+        "A folytatáshoz írd be a következő kulcsszót: TÖRLÉS",
+      );
+      if (!keyword || keyword.trim().toUpperCase() !== "TÖRLÉS") {
+        setStatus(
+          "A művelet megszakítva. A megerősítő kulcsszó nem egyezett.",
+          "error",
+          resetButton,
+        );
+        return;
+      }
+
+      resetButton.disabled = true;
+      try {
+        setStatus("Szavazási események törlése folyamatban...", "", resetButton);
+        const response = await requestJSON("/api/admin/events/reset", { method: "POST" });
+        const message = response?.message || "Az események törlése megtörtént.";
+        setStatus(message, "success", resetButton);
+      } catch (error) {
+        handleAuthError(error, resetButton);
+      } finally {
+        resetButton.disabled = false;
+      }
+    });
+  }
 }
 
 attachSignOut();

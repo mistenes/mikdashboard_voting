@@ -31,6 +31,7 @@ from .models import (
     OrganizationInvitation,
     PasswordResetToken,
     SessionToken,
+    SiteSettings,
     User,
     VerificationStatus,
     VotingAccessCode,
@@ -47,11 +48,44 @@ DELEGATE_TIMEZONE = ZoneInfo("Europe/Budapest")
 ACCESS_CODE_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
 ACCESS_CODE_LENGTH = 8
 ACCESS_CODES_PER_PAGE = 16
+SITE_SETTINGS_SINGLETON_ID = 1
+
+
+def _sanitize_optional_text(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    stripped = value.strip()
+    return stripped or None
 
 
 def _mark_admin_password_initialized(user: User) -> None:
     if user.is_admin and user.seed_password_changed_at is None:
         user.seed_password_changed_at = datetime.utcnow()
+
+
+def ensure_site_settings(session: Session) -> SiteSettings:
+    settings = session.get(SiteSettings, SITE_SETTINGS_SINGLETON_ID)
+    if settings is None:
+        settings = SiteSettings(id=SITE_SETTINGS_SINGLETON_ID)
+        session.add(settings)
+        session.flush()
+    return settings
+
+
+def get_site_settings(session: Session) -> SiteSettings:
+    return ensure_site_settings(session)
+
+
+def update_site_bank_settings(
+    session: Session,
+    *,
+    bank_name: Optional[str] = None,
+    bank_account_number: Optional[str] = None,
+) -> SiteSettings:
+    settings = ensure_site_settings(session)
+    settings.bank_name = _sanitize_optional_text(bank_name)
+    settings.bank_account_number = _sanitize_optional_text(bank_account_number)
+    return settings
 
 
 def _log_brevo_delivery(kind: str, response: httpx.Response, *, extra: dict | None = None) -> None:
@@ -840,9 +874,6 @@ def create_organization(
     session: Session,
     *,
     name: str,
-    bank_name: Optional[str] = None,
-    bank_account_number: Optional[str] = None,
-    payment_instructions: Optional[str] = None,
 ) -> Organization:
     cleaned = name.strip()
     if len(cleaned) < 2:
@@ -854,17 +885,8 @@ def create_organization(
     if session.scalar(existing_stmt):
         raise RegistrationError("Ilyen nevű szervezet már létezik.")
 
-    def sanitize(value: Optional[str]) -> Optional[str]:
-        if value is None:
-            return None
-        stripped = value.strip()
-        return stripped or None
-
     organization = Organization(
         name=cleaned,
-        bank_name=sanitize(bank_name),
-        bank_account_number=sanitize(bank_account_number),
-        payment_instructions=sanitize(payment_instructions),
     )
     session.add(organization)
     session.flush()
@@ -904,30 +926,6 @@ def set_organization_fee_status(
     if organization is None:
         raise RegistrationError("Nem található szervezet")
     organization.fee_paid = fee_paid
-    return organization
-
-
-def set_organization_billing_details(
-    session: Session,
-    *,
-    organization_id: int,
-    bank_name: Optional[str] = None,
-    bank_account_number: Optional[str] = None,
-    payment_instructions: Optional[str] = None,
-) -> Organization:
-    organization = session.get(Organization, organization_id)
-    if organization is None:
-        raise RegistrationError("Nem található szervezet")
-
-    def sanitize(value: Optional[str]) -> Optional[str]:
-        if value is None:
-            return None
-        stripped = value.strip()
-        return stripped or None
-
-    organization.bank_name = sanitize(bank_name)
-    organization.bank_account_number = sanitize(bank_account_number)
-    organization.payment_instructions = sanitize(payment_instructions)
     return organization
 
 

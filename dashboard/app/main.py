@@ -8,7 +8,7 @@ import logging
 import os
 import time
 from datetime import datetime
-from typing import Annotated, List
+from typing import Annotated, List, Optional
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response, status
 from fastapi.responses import FileResponse, HTMLResponse
@@ -29,12 +29,15 @@ from .models import (
     InvitationRole,
     Organization,
     OrganizationInvitation,
+    SiteSettings,
     User,
     VotingAccessCode,
     VotingEvent,
 )
 from .schemas import (
     ActiveEventInfo,
+    BankSettingsResponse,
+    BankSettingsUpdate,
     AdminDecisionRequest,
     AdminDecisionResponse,
     AdminUserCreateRequest,
@@ -48,7 +51,6 @@ from .schemas import (
     InvitationCreateRequest,
     LoginRequest,
     LoginResponse,
-    OrganizationBillingUpdate,
     OrganizationContactInfo,
     OrganizationCreateRequest,
     OrganizationDetail,
@@ -128,8 +130,9 @@ from .services import (
     set_event_delegates_for_organization,
     set_delegate_lock_override,
     set_voting_event_accessibility,
+    update_site_bank_settings,
+    get_site_settings,
     validate_password_strength,
-    set_organization_billing_details,
     set_organization_fee_status,
     update_voting_event,
     redeem_voting_access_code,
@@ -276,6 +279,7 @@ def startup() -> None:
     Base.metadata.create_all(bind=engine)
     ensure_fee_paid_column()
     ensure_billing_columns()
+    ensure_site_settings_row()
     ensure_is_admin_column()
     ensure_voting_delegate_column()
     ensure_must_change_password_column()
@@ -317,6 +321,15 @@ def ensure_billing_columns() -> None:
             connection.execute(
                 text("ALTER TABLE organizations ADD COLUMN payment_instructions VARCHAR")
             )
+
+
+def ensure_site_settings_row() -> None:
+    db = SessionLocal()
+    try:
+        get_site_settings(db)
+        db.commit()
+    finally:
+        db.close()
 
 
 def ensure_is_admin_column() -> None:
@@ -577,6 +590,28 @@ DatabaseDependency = Annotated[Session, Depends(get_db)]
 bearer_scheme = HTTPBearer(auto_error=False)
 
 
+def organization_bank_details(
+    organization: Organization,
+    *,
+    settings: Optional[SiteSettings] = None,
+) -> tuple[Optional[str], Optional[str], Optional[str]]:
+    bank_name: Optional[str] = None
+    bank_account_number: Optional[str] = None
+    if settings is not None:
+        raw_name = settings.bank_name or ""
+        raw_account = settings.bank_account_number or ""
+        bank_name = raw_name.strip() or None
+        bank_account_number = raw_account.strip() or None
+    if not bank_name:
+        bank_name = (organization.bank_name or "").strip() or None
+    if not bank_account_number:
+        bank_account_number = (organization.bank_account_number or "").strip() or None
+    payment_instructions = (organization.name or "").strip() or None
+    if not payment_instructions:
+        payment_instructions = (organization.payment_instructions or "").strip() or None
+    return bank_name, bank_account_number, payment_instructions
+
+
 def get_session_user(
     db: DatabaseDependency,
     credentials: Annotated[
@@ -606,16 +641,23 @@ def require_admin(user: Annotated[User, Depends(get_session_user)]) -> User:
     return user
 
 
-def membership_info(organization: Organization | None) -> OrganizationMembershipInfo | None:
+def membership_info(
+    organization: Organization | None,
+    *,
+    settings: Optional[SiteSettings] = None,
+) -> OrganizationMembershipInfo | None:
     if organization is None:
         return None
+    bank_name, bank_account_number, payment_instructions = organization_bank_details(
+        organization, settings=settings
+    )
     return OrganizationMembershipInfo(
         id=organization.id,
         name=organization.name,
         fee_paid=organization.fee_paid,
-        bank_name=organization.bank_name,
-        bank_account_number=organization.bank_account_number,
-        payment_instructions=organization.payment_instructions,
+        bank_name=bank_name,
+        bank_account_number=bank_account_number,
+        payment_instructions=payment_instructions,
     )
 
 
@@ -773,6 +815,7 @@ def build_organization_detail(
     *,
     active_event: VotingEvent | None,
     events: list[VotingEvent] | None = None,
+    settings: Optional[SiteSettings] = None,
 ) -> OrganizationDetail:
     members = [build_member_payload(member, organization) for member in organization.users]
     active_delegate_user_ids: list[int] = []
@@ -817,15 +860,19 @@ def build_organization_detail(
                 continue
             upcoming_assignments.append(assignment)
 
+    bank_name, bank_account_number, payment_instructions = organization_bank_details(
+        organization, settings=settings
+    )
+
     return OrganizationDetail(
         id=organization.id,
         name=organization.name,
         fee_paid=organization.fee_paid,
         member_count=len(members),
         members=members,
-        bank_name=organization.bank_name,
-        bank_account_number=organization.bank_account_number,
-        payment_instructions=organization.payment_instructions,
+        bank_name=bank_name,
+        bank_account_number=bank_account_number,
+        payment_instructions=payment_instructions,
         active_event=active_event_info(active_event),
         active_event_delegate_user_id=active_delegate_user_id,
         active_event_delegate_user_ids=active_delegate_user_ids,
@@ -1261,6 +1308,44 @@ def admin_users_page() -> FileResponse:
 @app.get("/admin/beallitasok", response_class=FileResponse)
 def admin_settings_page() -> FileResponse:
     return FileResponse("app/static/admin-settings.html")
+
+
+@app.get(
+    "/api/admin/settings/bank",
+    response_model=BankSettingsResponse,
+    responses={401: {"model": ErrorResponse}},
+)
+def get_bank_settings_endpoint(
+    db: DatabaseDependency,
+    _: Annotated[User, Depends(require_admin)],
+) -> BankSettingsResponse:
+    settings = get_site_settings(db)
+    return BankSettingsResponse(
+        bank_name=settings.bank_name,
+        bank_account_number=settings.bank_account_number,
+    )
+
+
+@app.post(
+    "/api/admin/settings/bank",
+    response_model=BankSettingsResponse,
+    responses={401: {"model": ErrorResponse}},
+)
+def update_bank_settings_endpoint(
+    payload: BankSettingsUpdate,
+    db: DatabaseDependency,
+    _: Annotated[User, Depends(require_admin)],
+) -> BankSettingsResponse:
+    settings = update_site_bank_settings(
+        db,
+        bank_name=payload.bank_name,
+        bank_account_number=payload.bank_account_number,
+    )
+    db.commit()
+    return BankSettingsResponse(
+        bank_name=settings.bank_name,
+        bank_account_number=settings.bank_account_number,
+    )
 
 
 @app.get("/szervezetek/{organization_id}/dij", response_class=FileResponse)
@@ -1782,13 +1867,14 @@ def current_user(
     user: Annotated[User, Depends(get_session_user)], db: DatabaseDependency
 ) -> SessionUser:
     active_event = get_active_voting_event(db)
+    site_settings = get_site_settings(db)
     return SessionUser(
         id=user.id,
         email=user.email,
         first_name=user.first_name,
         last_name=user.last_name,
         is_admin=user.is_admin,
-        organization=membership_info(user.organization),
+        organization=membership_info(user.organization, settings=site_settings),
         is_voting_delegate=user.is_voting_delegate,
         active_event=active_event_info(active_event),
         is_organization_contact=user.is_organization_contact,
@@ -1858,13 +1944,13 @@ def create_organization_endpoint(
         organization = create_organization(
             db,
             name=payload.name,
-            bank_name=payload.bank_name,
-            bank_account_number=payload.bank_account_number,
-            payment_instructions=payload.payment_instructions,
         )
         db.flush()
         active_event = get_active_voting_event(db)
-        detail = build_organization_detail(organization, active_event=active_event)
+        site_settings = get_site_settings(db)
+        detail = build_organization_detail(
+            organization, active_event=active_event, settings=site_settings
+        )
     except RegistrationError as exc:
         db.rollback()
         raise HTTPException(
@@ -1888,7 +1974,13 @@ def admin_organizations(
 ) -> List[OrganizationDetail]:
     organizations = organizations_with_members(db)
     active_event = get_active_voting_event(db)
-    return [build_organization_detail(org, active_event=active_event) for org in organizations]
+    site_settings = get_site_settings(db)
+    return [
+        build_organization_detail(
+            org, active_event=active_event, settings=site_settings
+        )
+        for org in organizations
+    ]
 
 
 @app.post(
@@ -1908,7 +2000,10 @@ def update_organization_fee(
         )
         db.flush()
         active_event = get_active_voting_event(db)
-        detail = build_organization_detail(organization, active_event=active_event)
+        site_settings = get_site_settings(db)
+        detail = build_organization_detail(
+            organization, active_event=active_event, settings=site_settings
+        )
     except RegistrationError as exc:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
@@ -1928,23 +2023,10 @@ def update_organization_billing(
     db: DatabaseDependency,
     _: Annotated[User, Depends(require_admin)],
 ) -> OrganizationDetail:
-    try:
-        organization = set_organization_billing_details(
-            db,
-            organization_id=organization_id,
-            bank_name=payload.bank_name,
-            bank_account_number=payload.bank_account_number,
-            payment_instructions=payload.payment_instructions,
-        )
-        db.flush()
-        active_event = get_active_voting_event(db)
-        detail = build_organization_detail(organization, active_event=active_event)
-    except RegistrationError as exc:
-        db.rollback()
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-
-    db.commit()
-    return detail
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail="A banki adatokat mostantól a Beállítások oldalon lehet módosítani.",
+    )
 
 
 @app.post(
@@ -1983,7 +2065,10 @@ def create_contact_invitation_endpoint(
         db.flush()
         organization = organization_with_members(db, organization_id)
         active_event = get_active_voting_event(db)
-        detail = build_organization_detail(organization, active_event=active_event)
+        site_settings = get_site_settings(db)
+        detail = build_organization_detail(
+            organization, active_event=active_event, settings=site_settings
+        )
         link: str | None = None
         if invitation is not None:
             link = queue_invitation_email(
@@ -2698,8 +2783,9 @@ def organization_detail_endpoint(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     active_event = get_active_voting_event(db)
     events = upcoming_voting_events(db)
+    site_settings = get_site_settings(db)
     return build_organization_detail(
-        organization, active_event=active_event, events=events
+        organization, active_event=active_event, events=events, settings=site_settings
     )
 
 
@@ -2758,8 +2844,12 @@ def create_member_invitation_endpoint(
         organization = organization_with_members(db, organization_id)
         active_event = get_active_voting_event(db)
         events = upcoming_voting_events(db)
+        site_settings = get_site_settings(db)
         detail = build_organization_detail(
-            organization, active_event=active_event, events=events
+            organization,
+            active_event=active_event,
+            events=events,
+            settings=site_settings,
         )
         link: str | None = None
         if invitation is not None:
@@ -2841,10 +2931,12 @@ def remove_organization_member_endpoint(
         organization = organization_with_members(db, organization_id)
         active_event = get_active_voting_event(db)
         events = upcoming_voting_events(db)
+        site_settings = get_site_settings(db)
         detail = build_organization_detail(
             organization,
             active_event=active_event,
             events=events,
+            settings=site_settings,
         )
     except RegistrationError as exc:
         db.rollback()
@@ -2895,8 +2987,12 @@ def set_organization_event_delegates(
         organization = organization_with_members(db, organization_id)
         active_event = get_active_voting_event(db)
         events = upcoming_voting_events(db)
+        site_settings = get_site_settings(db)
         detail = build_organization_detail(
-            organization, active_event=active_event, events=events
+            organization,
+            active_event=active_event,
+            events=events,
+            settings=site_settings,
         )
     except RegistrationError as exc:
         db.rollback()

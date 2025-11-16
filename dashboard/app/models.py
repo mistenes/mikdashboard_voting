@@ -206,6 +206,14 @@ class VotingAccessCode(Base):
     used_by_user = relationship("User", back_populates="redeemed_access_codes")
 
 
+class SiteSettings(Base):
+    __tablename__ = "site_settings"
+
+    id = Column(Integer, primary_key=True, default=1)
+    bank_name = Column(String, nullable=True)
+    bank_account_number = Column(String, nullable=True)
+
+
 class OrganizationInvitation(Base):
     __tablename__ = "organization_invitations"
 

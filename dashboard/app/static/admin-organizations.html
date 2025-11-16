@@ -34,7 +34,8 @@
           <div>
             <h1>Szervezetek</h1>
             <p class="lead">
-              Kezeld a szervezetek banki adatait, a tagsági díj státuszát és a taglistát.
+              Kezeld a tagsági díjak státuszát, a delegáltakat és a taglistát. A banki adatokat a
+              <a href="/admin/beallitasok">Beállítások</a> oldalon módosíthatod.
             </p>
           </div>
           <div class="admin-actions">
@@ -52,7 +53,7 @@
             <div>
               <h2 id="add-organization-title">Új szervezet hozzáadása</h2>
               <p class="muted">
-                Adj meg legalább egy 2 karakteres nevet és opcionálisan banki adatokat.
+                Adj meg legalább egy 2 karakteres nevet. A banki adatokat külön, globálisan lehet kezelni.
               </p>
             </div>
             <button
@@ -81,30 +82,6 @@
                   required
                   placeholder="Pl. NIT"
                 />
-                <label for="new-organization-bank">Bank neve (opcionális)</label>
-                <input
-                  type="text"
-                  id="new-organization-bank"
-                  name="bank_name"
-                  maxlength="255"
-                  placeholder="Pl. Magyar Bank"
-                />
-                <label for="new-organization-account">Bankszámlaszám (opcionális)</label>
-                <input
-                  type="text"
-                  id="new-organization-account"
-                  name="bank_account_number"
-                  maxlength="255"
-                  placeholder="Pl. 11700000-00000000"
-                />
-                <label for="new-organization-instructions">Utalási megjegyzés (opcionális)</label>
-                <textarea
-                  id="new-organization-instructions"
-                  name="payment_instructions"
-                  rows="3"
-                  maxlength="500"
-                  placeholder="Pl. Közlemény: Név + tagsági díj"
-                ></textarea>
               </div>
               <div class="form-row">
                 <button type="submit" class="primary-btn">Szervezet létrehozása</button>
@@ -116,7 +93,10 @@
         <section class="organizations-wrapper" aria-labelledby="organizations-title">
           <div class="section-header">
             <h2 id="organizations-title">Meglévő szervezetek</h2>
-            <p class="muted">Frissítsd a banki adatokat, állítsd a díj státuszát vagy kezeld a tagokat.</p>
+            <p class="muted">
+              Tartsd nyilván a tagsági díj státuszát, kezeld a tagokat és ellenőrizd a banki adatokat. A
+              banki információk minden szervezetnél azonosak, szükség esetén a Beállítások oldalon módosítsd őket.
+            </p>
           </div>
           <div id="organizations-list" class="organizations-list"></div>
         </section>

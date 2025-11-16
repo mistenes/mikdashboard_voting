@@ -983,9 +983,16 @@ function renderUnpaid(detail) {
   const bankAccountEl = document.querySelector("#bank-account");
   const instructionsEl = document.querySelector("#bank-instructions");
 
-  bankNameEl.textContent = detail.bank_name || "Nincs megadva";
-  bankAccountEl.textContent = detail.bank_account_number || "Nincs megadva";
-  instructionsEl.textContent = detail.payment_instructions || "Nincs megadva";
+  const nameFallback = detail.payment_instructions || detail.name || "Nincs megadva";
+  if (bankNameEl) {
+    bankNameEl.textContent = detail.bank_name || "Nincs megadva";
+  }
+  if (bankAccountEl) {
+    bankAccountEl.textContent = detail.bank_account_number || "Nincs megadva";
+  }
+  if (instructionsEl) {
+    instructionsEl.textContent = nameFallback;
+  }
 }
 
 function renderVoting(detail, sessionUser) {
