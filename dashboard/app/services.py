@@ -926,8 +926,14 @@ def authenticate_user(session: Session, *, email: str, password: str) -> User:
     user = session.scalar(stmt)
     if not user:
         raise AuthenticationError("Hibás bejelentkezési adatok")
-    if not verify_password(password, user.password_salt, user.password_hash):
+    password_check = verify_password(password, user.password_salt, user.password_hash)
+    if not password_check.is_valid:
         raise AuthenticationError("Hibás bejelentkezési adatok")
+    if password_check.needs_rehash:
+        salt, password_hash = hash_password(password)
+        user.password_salt = salt
+        user.password_hash = password_hash
+        session.flush()
     if not user.is_email_verified:
         raise AuthenticationError("Bejelentkezés előtt erősítsd meg az e-mail címedet")
     if user.admin_decision == ApprovalDecision.denied:
@@ -944,7 +950,10 @@ def change_user_password(
     current_password: str,
     new_password: str,
 ) -> SessionToken:
-    if not verify_password(current_password, user.password_salt, user.password_hash):
+    password_check = verify_password(
+        current_password, user.password_salt, user.password_hash
+    )
+    if not password_check.is_valid:
         raise AuthenticationError("A jelenlegi jelszó nem megfelelő")
 
     validate_password_strength(new_password)
