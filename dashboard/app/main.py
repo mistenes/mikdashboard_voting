@@ -69,8 +69,6 @@ from .schemas import (
     PasswordResetVerifyResponse,
     PendingUser,
     PublicConfigResponse,
-    RegistrationRequest,
-    RegistrationResponse,
     SessionUser,
     SimpleMessageResponse,
     IssueReportRequest,
@@ -124,7 +122,6 @@ from .services import (
     queue_invitation_email,
     queue_admin_invitation_email,
     queue_verification_email,
-    register_user,
     build_access_code_pdf,
     reset_voting_events,
     remove_member_from_organization,
@@ -1290,11 +1287,6 @@ def submit_password_reset_confirm_form(
     )
 
 
-@app.get("/register", response_class=FileResponse)
-def register_page() -> FileResponse:
-    return FileResponse("app/static/register.html")
-
-
 @app.get("/meghivas/{token}", response_class=FileResponse)
 def invitation_accept_page(token: str) -> FileResponse:  # pragma: no cover - file response
     return FileResponse("app/static/invitation-accept.html")
@@ -1608,60 +1600,6 @@ def list_organizations(db: DatabaseDependency, q: str | None = None) -> List[Org
 )
 def lookup_organizations(db: DatabaseDependency, q: str | None = None) -> List[OrganizationRead]:
     return [OrganizationRead.from_orm(org) for org in search_organizations(db, q)]
-
-
-@app.post(
-    "/api/register",
-    response_model=RegistrationResponse,
-    responses={400: {"model": ErrorResponse}},
-)
-def register(
-    payload: RegistrationRequest,
-    request: Request,
-    db: DatabaseDependency,
-) -> RegistrationResponse:
-    if RECAPTCHA_ENABLED:
-        try:
-            verify_recaptcha(
-                payload.captcha_token or "",
-                secret=RECAPTCHA_SECRET_KEY,
-                remote_ip=request.client.host if request.client else None,
-            )
-        except RegistrationError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
-            ) from exc
-    try:
-        token = register_user(
-            db,
-            email=payload.email,
-            first_name=payload.first_name,
-            last_name=payload.last_name,
-            password=payload.password,
-            organization_id=payload.organization_id,
-            is_admin=payload.email.lower() in ADMIN_EMAILS,
-        )
-        link = queue_verification_email(
-            token,
-            base_url=PUBLIC_BASE_URL,
-            api_key=BREVO_API_KEY or None,
-            sender_email=BREVO_SENDER_EMAIL or None,
-            sender_name=BREVO_SENDER_NAME,
-        )
-        db.commit()
-    except RegistrationError as exc:
-        db.rollback()
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    request.app.state.email_queue.append(
-        {
-            "email": payload.email,
-            "token": token.token,
-            "verification_link": link,
-            "sent_via": "brevo" if BREVO_API_KEY and BREVO_SENDER_EMAIL else "noop",
-        }
-    )
-    message = "Sikeres regisztráció. Kérjük, erősítsd meg az e-mail címedet."
-    return RegistrationResponse(message=message)
 
 
 @app.get("/api/debug/email-queue")
