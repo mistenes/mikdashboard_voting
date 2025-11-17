@@ -642,20 +642,34 @@ async function initOverviewPage() {
   });
 }
 
-async function loadOrganizations() {
+function getExpandedOrganizationIds() {
+  const expandedCards = document.querySelectorAll(
+    ".organization-card.expanded[data-org-id]",
+  );
+  return Array.from(expandedCards)
+    .map((card) => Number(card.getAttribute("data-org-id")))
+    .filter(Number.isFinite);
+}
+
+async function loadOrganizations(options = {}) {
   if (!ensureAdminSession(true)) {
     return;
   }
+  const { expandOrgIds = null, pendingStatus = null } = options;
+  const expandedOrgIds = Array.isArray(expandOrgIds)
+    ? expandOrgIds.map((id) => Number(id)).filter(Number.isFinite)
+    : getExpandedOrganizationIds();
   clearStatus();
   try {
     const data = await requestJSON("/api/admin/organizations");
-    renderOrganizations(data);
+    renderOrganizations(data, { expandedOrgIds, pendingStatus });
   } catch (error) {
     handleAuthError(error);
   }
 }
 
-function renderOrganizations(items) {
+function renderOrganizations(items, options = {}) {
+  const { expandedOrgIds = [], pendingStatus = null } = options;
   const container = document.querySelector("#organizations-list");
   if (!container) {
     return;
@@ -673,6 +687,7 @@ function renderOrganizations(items) {
   items.forEach((org) => {
     const card = document.createElement("article");
     card.classList.add("organization-card", "collapsible", "collapsed");
+    card.setAttribute("data-org-id", org.id);
 
     const bodyId = `organization-body-${org.id}`;
     const orgBody = document.createElement("div");
@@ -794,6 +809,7 @@ function renderOrganizations(items) {
     contactSection.appendChild(contactTitle);
 
     const contactStatus = org.contact?.status || "missing";
+    let contactSubmit = null;
     if (contactStatus === "assigned" && org.contact?.user) {
       const contactUser = org.contact.user;
       const contactInfo = document.createElement("p");
@@ -850,7 +866,7 @@ function renderOrganizations(items) {
 
       const contactActions = document.createElement("div");
       contactActions.classList.add("organization-contact-actions");
-      const contactSubmit = document.createElement("button");
+      contactSubmit = document.createElement("button");
       contactSubmit.type = "submit";
       contactSubmit.classList.add("primary-btn");
       contactSubmit.textContent =
@@ -906,7 +922,15 @@ function renderOrganizations(items) {
               ? "Kapcsolattartó sikeresen beállítva."
               : "Kapcsolattartó meghívó elküldve.";
           setStatus(successMessage, "success", contactSubmit);
-          await loadOrganizations();
+          await loadOrganizations({
+            expandOrgIds: [org.id],
+            pendingStatus: {
+              orgId: org.id,
+              target: "contact",
+              type: "success",
+              message: successMessage,
+            },
+          });
         } catch (error) {
           handleAuthError(error, contactSubmit);
         }
@@ -1069,7 +1093,13 @@ function renderOrganizations(items) {
 
     card.appendChild(header);
     card.appendChild(orgBody);
-    attachCollapsible(card, collapseButton, orgBody);
+    const shouldExpand = expandedOrgIds.includes(org.id);
+    attachCollapsible(card, collapseButton, orgBody, shouldExpand);
+
+    if (pendingStatus?.orgId === org.id && pendingStatus.message) {
+      const statusAnchor = contactSubmit || collapseButton;
+      setStatus(pendingStatus.message, pendingStatus.type, statusAnchor);
+    }
 
     container.appendChild(card);
   });
