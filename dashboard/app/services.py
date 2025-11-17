@@ -477,6 +477,32 @@ def reset_admin_temporary_password(
     session.flush()
     return user, password
 
+def _clear_user_associations(session: Session, user: User) -> None:
+    session.execute(delete(SessionToken).where(SessionToken.user_id == user.id))
+    session.execute(delete(EmailVerificationToken).where(EmailVerificationToken.user_id == user.id))
+    session.execute(delete(PasswordResetToken).where(PasswordResetToken.user_id == user.id))
+    session.execute(delete(EventDelegate).where(EventDelegate.user_id == user.id))
+
+    session.execute(
+        update(VotingAccessCode)
+        .where(VotingAccessCode.used_by_user_id == user.id)
+        .values(used_by_user_id=None)
+    )
+    session.execute(
+        update(OrganizationInvitation)
+        .where(OrganizationInvitation.accepted_by_user_id == user.id)
+        .values(accepted_by_user_id=None)
+    )
+    session.execute(
+        update(OrganizationInvitation)
+        .where(OrganizationInvitation.invited_by_user_id == user.id)
+        .values(invited_by_user_id=None)
+    )
+
+    user.organization = None
+    user.is_voting_delegate = False
+    user.is_organization_contact = False
+
 
 def delete_admin_account(
     session: Session, *, admin_id: int, acting_admin_id: int | None = None
@@ -496,6 +522,7 @@ def delete_admin_account(
             "Legalább egy adminisztrátornak maradnia kell a rendszerben."
         )
 
+    _clear_user_associations(session, admin_user)
     session.delete(admin_user)
 
 
@@ -2099,34 +2126,7 @@ def delete_user_account(session: Session, *, user_id: int) -> None:
     if user.is_admin:
         raise RegistrationError("Adminisztrátori fiókot nem lehet törölni")
 
-    session.execute(delete(SessionToken).where(SessionToken.user_id == user.id))
-    session.execute(
-        delete(EmailVerificationToken).where(EmailVerificationToken.user_id == user.id)
-    )
-    session.execute(
-        delete(PasswordResetToken).where(PasswordResetToken.user_id == user.id)
-    )
-    session.execute(delete(EventDelegate).where(EventDelegate.user_id == user.id))
-
-    session.execute(
-        update(VotingAccessCode)
-        .where(VotingAccessCode.used_by_user_id == user.id)
-        .values(used_by_user_id=None)
-    )
-    session.execute(
-        update(OrganizationInvitation)
-        .where(OrganizationInvitation.accepted_by_user_id == user.id)
-        .values(accepted_by_user_id=None)
-    )
-    session.execute(
-        update(OrganizationInvitation)
-        .where(OrganizationInvitation.invited_by_user_id == user.id)
-        .values(invited_by_user_id=None)
-    )
-
-    user.organization = None
-    user.is_voting_delegate = False
-    user.is_organization_contact = False
+    _clear_user_associations(session, user)
     session.delete(user)
 
 
