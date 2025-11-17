@@ -1524,10 +1524,11 @@ function renderEventsList(events) {
     deleteButton.type = "button";
     deleteButton.classList.add("danger-btn");
     deleteButton.textContent = "Esemény törlése";
-    deleteButton.disabled = !event.can_delete;
-    if (!event.can_delete) {
-      deleteButton.title = "Az aktív esemény nem törölhető.";
-    }
+    const canDeleteEvent = Boolean(event.can_delete);
+    deleteButton.disabled = !canDeleteEvent;
+    deleteButton.title = canDeleteEvent
+      ? ""
+      : "Kapcsold ki a szavazási felületet az esemény törlése előtt.";
     deleteButton.addEventListener("click", async () => {
       await handleEventDeletion(event, deleteButton);
     });

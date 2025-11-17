@@ -1680,8 +1680,11 @@ def delete_voting_event(session: Session, *, event_id: int) -> None:
     if event is None:
         raise RegistrationError("Nem található szavazási esemény")
 
-    if event.is_active:
-        raise RegistrationError("Az aktív esemény nem törölhető.")
+    if event.is_voting_enabled:
+        raise RegistrationError(
+            "A szavazási felület engedélyezett esemény nem törölhető. "
+            "Kapcsold ki a szavazást, majd próbáld újra."
+        )
 
     session.delete(event)
     session.flush()
