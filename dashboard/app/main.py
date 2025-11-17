@@ -1305,6 +1305,16 @@ def password_change_page() -> FileResponse:
     return FileResponse("app/static/password-change.html")
 
 
+@app.get("/profil", response_class=FileResponse)
+def profile_page() -> FileResponse:
+    return FileResponse("app/static/profile.html")
+
+
+@app.get("/szervezetek/{organization_id}/profil", response_class=FileResponse)
+def organization_profile_page(organization_id: int) -> FileResponse:  # pragma: no cover - file response
+    return FileResponse("app/static/profile.html")
+
+
 @app.get("/admin", response_class=FileResponse)
 def admin_overview_page() -> FileResponse:
     return FileResponse("app/static/admin-overview.html")

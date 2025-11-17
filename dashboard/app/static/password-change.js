@@ -6,6 +6,21 @@ const summaryTitleEl = summaryEl?.querySelector('[data-summary-title]');
 const summaryBodyEl = summaryEl?.querySelector('[data-summary-body]');
 const submitButton = form?.querySelector('[data-submit]');
 const defaultSubmitLabel = submitButton?.textContent?.trim() || 'Jelszó frissítése';
+const currentPasswordInput = document.querySelector('#current-password');
+const newPasswordInput = document.querySelector('#new-password');
+const confirmPasswordInput = document.querySelector('#confirm-password');
+const passwordRequirementItems = {
+  length: document.querySelector('[data-requirement="length"]'),
+  uppercase: document.querySelector('[data-requirement="uppercase"]'),
+  special: document.querySelector('[data-requirement="special"]'),
+};
+
+const uppercasePattern = /[A-ZÁÉÍÓÖŐÚÜŰ]/;
+const passwordRules = [
+  { key: 'length', test: (value) => value.length >= 8 },
+  { key: 'uppercase', test: (value) => uppercasePattern.test(value) },
+  { key: 'special', test: (value) => /[^A-Za-z0-9]/.test(value) },
+];
 
 const SUMMARY_STATES = ['info', 'pending', 'success', 'error'];
 
@@ -31,6 +46,30 @@ function toggleBusy(isBusy, label) {
   submitButton.disabled = Boolean(isBusy);
   submitButton.dataset.loading = isBusy ? 'true' : 'false';
   submitButton.textContent = isBusy ? label || 'Jelszó frissítése…' : defaultSubmitLabel;
+}
+
+function updatePasswordRequirements() {
+  if (!newPasswordInput) {
+    return;
+  }
+  const value = newPasswordInput.value || '';
+  passwordRules.forEach((rule) => {
+    const met = rule.test(value);
+    const listItem = passwordRequirementItems[rule.key];
+    if (!listItem) return;
+    listItem.classList.toggle('met', met);
+    const indicator = listItem.querySelector('.requirement-indicator');
+    if (indicator) {
+      indicator.textContent = met ? '✓' : '';
+    }
+  });
+}
+
+function passwordMeetsRequirements() {
+  if (!newPasswordInput) {
+    return false;
+  }
+  return passwordRules.every((rule) => rule.test(newPasswordInput.value || ''));
 }
 
 function clearFieldErrors() {
@@ -79,6 +118,21 @@ if (!currentToken) {
   setSummary('error', 'Lejárt munkamenet', 'A jelszó frissítéséhez jelentkezz be újra.');
 }
 
+updatePasswordRequirements();
+
+newPasswordInput?.addEventListener('input', () => {
+  updatePasswordRequirements();
+  setFieldError('newPassword', '');
+});
+
+confirmPasswordInput?.addEventListener('input', () => {
+  setFieldError('confirmPassword', '');
+});
+
+currentPasswordInput?.addEventListener('input', () => {
+  setFieldError('currentPassword', '');
+});
+
 form?.addEventListener('submit', async (event) => {
   event.preventDefault();
   const token = requireSession();
@@ -86,12 +140,13 @@ form?.addEventListener('submit', async (event) => {
     return;
   }
 
-  const formData = new FormData(form);
-  const currentPassword = formData.get('currentPassword');
-  const newPassword = formData.get('newPassword');
-  const confirmPassword = formData.get('confirmPassword');
-
   clearFieldErrors();
+  updatePasswordRequirements();
+
+  const formData = new FormData(form);
+  const currentPassword = currentPasswordInput?.value || formData.get('currentPassword') || '';
+  const newPassword = newPasswordInput?.value || formData.get('newPassword') || '';
+  const confirmPassword = confirmPasswordInput?.value || formData.get('confirmPassword') || '';
 
   if (!currentPassword || !newPassword) {
     if (!currentPassword) {
@@ -103,9 +158,17 @@ form?.addEventListener('submit', async (event) => {
     setSummary('error', 'Hiányzó adatok', 'Minden mező kitöltése kötelező.');
     return;
   }
-  if (newPassword?.length < 8) {
-    setFieldError('newPassword', 'Legalább 8 karakter hosszú jelszót adj meg.');
-    setSummary('error', 'Túl rövid jelszó', 'Válassz legalább 8 karakteres jelszót.');
+  if (!passwordMeetsRequirements()) {
+    setFieldError(
+      'newPassword',
+      'A jelszónak meg kell felelnie az összes felsorolt követelménynek.',
+    );
+    setSummary('error', 'Nem elég erős jelszó', 'Kérjük, teljesítsd a jelszókövetelményeket.');
+    return;
+  }
+  if (!confirmPassword) {
+    setFieldError('confirmPassword', 'Ismételd meg az új jelszót.');
+    setSummary('error', 'Hiányzó megerősítés', 'Add meg az új jelszót mindkét mezőben.');
     return;
   }
   if (newPassword !== confirmPassword) {
