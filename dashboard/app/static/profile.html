@@ -7,139 +7,185 @@
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body class="simple-bg profile-page" data-profile-page>
-    <div class="profile-shell">
-      <header class="profile-header">
-        <div class="profile-heading">
-          <p class="eyebrow">Profil</p>
-          <h1>Fiókbeállítások</h1>
-          <p class="muted">Nézd át az adataidat, és itt módosítsd a jelszavad.</p>
-        </div>
-        <div class="profile-actions">
-          <a href="/" class="ghost-btn" id="profile-home">Vissza a vezérlőpultra</a>
-          <button id="profile-sign-out" type="button" class="ghost-btn danger">Kijelentkezés</button>
-        </div>
-      </header>
+    <div id="profile-shell" data-profile-shell class="member-shell">
+      <div id="profile-sidebar" data-profile-sidebar></div>
 
-      <p id="profile-status" class="status" role="status" aria-live="polite"></p>
-
-      <section class="auth-card profile-card" aria-labelledby="profile-info-title">
-        <header class="section-header">
-          <div>
-            <p class="eyebrow">Fiókadatok</p>
-            <h2 id="profile-info-title">Személyes információk</h2>
-            <p class="muted">Az alapadatok zároltak – a jelszó lent módosítható.</p>
+      <main id="profile-main" class="member-main profile-main" role="main">
+        <header class="profile-header member-main-header" data-profile-header>
+          <div class="profile-heading">
+            <p class="eyebrow">Profil</p>
+            <h1>Fiókbeállítások</h1>
+            <p class="muted">Nézd át az adataidat, és itt módosítsd a jelszavad.</p>
           </div>
-        </header>
-        <div class="profile-grid">
-          <div class="form-field locked">
-            <label class="auth-input" for="profile-last-name">
-              <span class="auth-input__label">Vezetéknév</span>
-              <div class="auth-input__field">
-                <input id="profile-last-name" type="text" readonly aria-readonly="true" />
-              </div>
-            </label>
-          </div>
-          <div class="form-field locked">
-            <label class="auth-input" for="profile-first-name">
-              <span class="auth-input__label">Keresztnév</span>
-              <div class="auth-input__field">
-                <input id="profile-first-name" type="text" readonly aria-readonly="true" />
-              </div>
-            </label>
-          </div>
-          <div class="form-field locked full-width">
-            <label class="auth-input" for="profile-email">
-              <span class="auth-input__label">E-mail cím</span>
-              <div class="auth-input__field">
-                <input id="profile-email" type="email" readonly aria-readonly="true" />
-              </div>
-            </label>
-          </div>
-        </div>
-      </section>
-
-      <section class="auth-card profile-card" aria-labelledby="profile-password-title">
-        <header class="section-header">
-          <div>
-            <p class="eyebrow">Jelszó módosítása</p>
-            <h2 id="profile-password-title">Biztonságos jelszó beállítása</h2>
-            <p class="muted">Add meg a jelenlegi jelszavad, majd állíts be egy új, erős jelszót.</p>
+          <div class="profile-actions">
+            <a href="/" class="ghost-btn" id="profile-home">Vissza a vezérlőpultra</a>
           </div>
         </header>
 
-        <form id="profile-password-form" class="auth-form enhanced" novalidate>
-          <div class="form-field" data-field="currentPassword">
-            <label class="auth-input" for="profile-current-password">
-              <span class="auth-input__label">Jelenlegi jelszó</span>
-              <div class="auth-input__field">
-                <input
-                  id="profile-current-password"
-                  name="currentPassword"
-                  type="password"
-                  autocomplete="current-password"
-                  required
-                />
-              </div>
-            </label>
-            <p class="form-field__error auth-input__error" data-field-error></p>
-          </div>
+        <p id="profile-status" class="status" role="status" aria-live="polite"></p>
 
-          <div class="form-field" data-field="newPassword">
-            <label class="auth-input" for="profile-new-password">
-              <span class="auth-input__label">Új jelszó</span>
-              <div class="auth-input__field">
-                <input
-                  id="profile-new-password"
-                  name="newPassword"
-                  type="password"
-                  autocomplete="new-password"
-                  required
-                />
-              </div>
-            </label>
-            <p class="form-field__error auth-input__error" data-field-error></p>
-            <div class="password-requirements" aria-live="polite">
-              <p class="requirements-title">A jelszónak meg kell felelnie:</p>
-              <ul class="requirements-list">
-                <li data-requirement="length">
-                  <span class="requirement-indicator" aria-hidden="true"></span>
-                  Legalább 8 karakter hosszú
-                </li>
-                <li data-requirement="uppercase">
-                  <span class="requirement-indicator" aria-hidden="true"></span>
-                  Tartalmaz nagybetűt
-                </li>
-                <li data-requirement="special">
-                  <span class="requirement-indicator" aria-hidden="true"></span>
-                  Tartalmaz speciális karaktert (pl. !?@#)
-                </li>
-              </ul>
+        <section class="auth-card profile-card" aria-labelledby="profile-info-title">
+          <header class="section-header">
+            <div>
+              <p class="eyebrow">Fiókadatok</p>
+              <h2 id="profile-info-title">Személyes információk</h2>
+              <p class="muted">Az alapadatok zároltak – a jelszó lent módosítható.</p>
+            </div>
+          </header>
+          <div class="profile-grid">
+            <div class="form-field locked">
+              <label class="auth-input" for="profile-last-name">
+                <span class="auth-input__label">Vezetéknév</span>
+                <div class="auth-input__field">
+                  <input id="profile-last-name" type="text" readonly aria-readonly="true" />
+                </div>
+              </label>
+            </div>
+            <div class="form-field locked">
+              <label class="auth-input" for="profile-first-name">
+                <span class="auth-input__label">Keresztnév</span>
+                <div class="auth-input__field">
+                  <input id="profile-first-name" type="text" readonly aria-readonly="true" />
+                </div>
+              </label>
+            </div>
+            <div class="form-field locked full-width">
+              <label class="auth-input" for="profile-email">
+                <span class="auth-input__label">E-mail cím</span>
+                <div class="auth-input__field">
+                  <input id="profile-email" type="email" readonly aria-readonly="true" />
+                </div>
+              </label>
             </div>
           </div>
+        </section>
 
-          <div class="form-field" data-field="confirmPassword">
-            <label class="auth-input" for="profile-confirm-password">
-              <span class="auth-input__label">Új jelszó ismét</span>
-              <div class="auth-input__field">
-                <input
-                  id="profile-confirm-password"
-                  name="confirmPassword"
-                  type="password"
-                  autocomplete="new-password"
-                  required
-                />
+        <section class="auth-card profile-card" aria-labelledby="profile-password-title">
+          <header class="section-header">
+            <div>
+              <p class="eyebrow">Jelszó módosítása</p>
+              <h2 id="profile-password-title">Biztonságos jelszó beállítása</h2>
+              <p class="muted">Add meg a jelenlegi jelszavad, majd állíts be egy új, erős jelszót.</p>
+            </div>
+          </header>
+
+          <form id="profile-password-form" class="auth-form enhanced" novalidate>
+            <div class="form-field" data-field="currentPassword">
+              <label class="auth-input" for="profile-current-password">
+                <span class="auth-input__label">Jelenlegi jelszó</span>
+                <div class="auth-input__field">
+                  <input
+                    id="profile-current-password"
+                    name="currentPassword"
+                    type="password"
+                    autocomplete="current-password"
+                    required
+                  />
+                </div>
+              </label>
+              <p class="form-field__error auth-input__error" data-field-error></p>
+            </div>
+
+            <div class="form-field" data-field="newPassword">
+              <label class="auth-input" for="profile-new-password">
+                <span class="auth-input__label">Új jelszó</span>
+                <div class="auth-input__field">
+                  <input
+                    id="profile-new-password"
+                    name="newPassword"
+                    type="password"
+                    autocomplete="new-password"
+                    required
+                  />
+                </div>
+              </label>
+              <p class="form-field__error auth-input__error" data-field-error></p>
+              <div class="password-requirements" aria-live="polite">
+                <p class="requirements-title">A jelszónak meg kell felelnie:</p>
+                <ul class="requirements-list">
+                  <li data-requirement="length">
+                    <span class="requirement-indicator" aria-hidden="true"></span>
+                    Legalább 8 karakter hosszú
+                  </li>
+                  <li data-requirement="uppercase">
+                    <span class="requirement-indicator" aria-hidden="true"></span>
+                    Tartalmaz nagybetűt
+                  </li>
+                  <li data-requirement="special">
+                    <span class="requirement-indicator" aria-hidden="true"></span>
+                    Tartalmaz speciális karaktert (pl. !?@#)
+                  </li>
+                </ul>
               </div>
-            </label>
-            <p class="form-field__error auth-input__error" data-field-error></p>
-          </div>
+            </div>
 
-          <div class="form-actions">
-            <button type="submit" class="primary-btn" data-submit>Jelszó frissítése</button>
-            <button type="button" class="ghost-btn" id="profile-reset">Mezők törlése</button>
-          </div>
-        </form>
-      </section>
+            <div class="form-field" data-field="confirmPassword">
+              <label class="auth-input" for="profile-confirm-password">
+                <span class="auth-input__label">Új jelszó ismét</span>
+                <div class="auth-input__field">
+                  <input
+                    id="profile-confirm-password"
+                    name="confirmPassword"
+                    type="password"
+                    autocomplete="new-password"
+                    required
+                  />
+                </div>
+              </label>
+              <p class="form-field__error auth-input__error" data-field-error></p>
+            </div>
+
+            <div class="form-actions">
+              <button type="submit" class="primary-btn" data-submit>Jelszó frissítése</button>
+              <button type="button" class="ghost-btn" id="profile-reset">Mezők törlése</button>
+            </div>
+          </form>
+        </section>
+      </main>
     </div>
+
+    <template id="profile-admin-sidebar">
+      <aside class="admin-sidebar" aria-label="Admin menü">
+        <div class="sidebar-brand">
+          <h1>MIK Dashboard</h1>
+          <p>Admin vezérlőpult</p>
+        </div>
+        <nav class="sidebar-nav" aria-label="Admin menü">
+          <a href="/admin" class="sidebar-link">Áttekintés</a>
+          <a href="/admin/szervezetek" class="sidebar-link">Szervezetek</a>
+          <a href="/admin/esemenyek" class="sidebar-link">Szavazási események</a>
+          <a href="/admin/felhasznalok" class="sidebar-link">Felhasználók és regisztrációk</a>
+          <span class="sidebar-divider" aria-hidden="true"></span>
+          <a href="/profil" class="sidebar-link active" aria-current="page">Profil</a>
+          <span class="sidebar-link placeholder" aria-disabled="true">Riportok (hamarosan)</span>
+          <a href="/admin/beallitasok" class="sidebar-link">Beállítások</a>
+        </nav>
+        <div class="sidebar-footer">
+          <button id="profile-sign-out" type="button" class="ghost-btn sidebar-logout">Kijelentkezés</button>
+        </div>
+      </aside>
+    </template>
+
+    <template id="profile-member-sidebar">
+      <aside class="member-sidebar" aria-label="Tagi menü">
+        <div class="member-sidebar-header">
+          <p class="sidebar-eyebrow">Szervezet</p>
+          <h1 id="profile-org-name">Szervezet</h1>
+          <p id="profile-access-status" class="muted"></p>
+        </div>
+        <nav class="member-nav">
+          <a href="#" data-profile-nav="overview" class="member-nav-link">Áttekintés</a>
+          <a href="#" data-profile-nav="tagkezeles" class="member-nav-link contact-only">Tagok kezelése</a>
+          <a href="#" data-profile-nav="szavazas" class="member-nav-link">Szavazás</a>
+          <a href="#" data-profile-nav="penzugyek" class="member-nav-link">Pénzügyek</a>
+          <a href="/profil" class="member-nav-link active" aria-current="page">Profil</a>
+        </nav>
+        <div class="sidebar-footer">
+          <button id="profile-sign-out" type="button" class="ghost-btn sidebar-logout">Kijelentkezés</button>
+        </div>
+      </aside>
+    </template>
+
     <script type="module" src="/static/profile.js"></script>
   </body>
 </html>

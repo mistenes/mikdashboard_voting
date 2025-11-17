@@ -1,18 +1,23 @@
 import "./cookie-consent.js";
 
-const statusEl = document.querySelector("#profile-status");
-const signOutButton = document.querySelector("#profile-sign-out");
-const profileHomeLink = document.querySelector("#profile-home");
-const resetButton = document.querySelector("#profile-reset");
-const form = document.querySelector("#profile-password-form");
-const submitButton = form?.querySelector("[data-submit]");
+const shell = document.querySelector("[data-profile-shell]");
+const sidebarContainer = document.querySelector("[data-profile-sidebar]");
+const profileHeader = document.querySelector("[data-profile-header]");
+const main = document.querySelector("#profile-main");
 
-const firstNameInput = document.querySelector("#profile-first-name");
-const lastNameInput = document.querySelector("#profile-last-name");
-const emailInput = document.querySelector("#profile-email");
-const currentPasswordInput = document.querySelector("#profile-current-password");
-const newPasswordInput = document.querySelector("#profile-new-password");
-const confirmPasswordInput = document.querySelector("#profile-confirm-password");
+let statusEl = document.querySelector("#profile-status");
+let signOutButton = document.querySelector("#profile-sign-out");
+let profileHomeLink = document.querySelector("#profile-home");
+let resetButton = document.querySelector("#profile-reset");
+let form = document.querySelector("#profile-password-form");
+let submitButton = form?.querySelector("[data-submit]");
+
+let firstNameInput = document.querySelector("#profile-first-name");
+let lastNameInput = document.querySelector("#profile-last-name");
+let emailInput = document.querySelector("#profile-email");
+let currentPasswordInput = document.querySelector("#profile-current-password");
+let newPasswordInput = document.querySelector("#profile-new-password");
+let confirmPasswordInput = document.querySelector("#profile-confirm-password");
 
 const passwordRequirementItems = {
   length: document.querySelector('[data-requirement="length"]'),
@@ -34,6 +39,33 @@ function setStatus(message = "", type = "") {
   if (message && type) {
     statusEl.classList.add(type);
   }
+}
+
+function renderSidebar(templateId) {
+  if (!sidebarContainer) return null;
+  const template = document.querySelector(templateId);
+  if (!template) return null;
+  const clone = template.content.firstElementChild?.cloneNode(true);
+  if (!clone) return null;
+  sidebarContainer.innerHTML = "";
+  sidebarContainer.appendChild(clone);
+  return clone;
+}
+
+function refreshElementRefs() {
+  statusEl = document.querySelector("#profile-status");
+  signOutButton = document.querySelector("#profile-sign-out");
+  profileHomeLink = document.querySelector("#profile-home");
+  resetButton = document.querySelector("#profile-reset");
+  form = document.querySelector("#profile-password-form");
+  submitButton = form?.querySelector("[data-submit]");
+
+  firstNameInput = document.querySelector("#profile-first-name");
+  lastNameInput = document.querySelector("#profile-last-name");
+  emailInput = document.querySelector("#profile-email");
+  currentPasswordInput = document.querySelector("#profile-current-password");
+  newPasswordInput = document.querySelector("#profile-new-password");
+  confirmPasswordInput = document.querySelector("#profile-confirm-password");
 }
 
 function setFieldError(fieldName, message) {
@@ -73,6 +105,77 @@ function passwordMeetsRequirements() {
   return passwordRules.every((rule) => rule.test(newPasswordInput.value || ""));
 }
 
+function applyAdminLayout() {
+  if (!shell || !main) return;
+  shell.classList.remove("member-shell");
+  shell.classList.add("admin-shell");
+  main.classList.remove("member-main");
+  main.classList.add("admin-container");
+  if (profileHeader) {
+    profileHeader.classList.remove("member-main-header");
+    profileHeader.classList.add("admin-header");
+  }
+  const sidebar = renderSidebar("#profile-admin-sidebar");
+  return sidebar;
+}
+
+function formatAccessStatus(organization) {
+  if (!organization) return "Nincs társított szervezet.";
+  return organization.fee_paid ? "Tagsági díj rendezve" : "Tagsági díj rendezetlen";
+}
+
+function applyMemberLayout(user) {
+  if (!shell || !main) return;
+  shell.classList.remove("admin-shell");
+  shell.classList.add("member-shell");
+  main.classList.remove("admin-container");
+  main.classList.add("member-main");
+  if (profileHeader) {
+    profileHeader.classList.remove("admin-header");
+    profileHeader.classList.add("member-main-header");
+  }
+
+  const sidebar = renderSidebar("#profile-member-sidebar");
+  if (!sidebar) return;
+
+  const organization = user?.organization;
+  const organizationId = organization?.id;
+  const orgNameEl = sidebar.querySelector("#profile-org-name");
+  const accessStatusEl = sidebar.querySelector("#profile-access-status");
+
+  if (orgNameEl) orgNameEl.textContent = organization?.name || "Ismeretlen szervezet";
+  if (accessStatusEl) accessStatusEl.textContent = formatAccessStatus(organization);
+
+  const orgBase = organizationId ? `/szervezetek/${organizationId}` : "/";
+  const navTargets = {
+    overview: `${orgBase}/tagok`,
+    tagkezeles: `${orgBase}/tagkezeles`,
+    szavazas: `${orgBase}/szavazas`,
+    penzugyek: `${orgBase}/penzugyek`,
+  };
+
+  Object.entries(navTargets).forEach(([key, href]) => {
+    const link = sidebar.querySelector(`[data-profile-nav="${key}"]`);
+    if (!link) return;
+    link.href = href;
+    if (!organizationId) {
+      link.classList.add("is-hidden");
+    }
+  });
+
+  const manageLink = sidebar.querySelector('[data-profile-nav="tagkezeles"]');
+  if (manageLink) {
+    manageLink.classList.toggle("is-hidden", !user?.is_organization_contact || !organizationId);
+  }
+
+  const profileLink = sidebar.querySelector('a[href="/profil"]');
+  if (profileLink && organizationId) {
+    profileLink.href = `${orgBase}/profil`;
+  }
+
+  return sidebar;
+}
+
 function requireSessionToken() {
   const token = sessionStorage.getItem("authToken");
   if (!token) {
@@ -110,11 +213,20 @@ async function loadProfile() {
     const user = await requestJSON("/api/me", {
       headers: { Authorization: `Bearer ${token}` },
     });
+    const isAdmin = sessionStorage.getItem("isAdmin") === "1" || Boolean(user?.is_admin);
+    const sidebar = isAdmin ? applyAdminLayout() : applyMemberLayout(user);
+    refreshElementRefs();
+    bindEvents();
+
     if (firstNameInput) firstNameInput.value = user?.first_name || "";
     if (lastNameInput) lastNameInput.value = user?.last_name || "";
     if (emailInput) emailInput.value = user?.email || "";
 
-    const isAdmin = sessionStorage.getItem("isAdmin") === "1" || Boolean(user?.is_admin);
+    if (!sidebar && statusEl) {
+      statusEl.textContent = "Nem sikerült betölteni az oldalsávot.";
+      statusEl.classList.add("error");
+    }
+
     if (profileHomeLink) {
       if (isAdmin) {
         profileHomeLink.href = "/admin";
@@ -144,6 +256,8 @@ function toggleBusy(isBusy) {
   submitButton.dataset.loading = isBusy ? "true" : "false";
   submitButton.textContent = isBusy ? "Jelszó frissítése…" : "Jelszó frissítése";
 }
+
+let eventsBound = false;
 
 async function handleSubmit(event) {
   event.preventDefault();
@@ -210,6 +324,7 @@ async function handleSubmit(event) {
 }
 
 function bindEvents() {
+  if (eventsBound) return;
   form?.addEventListener("submit", handleSubmit);
   resetButton?.addEventListener("click", resetFormFields);
   signOutButton?.addEventListener("click", () => {
@@ -220,8 +335,8 @@ function bindEvents() {
   newPasswordInput?.addEventListener("input", () => setFieldError("newPassword", ""));
   confirmPasswordInput?.addEventListener("input", () => setFieldError("confirmPassword", ""));
   currentPasswordInput?.addEventListener("input", () => setFieldError("currentPassword", ""));
+  eventsBound = true;
 }
 
 updatePasswordRequirements();
-bindEvents();
 loadProfile();
