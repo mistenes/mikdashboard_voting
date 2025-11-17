@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal, Optional
+from typing import List, Literal, Optional
 
 from pydantic import AnyHttpUrl, BaseModel, EmailStr, Field, constr
 
@@ -261,6 +261,8 @@ class VotingEventCreateRequest(BaseModel):
     event_date: datetime
     delegate_deadline: datetime
     delegate_limit: int = Field(..., ge=1, le=500)
+    allow_all_organizations: bool = True
+    organization_ids: List[int] = Field(default_factory=list)
     activate: bool = False
 
 
@@ -270,6 +272,8 @@ class VotingEventUpdateRequest(BaseModel):
     event_date: datetime
     delegate_deadline: datetime
     delegate_limit: int = Field(..., ge=1, le=500)
+    allow_all_organizations: bool = True
+    organization_ids: List[int] = Field(default_factory=list)
 
 
 class VotingEventAccessUpdate(BaseModel):
@@ -289,6 +293,8 @@ class VotingEventRead(BaseModel):
     is_active: bool
     is_voting_enabled: bool
     delegate_limit: Optional[int] = None
+    allow_all_organizations: bool = True
+    organization_ids: List[int] = Field(default_factory=list)
     created_at: datetime
     delegate_count: int = 0
     can_delete: bool = False

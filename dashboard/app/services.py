@@ -41,6 +41,7 @@ from .models import (
     VerificationStatus,
     VotingAccessCode,
     VotingEvent,
+    VotingEventOrganization,
 )
 from .security import hash_password, verify_password
 
@@ -1146,6 +1147,11 @@ def delete_organization(session: Session, *, organization_id: int) -> None:
     organization = session.get(Organization, organization_id)
     if organization is None:
         raise RegistrationError("Nem található szervezet")
+
+    if not _event_allows_organization(event, organization.id):
+        raise RegistrationError(
+            "Ez a szervezet nem jelölhet delegáltakat erre az eseményre."
+        )
     if organization.users:
         raise RegistrationError(
             "A szervezet addig nem törölhető, amíg vannak hozzárendelt tagok."
@@ -1517,6 +1523,9 @@ def list_voting_events(session: Session) -> List[VotingEvent]:
         select(VotingEvent)
         .options(
             selectinload(VotingEvent.delegates).selectinload(EventDelegate.user),
+            selectinload(VotingEvent.allowed_organizations).selectinload(
+                VotingEventOrganization.organization
+            ),
             selectinload(VotingEvent.access_codes).selectinload(
                 VotingAccessCode.used_by_user
             ),
@@ -1526,11 +1535,16 @@ def list_voting_events(session: Session) -> List[VotingEvent]:
     return list(session.scalars(stmt))
 
 
-def upcoming_voting_events(session: Session) -> List[VotingEvent]:
+def upcoming_voting_events(
+    session: Session, organization_id: int | None = None
+) -> List[VotingEvent]:
     stmt = (
         select(VotingEvent)
         .options(
             selectinload(VotingEvent.delegates).selectinload(EventDelegate.user),
+            selectinload(VotingEvent.allowed_organizations).selectinload(
+                VotingEventOrganization.organization
+            ),
             selectinload(VotingEvent.access_codes).selectinload(
                 VotingAccessCode.used_by_user
             ),
@@ -1541,7 +1555,14 @@ def upcoming_voting_events(session: Session) -> List[VotingEvent]:
             VotingEvent.created_at.desc(),
         )
     )
-    return list(session.scalars(stmt))
+    events = list(session.scalars(stmt))
+    if organization_id is None:
+        return events
+    return [
+        event
+        for event in events
+        if _event_allows_organization(event, organization_id)
+    ]
 
 
 def get_active_voting_event(session: Session) -> Optional[VotingEvent]:
@@ -1550,6 +1571,9 @@ def get_active_voting_event(session: Session) -> Optional[VotingEvent]:
         .where(VotingEvent.is_active.is_(True))
         .options(
             selectinload(VotingEvent.delegates).selectinload(EventDelegate.user),
+            selectinload(VotingEvent.allowed_organizations).selectinload(
+                VotingEventOrganization.organization
+            ),
             selectinload(VotingEvent.access_codes).selectinload(
                 VotingAccessCode.used_by_user
             ),
@@ -1557,6 +1581,17 @@ def get_active_voting_event(session: Session) -> Optional[VotingEvent]:
         .limit(1)
     )
     return session.scalar(stmt)
+
+
+def get_active_voting_event_for_organization(
+    session: Session, organization_id: int
+) -> Optional[VotingEvent]:
+    event = get_active_voting_event(session)
+    if event is None:
+        return None
+    if _event_allows_organization(event, organization_id):
+        return event
+    return None
 
 
 def create_voting_event(
@@ -1567,6 +1602,8 @@ def create_voting_event(
     event_date: datetime,
     delegate_deadline: datetime,
     delegate_limit: int,
+    allow_all_organizations: bool = True,
+    organization_ids: Optional[list[int]] = None,
     activate: bool = False,
 ) -> VotingEvent:
     cleaned_title = title.strip()
@@ -1592,9 +1629,17 @@ def create_voting_event(
         is_active=False,
         is_voting_enabled=False,
         delegate_limit=delegate_limit,
+        allow_all_organizations=allow_all_organizations,
     )
     session.add(event)
     session.flush()
+
+    _apply_event_organizations(
+        session,
+        event,
+        allow_all=allow_all_organizations,
+        organization_ids=organization_ids or [],
+    )
 
     has_active = get_active_voting_event(session)
     if activate or has_active is None:
@@ -1614,6 +1659,8 @@ def update_voting_event(
     event_date: datetime,
     delegate_deadline: datetime,
     delegate_limit: int,
+    allow_all_organizations: bool = True,
+    organization_ids: Optional[list[int]] = None,
 ) -> VotingEvent:
     event = session.get(VotingEvent, event_id)
     if event is None:
@@ -1639,8 +1686,93 @@ def update_voting_event(
     event.event_date = normalized_event_date
     event.delegate_deadline = normalized_delegate_deadline
     event.delegate_limit = delegate_limit
+    _apply_event_organizations(
+        session,
+        event,
+        allow_all=allow_all_organizations,
+        organization_ids=organization_ids or [],
+    )
     session.flush()
     return event
+
+
+def _normalize_organization_ids(candidate_ids: list[int]) -> list[int]:
+    normalized: list[int] = []
+    seen: set[int] = set()
+    for value in candidate_ids:
+        try:
+            number = int(value)
+        except (TypeError, ValueError):
+            continue
+        if number <= 0 or number in seen:
+            continue
+        seen.add(number)
+        normalized.append(number)
+    return normalized
+
+
+def _apply_event_organizations(
+    session: Session,
+    event: VotingEvent,
+    *,
+    allow_all: bool,
+    organization_ids: list[int],
+) -> None:
+    event.allow_all_organizations = allow_all
+    if allow_all:
+        for entry in list(event.allowed_organizations):
+            session.delete(entry)
+        session.flush()
+        return
+
+    normalized_ids = _normalize_organization_ids(organization_ids)
+    if not normalized_ids:
+        raise RegistrationError("Legalább egy szervezetet ki kell választani.")
+
+    existing_ids = set(
+        session.scalars(
+            select(Organization.id).where(Organization.id.in_(normalized_ids))
+        ).all()
+    )
+    if len(existing_ids) != len(normalized_ids):
+        raise RegistrationError("Nem található az egyik kiválasztott szervezet.")
+
+    current_by_org = {
+        entry.organization_id: entry for entry in list(event.allowed_organizations)
+    }
+
+    for entry in list(event.allowed_organizations):
+        if entry.organization_id not in existing_ids:
+            session.delete(entry)
+
+    for org_id in normalized_ids:
+        if org_id in current_by_org:
+            continue
+        session.add(
+            VotingEventOrganization(event=event, organization_id=org_id)
+        )
+
+    stmt = select(EventDelegate).where(
+        EventDelegate.event_id == event.id,
+        EventDelegate.organization_id.notin_(existing_ids),
+    )
+    for delegate in session.scalars(stmt):
+        session.delete(delegate)
+
+
+def _event_allows_organization(event: VotingEvent, organization_id: int | None) -> bool:
+    if organization_id is None:
+        return True
+    if getattr(event, "allow_all_organizations", True):
+        return True
+    allowed_ids = {
+        entry.organization_id for entry in getattr(event, "allowed_organizations", []) or []
+    }
+    return organization_id in allowed_ids
+
+
+def event_allows_organization(event: VotingEvent, organization_id: int | None) -> bool:
+    return _event_allows_organization(event, organization_id)
 
 
 def set_active_voting_event(session: Session, event_id: int) -> VotingEvent:

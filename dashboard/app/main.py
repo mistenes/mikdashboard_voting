@@ -110,6 +110,7 @@ from .services import (
     delete_contact_invitation,
     get_active_password_reset_token,
     get_active_voting_event,
+    get_active_voting_event_for_organization,
     get_invitation_by_token,
     issue_password_reset_token,
     list_voting_events,
@@ -145,6 +146,7 @@ from .services import (
     reset_admin_temporary_password,
     delete_admin_account,
     send_issue_report_email,
+    event_allows_organization,
     VotingAccessCodeError,
     VotingAccessCodeUnavailableError,
 )
@@ -292,6 +294,7 @@ def startup() -> None:
     ensure_nullable_organization_column()
     ensure_name_columns()
     ensure_event_metadata_columns()
+    ensure_event_audience_columns()
     ensure_delegate_uniqueness_constraints()
     ensure_session_token_expiration_column()
     seed_admin_user()
@@ -447,6 +450,17 @@ def ensure_event_metadata_columns() -> None:
                 text("ALTER TABLE voting_events ADD COLUMN delegate_lock_override VARCHAR")
             )
 
+
+def ensure_event_audience_columns() -> None:
+    with engine.begin() as connection:
+        inspector = inspect(connection)
+        columns = {column["name"] for column in inspector.get_columns("voting_events")}
+        if "allow_all_organizations" not in columns:
+            connection.execute(
+                text(
+                    "ALTER TABLE voting_events ADD COLUMN allow_all_organizations BOOLEAN NOT NULL DEFAULT TRUE"
+                )
+            )
 
 def ensure_delegate_uniqueness_constraints() -> None:
     with engine.begin() as connection:
@@ -838,6 +852,7 @@ def build_organization_detail(
     active_event: VotingEvent | None,
     events: list[VotingEvent] | None = None,
     settings: Optional[SiteSettings] = None,
+    organization_scope: int | None = None,
 ) -> OrganizationDetail:
     members = [build_member_payload(member, organization) for member in organization.users]
     active_delegate_user_ids: list[int] = []
@@ -875,6 +890,10 @@ def build_organization_detail(
     if events is not None:
         now = datetime.utcnow()
         for event in events:
+            if organization_scope is not None and not _event_allows_organization(
+                event, organization_scope
+            ):
+                continue
             assignment = build_organization_event_assignment(
                 organization, event, current_time=now
             )
@@ -908,6 +927,10 @@ def build_event_read(event: VotingEvent) -> VotingEventRead:
     delegate_count = event_delegate_count(event)
     lock_state = delegate_lock_state(event)
     total_codes, available_codes, used_codes = event_access_code_counts(event)
+    organization_ids = [
+        entry.organization_id
+        for entry in getattr(event, "allowed_organizations", []) or []
+    ]
     return VotingEventRead(
         id=event.id,
         title=event.title,
@@ -917,6 +940,8 @@ def build_event_read(event: VotingEvent) -> VotingEventRead:
         is_active=event.is_active,
         is_voting_enabled=event.is_voting_enabled,
         delegate_limit=event.delegate_limit,
+        allow_all_organizations=event.allow_all_organizations,
+        organization_ids=organization_ids,
         created_at=event.created_at,
         delegate_count=delegate_count,
         can_delete=not event.is_active,
@@ -1428,6 +1453,11 @@ def create_voting_o2auth_session(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Jelenleg nincs aktív szavazási esemény.",
         )
+    if not event_allows_organization(active_event, organization.id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Ez a szervezet nem jelölhet delegáltat erre az eseményre.",
+        )
 
     requested_view = (launch.view if launch else "default") or "default"
     provided_code = (launch.code if launch else None) or ""
@@ -1513,9 +1543,14 @@ def authenticate_for_voting(
     active_event = get_active_voting_event(db)
     is_delegate = False
     if active_event and organization_id is not None:
-        delegate_map = delegates_for_event(db, event_id=active_event.id)
-        delegates = delegate_map.get(organization_id, [])
-        is_delegate = any(delegate.user_id == user.id for delegate in delegates)
+        if not user.is_admin and not event_allows_organization(
+            active_event, organization_id
+        ):
+            active_event = None
+        else:
+            delegate_map = delegates_for_event(db, event_id=active_event.id)
+            delegates = delegate_map.get(organization_id, [])
+            is_delegate = any(delegate.user_id == user.id for delegate in delegates)
 
     if active_event is None and not user.is_admin:
         raise HTTPException(
@@ -1895,6 +1930,9 @@ def current_user(
     user: Annotated[User, Depends(get_session_user)], db: DatabaseDependency
 ) -> SessionUser:
     active_event = get_active_voting_event(db)
+    if active_event and user.organization_id:
+        if not event_allows_organization(active_event, user.organization_id):
+            active_event = None
     site_settings = get_site_settings(db)
     return SessionUser(
         id=user.id,
@@ -1974,10 +2012,15 @@ def create_organization_endpoint(
             name=payload.name,
         )
         db.flush()
-        active_event = get_active_voting_event(db)
+        active_event = get_active_voting_event_for_organization(db, organization.id)
+        events = upcoming_voting_events(db, organization_id=organization.id)
         site_settings = get_site_settings(db)
         detail = build_organization_detail(
-            organization, active_event=active_event, settings=site_settings
+            organization,
+            active_event=active_event,
+            events=events,
+            settings=site_settings,
+            organization_scope=organization.id,
         )
     except RegistrationError as exc:
         db.rollback()
@@ -2002,10 +2045,18 @@ def admin_organizations(
 ) -> List[OrganizationDetail]:
     organizations = organizations_with_members(db)
     active_event = get_active_voting_event(db)
+    events = upcoming_voting_events(db)
     site_settings = get_site_settings(db)
     return [
         build_organization_detail(
-            org, active_event=active_event, settings=site_settings
+            org,
+            active_event=
+            active_event
+            if active_event and event_allows_organization(active_event, org.id)
+            else None,
+            events=events,
+            settings=site_settings,
+            organization_scope=org.id,
         )
         for org in organizations
     ]
@@ -2027,10 +2078,15 @@ def update_organization_fee(
             db, organization_id=organization_id, fee_paid=payload.fee_paid
         )
         db.flush()
-        active_event = get_active_voting_event(db)
+        active_event = get_active_voting_event_for_organization(db, organization.id)
+        events = upcoming_voting_events(db, organization_id=organization.id)
         site_settings = get_site_settings(db)
         detail = build_organization_detail(
-            organization, active_event=active_event, settings=site_settings
+            organization,
+            active_event=active_event,
+            events=events,
+            settings=site_settings,
+            organization_scope=organization.id,
         )
     except RegistrationError as exc:
         db.rollback()
@@ -2092,10 +2148,15 @@ def create_contact_invitation_endpoint(
         )
         db.flush()
         organization = organization_with_members(db, organization_id)
-        active_event = get_active_voting_event(db)
+        active_event = get_active_voting_event_for_organization(db, organization_id)
+        events = upcoming_voting_events(db, organization_id=organization_id)
         site_settings = get_site_settings(db)
         detail = build_organization_detail(
-            organization, active_event=active_event, settings=site_settings
+            organization,
+            active_event=active_event,
+            events=events,
+            settings=site_settings,
+            organization_scope=organization_id,
         )
         link: str | None = None
         if invitation is not None:
@@ -2169,10 +2230,15 @@ def delete_contact_invitation_endpoint(
         )
         db.flush()
         organization = organization_with_members(db, organization_id)
-        active_event = get_active_voting_event(db)
+        active_event = get_active_voting_event_for_organization(db, organization_id)
+        events = upcoming_voting_events(db, organization_id=organization_id)
         site_settings = get_site_settings(db)
         detail = build_organization_detail(
-            organization, active_event=active_event, settings=site_settings
+            organization,
+            active_event=active_event,
+            events=events,
+            settings=site_settings,
+            organization_scope=organization_id,
         )
     except RegistrationError as exc:
         db.rollback()
@@ -2285,6 +2351,8 @@ def create_voting_event_endpoint(
             event_date=payload.event_date,
             delegate_deadline=payload.delegate_deadline,
             delegate_limit=payload.delegate_limit,
+            allow_all_organizations=payload.allow_all_organizations,
+            organization_ids=payload.organization_ids,
             activate=payload.activate,
         )
         db.flush()
@@ -2322,6 +2390,8 @@ def update_voting_event_endpoint(
             event_date=payload.event_date,
             delegate_deadline=payload.delegate_deadline,
             delegate_limit=payload.delegate_limit,
+            allow_all_organizations=payload.allow_all_organizations,
+            organization_ids=payload.organization_ids,
         )
         db.flush()
         db.refresh(event, attribute_names=["delegates"])
@@ -2853,11 +2923,15 @@ def organization_detail_endpoint(
         organization = organization_with_members(db, organization_id)
     except RegistrationError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    active_event = get_active_voting_event(db)
-    events = upcoming_voting_events(db)
+    active_event = get_active_voting_event_for_organization(db, organization_id)
+    events = upcoming_voting_events(db, organization_id=organization_id)
     site_settings = get_site_settings(db)
     return build_organization_detail(
-        organization, active_event=active_event, events=events, settings=site_settings
+        organization,
+        active_event=active_event,
+        events=events,
+        settings=site_settings,
+        organization_scope=organization_id,
     )
 
 
@@ -2914,14 +2988,15 @@ def create_member_invitation_endpoint(
             )
         db.flush()
         organization = organization_with_members(db, organization_id)
-        active_event = get_active_voting_event(db)
-        events = upcoming_voting_events(db)
+        active_event = get_active_voting_event_for_organization(db, organization_id)
+        events = upcoming_voting_events(db, organization_id=organization_id)
         site_settings = get_site_settings(db)
         detail = build_organization_detail(
             organization,
             active_event=active_event,
             events=events,
             settings=site_settings,
+            organization_scope=organization_id,
         )
         link: str | None = None
         if invitation is not None:
@@ -3001,14 +3076,15 @@ def remove_organization_member_endpoint(
         )
         db.flush()
         organization = organization_with_members(db, organization_id)
-        active_event = get_active_voting_event(db)
-        events = upcoming_voting_events(db)
+        active_event = get_active_voting_event_for_organization(db, organization_id)
+        events = upcoming_voting_events(db, organization_id=organization_id)
         site_settings = get_site_settings(db)
         detail = build_organization_detail(
             organization,
             active_event=active_event,
             events=events,
             settings=site_settings,
+            organization_scope=organization_id,
         )
     except RegistrationError as exc:
         db.rollback()
@@ -3053,11 +3129,15 @@ def delete_member_invitation_endpoint(
         )
         db.flush()
         organization = organization_with_members(db, organization_id)
-        active_event = get_active_voting_event(db)
-        events = upcoming_voting_events(db)
+        active_event = get_active_voting_event_for_organization(db, organization_id)
+        events = upcoming_voting_events(db, organization_id=organization_id)
         site_settings = get_site_settings(db)
         detail = build_organization_detail(
-            organization, active_event=active_event, events=events, settings=site_settings
+            organization,
+            active_event=active_event,
+            events=events,
+            settings=site_settings,
+            organization_scope=organization_id,
         )
     except RegistrationError as exc:
         db.rollback()
@@ -3105,14 +3185,15 @@ def set_organization_event_delegates(
         )
         db.flush()
         organization = organization_with_members(db, organization_id)
-        active_event = get_active_voting_event(db)
-        events = upcoming_voting_events(db)
+        active_event = get_active_voting_event_for_organization(db, organization_id)
+        events = upcoming_voting_events(db, organization_id=organization_id)
         site_settings = get_site_settings(db)
         detail = build_organization_detail(
             organization,
             active_event=active_event,
             events=events,
             settings=site_settings,
+            organization_scope=organization_id,
         )
     except RegistrationError as exc:
         db.rollback()

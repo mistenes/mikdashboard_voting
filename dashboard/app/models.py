@@ -51,6 +51,11 @@ class Organization(Base):
     event_delegates = relationship(
         "EventDelegate", back_populates="organization", cascade="all, delete-orphan"
     )
+    event_visibility = relationship(
+        "VotingEventOrganization",
+        back_populates="organization",
+        cascade="all, delete-orphan",
+    )
     invitations = relationship(
         "OrganizationInvitation",
         back_populates="organization",
@@ -169,6 +174,7 @@ class VotingEvent(Base):
     is_voting_enabled = Column(Boolean, default=False, nullable=False)
     delegate_limit = Column(Integer, nullable=True)
     delegate_lock_override = Column(String, nullable=True)
+    allow_all_organizations = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
@@ -179,6 +185,29 @@ class VotingEvent(Base):
     )
     access_codes = relationship(
         "VotingAccessCode", back_populates="event", cascade="all, delete-orphan"
+    )
+    allowed_organizations = relationship(
+        "VotingEventOrganization",
+        back_populates="event",
+        cascade="all, delete-orphan",
+    )
+
+
+class VotingEventOrganization(Base):
+    __tablename__ = "voting_event_organizations"
+    __table_args__ = (
+        UniqueConstraint("event_id", "organization_id", name="uq_event_org_visibility"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    event_id = Column(Integer, ForeignKey("voting_events.id"), nullable=False, index=True)
+    organization_id = Column(
+        Integer, ForeignKey("organizations.id"), nullable=False, index=True
+    )
+
+    event = relationship("VotingEvent", back_populates="allowed_organizations")
+    organization = relationship(
+        "Organization", back_populates="event_visibility"
     )
 
 

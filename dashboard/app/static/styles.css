@@ -3035,9 +3035,26 @@ body[data-invite-page] .invite-form-card .status {
     flex: 1 1 100%;
   }
 
-  .member-main-header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 8px;
-  }
+.member-main-header {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+}
+
+.organization-access {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.organization-checkbox-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0.35rem 0.75rem;
+  margin-top: 0.25rem;
+}
+
+.org-checkbox {
+  align-items: center;
 }
