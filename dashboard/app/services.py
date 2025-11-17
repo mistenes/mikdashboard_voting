@@ -596,12 +596,18 @@ def queue_invitation_email(
         "kapcsolattartójaként" if invitation.role == InvitationRole.contact else "tagjaként"
     )
 
+    login_hint = (
+        "<p>A belépéshez ezt az e-mail címet használd: "
+        f"<strong>{html.escape(invitation.email)}</strong></p>"
+    )
+
     subject = "MIK Dashboard meghívó"
     html_body = (
         f"<p>Meghívást kaptál a MIK Dashboard rendszerbe a(z) {invitation.organization.name} "
         f"szervezet {role_text}.</p>"
         "<p>A csatlakozáshoz kattints az alábbi gombra, és állítsd be a jelszavad:</p>"
         f"<p><a href=\"{accept_link}\">Csatlakozás a MIK Dashboardhoz</a></p>"
+        f"{login_hint}"
         "<p>Ha nem vártad ezt a meghívót, hagyd figyelmen kívül ezt az üzenetet.</p>"
     )
     text_body = (
@@ -609,6 +615,7 @@ def queue_invitation_email(
         f"szervezet {role_text}.\n"
         "A csatlakozáshoz másold a böngésződbe az alábbi linket és állítsd be a jelszavad:\n"
         f"{accept_link}\n"
+        f"A belépéshez ezt az e-mail címet használd: {invitation.email}\n"
         "Ha nem vártad ezt a meghívót, hagyd figyelmen kívül ezt az üzenetet."
     )
 
@@ -729,6 +736,7 @@ def queue_admin_invitation_email(
         f"<p>Kedves {recipient_name}!</p>"
         "<p>Adminisztrátori hozzáférést kaptál a MIK Dashboard rendszerhez.</p>"
         f"<p>A belépéshez használd az alábbi ideiglenes jelszót: <strong>{temporary_password}</strong></p>"
+        f"<p>A belépéshez ezt az e-mail címet használd: <strong>{html.escape(recipient_email)}</strong></p>"
         f"<p>Belépés: <a href=\"{login_link}\">{login_link}</a></p>"
         "<p>A jelszót az első bejelentkezés után kötelező megváltoztatni.</p>"
     )
@@ -737,9 +745,15 @@ def queue_admin_invitation_email(
         "Kedves {name}!\n"
         "Adminisztrátori hozzáférést kaptál a MIK Dashboard rendszerhez.\n"
         "A belépéshez használd az alábbi ideiglenes jelszót: {password}\n"
+        "A belépéshez ezt az e-mail címet használd: {email}\n"
         "Belépés: {link}\n"
         "A jelszót az első bejelentkezés után kötelező megváltoztatni."
-    ).format(name=recipient_name, password=temporary_password, link=login_link)
+    ).format(
+        name=recipient_name,
+        password=temporary_password,
+        link=login_link,
+        email=recipient_email,
+    )
 
     payload = {
         "sender": {"email": sender_email, "name": sender_name or sender_email},
