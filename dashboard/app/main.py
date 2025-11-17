@@ -890,7 +890,7 @@ def build_organization_detail(
     if events is not None:
         now = datetime.utcnow()
         for event in events:
-            if organization_scope is not None and not _event_allows_organization(
+            if organization_scope is not None and not event_allows_organization(
                 event, organization_scope
             ):
                 continue
