@@ -1,13 +1,23 @@
-from contextlib import contextmanager
+import logging
 import os
+from contextlib import contextmanager
 from typing import Dict, Iterator
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
 
 
+logger = logging.getLogger(__name__)
+
+
 def _database_url() -> str:
-    url = os.getenv("DATABASE_URL", "sqlite:///./app.db")
+    url = os.getenv("DATABASE_URL")
+    if not url:
+        url = "sqlite:///./app.db"
+        logger.warning(
+            "DATABASE_URL nem volt beállítva, a fejlesztői SQLite adatbázist használjuk (%s)",
+            url,
+        )
     if url.startswith("postgres://"):
         url = url.replace("postgres://", "postgresql+psycopg://", 1)
     elif url.startswith("postgresql://"):

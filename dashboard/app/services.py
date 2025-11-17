@@ -7,6 +7,7 @@ from io import BytesIO
 from typing import Iterable, List, Literal, Optional
 from zipfile import BadZipFile, ZipFile
 
+import html
 import logging
 import secrets
 import string
@@ -20,7 +21,7 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
 
-from sqlalchemy import case, delete, func, select
+from sqlalchemy import case, delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -40,6 +41,7 @@ from .models import (
     VerificationStatus,
     VotingAccessCode,
     VotingEvent,
+    VotingEventOrganization,
 )
 from .security import hash_password, verify_password
 
@@ -47,51 +49,52 @@ from .security import hash_password, verify_password
 logger = logging.getLogger(__name__)
 
 
-ELMS_SANS_DOWNLOAD_SOURCES: tuple[tuple[str, str], ...] = (
+ACCESS_CODE_FONT_DOWNLOAD_SOURCES: tuple[tuple[str, str], ...] = (
     (
         "zip",
-        "https://fonts.google.com/download?family=Elms%20Sans",
+        "https://fonts.google.com/download?family=Noto%20Sans",
     ),
     (
         "ttf",
-        "https://github.com/google/fonts/raw/main/ofl/elmssans/ElmsSans%5Bwght%5D.ttf",
+        "https://github.com/google/fonts/raw/main/ofl/notosans/NotoSans-Regular.ttf",
     ),
 )
 
-ELMS_SANS_REGULAR_FONT_NAME = "ElmsSans-Regular"
-ELMS_SANS_BOLD_FONT_NAME = "ElmsSans-Bold"
+ACCESS_CODE_REGULAR_FONT_NAME = "NotoSans-Regular"
+ACCESS_CODE_BOLD_FONT_NAME = "NotoSans-Bold"
 
 
 DELEGATE_TIMEZONE = ZoneInfo("Europe/Budapest")
 
 ACCESS_CODE_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
 ACCESS_CODE_LENGTH = 8
-ACCESS_CODES_PER_PAGE = 16
+ACCESS_CODES_PER_PAGE = 12
 SITE_SETTINGS_SINGLETON_ID = 1
+SESSION_TOKEN_TTL_HOURS = 24
 
 
-def _parse_elms_sans_zip(payload: bytes) -> dict[str, bytes]:
+def _parse_access_code_font_zip(payload: bytes) -> dict[str, bytes]:
     fonts: dict[str, bytes] = {}
     try:
         with ZipFile(BytesIO(payload)) as archive:
             for member in archive.namelist():
                 lower_name = member.lower()
-                if lower_name.endswith("elmssans-regular.ttf"):
+                if lower_name.endswith("notosans-regular.ttf"):
                     fonts["regular"] = archive.read(member)
-                elif lower_name.endswith("elmssans-bold.ttf"):
+                elif lower_name.endswith("notosans-bold.ttf"):
                     fonts["bold"] = archive.read(member)
-                elif lower_name.endswith("elmssans-variablefont_wght.ttf") or lower_name.endswith(
-                    "elmssans[wght].ttf"
+                elif lower_name.endswith("notosans-variablefont_wdthwght.ttf") or lower_name.endswith(
+                    "notosans[wdth,wght].ttf"
                 ):
                     data = archive.read(member)
                     fonts.setdefault("regular", data)
                     fonts.setdefault("bold", data)
     except BadZipFile as exc:
-        raise RuntimeError("Érvénytelen Elms Sans ZIP archívum") from exc
+        raise RuntimeError("Érvénytelen Noto Sans ZIP archívum") from exc
     return fonts
 
 
-def _parse_elms_sans_ttf(payload: bytes) -> dict[str, bytes]:
+def _parse_access_code_font_ttf(payload: bytes) -> dict[str, bytes]:
     if not payload:
         return {}
     return {
@@ -101,16 +104,16 @@ def _parse_elms_sans_ttf(payload: bytes) -> dict[str, bytes]:
 
 
 @lru_cache(maxsize=1)
-def _download_elms_sans_fonts() -> dict[str, bytes]:
+def _download_access_code_fonts() -> dict[str, bytes]:
     errors: list[str] = []
-    for source_type, url in ELMS_SANS_DOWNLOAD_SOURCES:
+    for source_type, url in ACCESS_CODE_FONT_DOWNLOAD_SOURCES:
         try:
             response = httpx.get(url, timeout=20)
             response.raise_for_status()
             if source_type == "zip":
-                fonts = _parse_elms_sans_zip(response.content)
+                fonts = _parse_access_code_font_zip(response.content)
             else:
-                fonts = _parse_elms_sans_ttf(response.content)
+                fonts = _parse_access_code_font_ttf(response.content)
         except Exception as exc:  # pragma: no cover - network error handling
             errors.append(f"{url}: {exc}")
             continue
@@ -119,34 +122,34 @@ def _download_elms_sans_fonts() -> dict[str, bytes]:
             return fonts
         errors.append(f"{url}: nem találtunk felhasználható betűkészletet")
 
-    raise RuntimeError("Nem sikerült letölteni az Elms Sans betűt: " + "; ".join(errors))
+    raise RuntimeError("Nem sikerült letölteni a Noto Sans betűt: " + "; ".join(errors))
 
 
 @lru_cache(maxsize=1)
-def _ensure_elms_sans_font_names() -> tuple[str, str]:
-    fonts = _download_elms_sans_fonts()
+def _ensure_access_code_font_names() -> tuple[str, str]:
+    fonts = _download_access_code_fonts()
     registered = set(pdfmetrics.getRegisteredFontNames())
 
-    if ELMS_SANS_REGULAR_FONT_NAME not in registered:
+    if ACCESS_CODE_REGULAR_FONT_NAME not in registered:
         regular_bytes = fonts.get("regular")
         if not regular_bytes:
-            raise RuntimeError("Hiányzik az Elms Sans regular változata")
-        pdfmetrics.registerFont(TTFont(ELMS_SANS_REGULAR_FONT_NAME, BytesIO(regular_bytes)))
+            raise RuntimeError("Hiányzik a Noto Sans regular változata")
+        pdfmetrics.registerFont(TTFont(ACCESS_CODE_REGULAR_FONT_NAME, BytesIO(regular_bytes)))
 
-    if ELMS_SANS_BOLD_FONT_NAME not in registered:
+    if ACCESS_CODE_BOLD_FONT_NAME not in registered:
         bold_bytes = fonts.get("bold") or fonts.get("regular")
         if not bold_bytes:
-            raise RuntimeError("Hiányzik az Elms Sans bold változata")
-        pdfmetrics.registerFont(TTFont(ELMS_SANS_BOLD_FONT_NAME, BytesIO(bold_bytes)))
+            raise RuntimeError("Hiányzik a Noto Sans bold változata")
+        pdfmetrics.registerFont(TTFont(ACCESS_CODE_BOLD_FONT_NAME, BytesIO(bold_bytes)))
 
-    return ELMS_SANS_REGULAR_FONT_NAME, ELMS_SANS_BOLD_FONT_NAME
+    return ACCESS_CODE_REGULAR_FONT_NAME, ACCESS_CODE_BOLD_FONT_NAME
 
 
-def _get_elms_sans_font_names() -> tuple[str, str]:
+def _get_access_code_font_names() -> tuple[str, str]:
     try:
-        return _ensure_elms_sans_font_names()
+        return _ensure_access_code_font_names()
     except Exception as exc:  # pragma: no cover - fallback when fonts unreachable
-        logger.warning("Nem sikerült letölteni az Elms Sans betűt, Helvetica lesz használva: %s", exc)
+        logger.warning("Nem sikerült letölteni a Noto Sans betűt, Helvetica lesz használva: %s", exc)
         return "Helvetica", "Helvetica-Bold"
 
 
@@ -594,12 +597,18 @@ def queue_invitation_email(
         "kapcsolattartójaként" if invitation.role == InvitationRole.contact else "tagjaként"
     )
 
+    login_hint = (
+        "<p>A belépéshez ezt az e-mail címet használd: "
+        f"<strong>{html.escape(invitation.email)}</strong></p>"
+    )
+
     subject = "MIK Dashboard meghívó"
     html_body = (
         f"<p>Meghívást kaptál a MIK Dashboard rendszerbe a(z) {invitation.organization.name} "
         f"szervezet {role_text}.</p>"
         "<p>A csatlakozáshoz kattints az alábbi gombra, és állítsd be a jelszavad:</p>"
         f"<p><a href=\"{accept_link}\">Csatlakozás a MIK Dashboardhoz</a></p>"
+        f"{login_hint}"
         "<p>Ha nem vártad ezt a meghívót, hagyd figyelmen kívül ezt az üzenetet.</p>"
     )
     text_body = (
@@ -607,6 +616,7 @@ def queue_invitation_email(
         f"szervezet {role_text}.\n"
         "A csatlakozáshoz másold a böngésződbe az alábbi linket és állítsd be a jelszavad:\n"
         f"{accept_link}\n"
+        f"A belépéshez ezt az e-mail címet használd: {invitation.email}\n"
         "Ha nem vártad ezt a meghívót, hagyd figyelmen kívül ezt az üzenetet."
     )
 
@@ -727,6 +737,7 @@ def queue_admin_invitation_email(
         f"<p>Kedves {recipient_name}!</p>"
         "<p>Adminisztrátori hozzáférést kaptál a MIK Dashboard rendszerhez.</p>"
         f"<p>A belépéshez használd az alábbi ideiglenes jelszót: <strong>{temporary_password}</strong></p>"
+        f"<p>A belépéshez ezt az e-mail címet használd: <strong>{html.escape(recipient_email)}</strong></p>"
         f"<p>Belépés: <a href=\"{login_link}\">{login_link}</a></p>"
         "<p>A jelszót az első bejelentkezés után kötelező megváltoztatni.</p>"
     )
@@ -735,9 +746,15 @@ def queue_admin_invitation_email(
         "Kedves {name}!\n"
         "Adminisztrátori hozzáférést kaptál a MIK Dashboard rendszerhez.\n"
         "A belépéshez használd az alábbi ideiglenes jelszót: {password}\n"
+        "A belépéshez ezt az e-mail címet használd: {email}\n"
         "Belépés: {link}\n"
         "A jelszót az első bejelentkezés után kötelező megváltoztatni."
-    ).format(name=recipient_name, password=temporary_password, link=login_link)
+    ).format(
+        name=recipient_name,
+        password=temporary_password,
+        link=login_link,
+        email=recipient_email,
+    )
 
     payload = {
         "sender": {"email": sender_email, "name": sender_name or sender_email},
@@ -778,7 +795,99 @@ def queue_admin_invitation_email(
         extra={"admin_email": recipient_email, "admin_id": getattr(admin, "id", None)},
     )
 
-    return login_link
+
+def send_issue_report_email(
+    *,
+    name: str,
+    message: str,
+    api_key: str | None = None,
+    sender_email: str | None = None,
+    sender_name: str | None = None,
+    recipient_email: str = "mistenes@me.com",
+    page_url: str | None = None,
+    user_agent: str | None = None,
+) -> None:
+    clean_message = (message or "").strip()
+    if not clean_message:
+        raise RegistrationError("Írd le röviden a tapasztalt hibát.")
+
+    reporter_name = (name or "").strip() or "Ismeretlen felhasználó"
+
+    if not api_key or not sender_email:
+        logger.error(
+            "Issue report email attempted without Brevo configuration; email will not be sent",
+            extra={"recipient_email": recipient_email},
+        )
+        raise RegistrationError(
+            "A hibajelentő jelenleg nem elérhető. Kérjük, próbáld meg később vagy jelezd a fejlesztőnek más csatornán."
+        )
+
+    preview = " ".join(clean_message.split())[:120]
+    if page_url:
+        preview = f"{preview} – {page_url}" if preview else page_url
+
+    escaped_message = html.escape(clean_message).replace("\n", "<br />")
+
+    html_lines = [
+        f"<p><strong>Felhasználó:</strong> {html.escape(reporter_name)}</p>",
+        f"<p><strong>Üzenet:</strong><br />{escaped_message}</p>",
+    ]
+    text_lines = [
+        f"Felhasználó: {reporter_name}",
+        "Üzenet:",
+        clean_message,
+    ]
+
+    if page_url:
+        html_lines.append(f"<p><strong>Oldal:</strong> {html.escape(page_url)}</p>")
+        text_lines.append(f"Oldal: {page_url}")
+
+    if user_agent:
+        html_lines.append(f"<p><strong>Böngésző:</strong> {html.escape(user_agent)}</p>")
+        text_lines.append(f"Böngésző: {user_agent}")
+
+    payload = {
+        "sender": {"email": sender_email, "name": sender_name or sender_email},
+        "to": [{"email": recipient_email, "name": "Fejlesztő"}],
+        "subject": f"MIK Dashboard hibajelentés – {preview or reporter_name}",
+        "htmlContent": "".join(html_lines),
+        "textContent": "\n".join(text_lines),
+    }
+
+    headers = {
+        "accept": "application/json",
+        "api-key": api_key,
+        "content-type": "application/json",
+    }
+
+    logger.info(
+        "Dispatching issue report email",
+        extra={"recipient_email": recipient_email, "reporter": reporter_name, "page_url": page_url},
+    )
+
+    try:
+        response = httpx.post(
+            "https://api.brevo.com/v3/smtp/email",
+            json=payload,
+            headers=headers,
+            timeout=15.0,
+        )
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        logger.exception("Issue report email request failed")
+        raise RegistrationError(
+            "Nem sikerült elküldeni a hibajelentést. Kérjük, próbáld újra később."
+        ) from exc
+
+    _log_brevo_delivery(
+        "issue_report",
+        response,
+        extra={
+            "recipient_email": recipient_email,
+            "reporter_name": reporter_name,
+            "page_url": page_url,
+        },
+    )
 
 
 def queue_password_reset_email(
@@ -907,18 +1016,32 @@ def verify_email(session: Session, token_value: str) -> User:
 
 
 def create_session_token(session: Session, *, user: User) -> SessionToken:
-    token = SessionToken(user=user)
+    session.query(SessionToken).where(SessionToken.user_id == user.id).delete()
+    token = SessionToken(
+        user=user, expires_at=SessionToken.default_expiration(SESSION_TOKEN_TTL_HOURS)
+    )
     session.add(token)
     session.flush()
     return token
 
 
 def resolve_session_user(session: Session, token_value: str) -> Optional[User]:
+    now = datetime.utcnow()
     stmt = select(SessionToken).where(SessionToken.token == token_value)
     session_token = session.scalar(stmt)
     if not session_token:
         return None
+    if session_token.expires_at <= now:
+        session.delete(session_token)
+        session.flush()
+        return None
     return session_token.user
+
+
+def revoke_session_token(session: Session, token_value: str) -> bool:
+    deleted = session.query(SessionToken).where(SessionToken.token == token_value).delete()
+    session.flush()
+    return bool(deleted)
 
 
 def authenticate_user(session: Session, *, email: str, password: str) -> User:
@@ -926,8 +1049,14 @@ def authenticate_user(session: Session, *, email: str, password: str) -> User:
     user = session.scalar(stmt)
     if not user:
         raise AuthenticationError("Hibás bejelentkezési adatok")
-    if not verify_password(password, user.password_salt, user.password_hash):
+    password_check = verify_password(password, user.password_salt, user.password_hash)
+    if not password_check.is_valid:
         raise AuthenticationError("Hibás bejelentkezési adatok")
+    if password_check.needs_rehash:
+        salt, password_hash = hash_password(password)
+        user.password_salt = salt
+        user.password_hash = password_hash
+        session.flush()
     if not user.is_email_verified:
         raise AuthenticationError("Bejelentkezés előtt erősítsd meg az e-mail címedet")
     if user.admin_decision == ApprovalDecision.denied:
@@ -944,7 +1073,10 @@ def change_user_password(
     current_password: str,
     new_password: str,
 ) -> SessionToken:
-    if not verify_password(current_password, user.password_salt, user.password_hash):
+    password_check = verify_password(
+        current_password, user.password_salt, user.password_hash
+    )
+    if not password_check.is_valid:
         raise AuthenticationError("A jelenlegi jelszó nem megfelelő")
 
     validate_password_strength(new_password)
@@ -1015,6 +1147,11 @@ def delete_organization(session: Session, *, organization_id: int) -> None:
     organization = session.get(Organization, organization_id)
     if organization is None:
         raise RegistrationError("Nem található szervezet")
+
+    if not _event_allows_organization(event, organization.id):
+        raise RegistrationError(
+            "Ez a szervezet nem jelölhet delegáltakat erre az eseményre."
+        )
     if organization.users:
         raise RegistrationError(
             "A szervezet addig nem törölhető, amíg vannak hozzárendelt tagok."
@@ -1331,71 +1468,36 @@ def build_access_code_pdf(event: VotingEvent, codes: list[VotingAccessCode]) -> 
     buffer = BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=A4)
     width, height = A4
-    margin_x = 20 * mm
-    margin_y = 25 * mm
-    top_margin = 35 * mm
-    columns = 4
+    margin_x = 25 * mm
+    margin_y = 30 * mm
+    columns = 3
     rows = 4
     cell_width = (width - 2 * margin_x) / columns
-    cell_height = (height - top_margin - margin_y) / rows
-    regular_font, bold_font = _get_elms_sans_font_names()
-    border_padding_x = 4 * mm
-    border_padding_y = 6 * mm
-    code_text_margin_x = 6 * mm
-
-    def draw_page_header(page_number: int) -> None:
-        pdf.setFont(bold_font, 16)
-        pdf.drawString(margin_x, height - margin_y + 5 * mm, event.title or "Szavazási esemény")
-        if event.event_date:
-            pdf.setFont(regular_font, 10)
-            pdf.drawString(
-                margin_x,
-                height - margin_y,
-                event.event_date.strftime("%Y.%m.%d %H:%M"),
-            )
-        pdf.setFont(regular_font, 9)
-        pdf.drawRightString(
-            width - margin_x,
-            margin_y / 2,
-            f"Oldal {page_number}",
-        )
-
+    cell_height = (height - 2 * margin_y) / rows
+    regular_font, bold_font = _get_access_code_font_names()
+    border_padding_x = 6 * mm
+    border_padding_y = 8 * mm
+    code_text_margin_x = 8 * mm
     if not codes:
-        draw_page_header(1)
-        pdf.setFont(regular_font, 12)
-        pdf.drawString(
-            margin_x,
-            height - top_margin,
-            "Ehhez az eseményhez még nem generáltunk belépőkódokat.",
-        )
         pdf.save()
         buffer.seek(0)
         return buffer.read()
 
-    draw_page_header(1)
-
     for index, code in enumerate(codes):
         if index and index % ACCESS_CODES_PER_PAGE == 0:
             pdf.showPage()
-            draw_page_header((index // ACCESS_CODES_PER_PAGE) + 1)
 
         position = index % ACCESS_CODES_PER_PAGE
         column = position % columns
         row = position // columns
         x = margin_x + column * cell_width
-        y = height - top_margin - row * cell_height
+        y = height - margin_y - row * cell_height
         rect_x = x + border_padding_x
         rect_y = y - cell_height + border_padding_y
         rect_width = cell_width - 2 * border_padding_x
         rect_height = cell_height - 2 * border_padding_y
         pdf.setLineWidth(1)
         pdf.roundRect(rect_x, rect_y, rect_width, rect_height, 6, stroke=1, fill=0)
-        pdf.setFont(regular_font, 11)
-        pdf.drawCentredString(
-            rect_x + rect_width / 2,
-            rect_y + rect_height - 8 * mm,
-            "MIK egyszer használható belépőkód",
-        )
         code_max_width = rect_width - (2 * code_text_margin_x)
         font_size = _fit_text_within_width(
             code.code,
@@ -1421,6 +1523,9 @@ def list_voting_events(session: Session) -> List[VotingEvent]:
         select(VotingEvent)
         .options(
             selectinload(VotingEvent.delegates).selectinload(EventDelegate.user),
+            selectinload(VotingEvent.allowed_organizations).selectinload(
+                VotingEventOrganization.organization
+            ),
             selectinload(VotingEvent.access_codes).selectinload(
                 VotingAccessCode.used_by_user
             ),
@@ -1430,11 +1535,16 @@ def list_voting_events(session: Session) -> List[VotingEvent]:
     return list(session.scalars(stmt))
 
 
-def upcoming_voting_events(session: Session) -> List[VotingEvent]:
+def upcoming_voting_events(
+    session: Session, organization_id: int | None = None
+) -> List[VotingEvent]:
     stmt = (
         select(VotingEvent)
         .options(
             selectinload(VotingEvent.delegates).selectinload(EventDelegate.user),
+            selectinload(VotingEvent.allowed_organizations).selectinload(
+                VotingEventOrganization.organization
+            ),
             selectinload(VotingEvent.access_codes).selectinload(
                 VotingAccessCode.used_by_user
             ),
@@ -1445,7 +1555,14 @@ def upcoming_voting_events(session: Session) -> List[VotingEvent]:
             VotingEvent.created_at.desc(),
         )
     )
-    return list(session.scalars(stmt))
+    events = list(session.scalars(stmt))
+    if organization_id is None:
+        return events
+    return [
+        event
+        for event in events
+        if _event_allows_organization(event, organization_id)
+    ]
 
 
 def get_active_voting_event(session: Session) -> Optional[VotingEvent]:
@@ -1454,6 +1571,9 @@ def get_active_voting_event(session: Session) -> Optional[VotingEvent]:
         .where(VotingEvent.is_active.is_(True))
         .options(
             selectinload(VotingEvent.delegates).selectinload(EventDelegate.user),
+            selectinload(VotingEvent.allowed_organizations).selectinload(
+                VotingEventOrganization.organization
+            ),
             selectinload(VotingEvent.access_codes).selectinload(
                 VotingAccessCode.used_by_user
             ),
@@ -1461,6 +1581,17 @@ def get_active_voting_event(session: Session) -> Optional[VotingEvent]:
         .limit(1)
     )
     return session.scalar(stmt)
+
+
+def get_active_voting_event_for_organization(
+    session: Session, organization_id: int
+) -> Optional[VotingEvent]:
+    event = get_active_voting_event(session)
+    if event is None:
+        return None
+    if _event_allows_organization(event, organization_id):
+        return event
+    return None
 
 
 def create_voting_event(
@@ -1471,6 +1602,8 @@ def create_voting_event(
     event_date: datetime,
     delegate_deadline: datetime,
     delegate_limit: int,
+    allow_all_organizations: bool = True,
+    organization_ids: Optional[list[int]] = None,
     activate: bool = False,
 ) -> VotingEvent:
     cleaned_title = title.strip()
@@ -1496,9 +1629,17 @@ def create_voting_event(
         is_active=False,
         is_voting_enabled=False,
         delegate_limit=delegate_limit,
+        allow_all_organizations=allow_all_organizations,
     )
     session.add(event)
     session.flush()
+
+    _apply_event_organizations(
+        session,
+        event,
+        allow_all=allow_all_organizations,
+        organization_ids=organization_ids or [],
+    )
 
     has_active = get_active_voting_event(session)
     if activate or has_active is None:
@@ -1518,6 +1659,8 @@ def update_voting_event(
     event_date: datetime,
     delegate_deadline: datetime,
     delegate_limit: int,
+    allow_all_organizations: bool = True,
+    organization_ids: Optional[list[int]] = None,
 ) -> VotingEvent:
     event = session.get(VotingEvent, event_id)
     if event is None:
@@ -1543,8 +1686,93 @@ def update_voting_event(
     event.event_date = normalized_event_date
     event.delegate_deadline = normalized_delegate_deadline
     event.delegate_limit = delegate_limit
+    _apply_event_organizations(
+        session,
+        event,
+        allow_all=allow_all_organizations,
+        organization_ids=organization_ids or [],
+    )
     session.flush()
     return event
+
+
+def _normalize_organization_ids(candidate_ids: list[int]) -> list[int]:
+    normalized: list[int] = []
+    seen: set[int] = set()
+    for value in candidate_ids:
+        try:
+            number = int(value)
+        except (TypeError, ValueError):
+            continue
+        if number <= 0 or number in seen:
+            continue
+        seen.add(number)
+        normalized.append(number)
+    return normalized
+
+
+def _apply_event_organizations(
+    session: Session,
+    event: VotingEvent,
+    *,
+    allow_all: bool,
+    organization_ids: list[int],
+) -> None:
+    event.allow_all_organizations = allow_all
+    if allow_all:
+        for entry in list(event.allowed_organizations):
+            session.delete(entry)
+        session.flush()
+        return
+
+    normalized_ids = _normalize_organization_ids(organization_ids)
+    if not normalized_ids:
+        raise RegistrationError("Legalább egy szervezetet ki kell választani.")
+
+    existing_ids = set(
+        session.scalars(
+            select(Organization.id).where(Organization.id.in_(normalized_ids))
+        ).all()
+    )
+    if len(existing_ids) != len(normalized_ids):
+        raise RegistrationError("Nem található az egyik kiválasztott szervezet.")
+
+    current_by_org = {
+        entry.organization_id: entry for entry in list(event.allowed_organizations)
+    }
+
+    for entry in list(event.allowed_organizations):
+        if entry.organization_id not in existing_ids:
+            session.delete(entry)
+
+    for org_id in normalized_ids:
+        if org_id in current_by_org:
+            continue
+        session.add(
+            VotingEventOrganization(event=event, organization_id=org_id)
+        )
+
+    stmt = select(EventDelegate).where(
+        EventDelegate.event_id == event.id,
+        EventDelegate.organization_id.notin_(existing_ids),
+    )
+    for delegate in session.scalars(stmt):
+        session.delete(delegate)
+
+
+def _event_allows_organization(event: VotingEvent, organization_id: int | None) -> bool:
+    if organization_id is None:
+        return True
+    if getattr(event, "allow_all_organizations", True):
+        return True
+    allowed_ids = {
+        entry.organization_id for entry in getattr(event, "allowed_organizations", []) or []
+    }
+    return organization_id in allowed_ids
+
+
+def event_allows_organization(event: VotingEvent, organization_id: int | None) -> bool:
+    return _event_allows_organization(event, organization_id)
 
 
 def set_active_voting_event(session: Session, event_id: int) -> VotingEvent:
@@ -1808,21 +2036,9 @@ def create_contact_invitation(
     user_stmt = select(User).where(func.lower(User.email) == normalized_email)
     existing_user = session.scalar(user_stmt)
     if existing_user is not None:
-        if existing_user.organization_id != organization.id:
-            raise RegistrationError(
-                "Ezzel az e-mail címmel már létezik felhasználó a rendszerben"
-            )
-        if existing_user.is_organization_contact:
-            raise RegistrationError("Ez a felhasználó már a szervezet kapcsolattartója")
-
-        if first_name and not existing_user.first_name:
-            existing_user.first_name = first_name.strip() or None
-        if last_name and not existing_user.last_name:
-            existing_user.last_name = last_name.strip() or None
-
-        existing_user.is_organization_contact = True
-        session.flush()
-        return None, existing_user
+        raise RegistrationError(
+            "Ezzel az e-mail címmel már létezik felhasználó a rendszerben"
+        )
 
     invitation = _create_invitation(
         session,
@@ -1864,6 +2080,34 @@ def create_member_invitation(
         first_name=first_name,
         last_name=last_name,
     )
+
+
+def delete_contact_invitation(
+    session: Session, *, organization_id: int, invitation_id: int
+) -> None:
+    invitation = session.get(OrganizationInvitation, invitation_id)
+    if invitation is None or invitation.organization_id != organization_id:
+        raise RegistrationError("Nem található kapcsolattartói meghívó")
+    if invitation.role != InvitationRole.contact:
+        raise RegistrationError("Ez a meghívó nem kapcsolattartói szerepkörhöz tartozik")
+    if invitation.accepted_at is not None:
+        raise RegistrationError("A meghívó már felhasználásra került")
+
+    session.delete(invitation)
+
+
+def delete_member_invitation(
+    session: Session, *, organization_id: int, invitation_id: int
+) -> None:
+    invitation = session.get(OrganizationInvitation, invitation_id)
+    if invitation is None or invitation.organization_id != organization_id:
+        raise RegistrationError("Nem található tagmeghívó")
+    if invitation.role != InvitationRole.member:
+        raise RegistrationError("Ez a meghívó nem tag szerepkörhöz tartozik")
+    if invitation.accepted_at is not None:
+        raise RegistrationError("A meghívó már felhasználásra került")
+
+    session.delete(invitation)
 
 
 def pending_invitations(
@@ -1983,6 +2227,35 @@ def delete_user_account(session: Session, *, user_id: int) -> None:
         raise RegistrationError("Nem található felhasználó")
     if user.is_admin:
         raise RegistrationError("Adminisztrátori fiókot nem lehet törölni")
+
+    session.execute(delete(SessionToken).where(SessionToken.user_id == user.id))
+    session.execute(
+        delete(EmailVerificationToken).where(EmailVerificationToken.user_id == user.id)
+    )
+    session.execute(
+        delete(PasswordResetToken).where(PasswordResetToken.user_id == user.id)
+    )
+    session.execute(delete(EventDelegate).where(EventDelegate.user_id == user.id))
+
+    session.execute(
+        update(VotingAccessCode)
+        .where(VotingAccessCode.used_by_user_id == user.id)
+        .values(used_by_user_id=None)
+    )
+    session.execute(
+        update(OrganizationInvitation)
+        .where(OrganizationInvitation.accepted_by_user_id == user.id)
+        .values(accepted_by_user_id=None)
+    )
+    session.execute(
+        update(OrganizationInvitation)
+        .where(OrganizationInvitation.invited_by_user_id == user.id)
+        .values(invited_by_user_id=None)
+    )
+
+    user.organization = None
+    user.is_voting_delegate = False
+    user.is_organization_contact = False
     session.delete(user)
 
 

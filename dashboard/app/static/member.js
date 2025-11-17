@@ -1,3 +1,5 @@
+import "./cookie-consent.js";
+
 const body = document.body;
 const pageType = body?.dataset?.memberPage || "tagok";
 const statusEl = document.querySelector("#member-status");
@@ -19,6 +21,7 @@ const invitationList = document.querySelector("#member-invitation-list");
 const memberDirectory = document.querySelector("#member-directory");
 const contactEventsCard = document.querySelector("#contact-events-card");
 const contactEventsList = document.querySelector("#contact-events-list");
+const contactEventsDescription = document.querySelector("#contact-events-description");
 const contactActionItems = document.querySelectorAll(".contact-only-action");
 
 let cachedSessionUser = null;
@@ -534,6 +537,7 @@ function renderInvitations(detail, sessionUser) {
   if (!invitationCard || !invitationList) {
     return;
   }
+  bindInvitationActions();
   const isContact = hasContactPrivileges(detail, sessionUser);
   toggleContactActions(isContact);
   if (!isContact) {
@@ -581,10 +585,93 @@ function renderInvitations(detail, sessionUser) {
       ? `Meghívva: ${timestamp}`
       : "Meghívás folyamatban";
 
+    const actions = document.createElement("div");
+    actions.classList.add("pending-invite-actions");
+
+    const revokeButton = document.createElement("button");
+    revokeButton.type = "button";
+    revokeButton.classList.add("danger-btn", "ghost-btn");
+    revokeButton.dataset.revokeInvite = "1";
+    revokeButton.dataset.invitationId = String(invite.id);
+    revokeButton.dataset.inviteEmail = invite.email || "";
+    revokeButton.textContent = "Meghívás visszavonása";
+
+    const statusEl = document.createElement("p");
+    statusEl.classList.add("status", "action-status", "pending-invite-status");
+    statusEl.setAttribute("role", "status");
+
+    actions.appendChild(revokeButton);
+    actions.appendChild(statusEl);
+
     card.appendChild(header);
     card.appendChild(created);
+    card.appendChild(actions);
     invitationList.appendChild(card);
   });
+}
+
+function bindInvitationActions() {
+  if (!invitationList || invitationList.dataset.actionsBound === "1") {
+    return;
+  }
+
+  invitationList.addEventListener("click", async (event) => {
+    const button = event.target.closest("button[data-revoke-invite]");
+    if (!button || !invitationList.contains(button)) {
+      return;
+    }
+
+    event.preventDefault();
+    if (!organizationId || !cachedSessionUser) {
+      return;
+    }
+
+    const invitationId = Number.parseInt(button.dataset.invitationId || "", 10);
+    if (!Number.isInteger(invitationId)) {
+      return;
+    }
+
+    const targetEmail = button.dataset.inviteEmail || "";
+    const confirmMessage = targetEmail
+      ? `Biztosan visszavonod ${targetEmail} meghívását?`
+      : "Biztosan visszavonod a meghívást?";
+    if (!window.confirm(confirmMessage)) {
+      return;
+    }
+
+    const card = button.closest(".pending-invite-card");
+    const statusEl = card?.querySelector(".pending-invite-status");
+    setActionStatus(statusEl, "Meghívás visszavonása folyamatban...", "");
+    button.disabled = true;
+
+    try {
+      const detail = await requestJSON(
+        `/api/organizations/${organizationId}/invitations/${invitationId}`,
+        { method: "DELETE" },
+      );
+      cachedOrganizationDetail = detail;
+      setActionStatus(statusEl, "Meghívás visszavonva.", "success");
+      setTimeout(() => {
+        if (!cachedOrganizationDetail || !cachedSessionUser) {
+          return;
+        }
+        renderInvitations(cachedOrganizationDetail, cachedSessionUser);
+      }, 500);
+    } catch (error) {
+      const message =
+        error?.message || "Nem sikerült visszavonni a meghívót. Próbáld újra később.";
+      setActionStatus(statusEl, message, "error");
+      if (error?.status === 401 || error?.status === 403) {
+        handleAuthError(error);
+      }
+    } finally {
+      if (document.body.contains(button)) {
+        button.disabled = false;
+      }
+    }
+  });
+
+  invitationList.dataset.actionsBound = "1";
 }
 
 function collectDelegateIds(form) {
@@ -744,22 +831,40 @@ function renderEventAssignments(detail, sessionUser) {
     : [];
   const isContact = hasContactPrivileges(detail, sessionUser);
   toggleContactActions(isContact);
-  if (!isContact) {
+  const isDelegateForEvent = (eventDetail) => {
+    if (!sessionUser || !Array.isArray(eventDetail.delegate_user_ids)) {
+      return false;
+    }
+    return eventDetail.delegate_user_ids.includes(sessionUser.id);
+  };
+
+  const visibleEvents = isContact ? events : events.filter(isDelegateForEvent);
+  const shouldShowCard = isContact || visibleEvents.length > 0;
+
+  if (contactEventsDescription) {
+    contactEventsDescription.textContent = isContact
+      ? "Itt kezelheted, hogy kik képviselik a szervezetet az egyes eseményeken."
+      : "Itt láthatod, mely eseményekre jelöltek ki delegáltként, a részletekkel együtt.";
+  }
+
+  if (!shouldShowCard) {
     contactEventsCard.classList.add("is-hidden");
     contactEventsList.innerHTML = "";
     return;
   }
   contactEventsCard.classList.remove("is-hidden");
   contactEventsList.innerHTML = "";
-  if (!events.length) {
+  if (!visibleEvents.length) {
     const empty = document.createElement("p");
     empty.classList.add("muted");
-    empty.textContent = "Jelenleg nincs közelgő esemény.";
+    empty.textContent = isContact
+      ? "Jelenleg nincs közelgő esemény."
+      : "Nem jelöltek ki közelgő eseményre.";
     contactEventsList.appendChild(empty);
     return;
   }
 
-  events.forEach((eventDetail) => {
+  visibleEvents.forEach((eventDetail) => {
     const card = document.createElement("article");
     card.classList.add("event-assignment-card");
 
@@ -810,6 +915,54 @@ function renderEventAssignments(detail, sessionUser) {
     countItem.textContent = `Jelenleg kijelölve: ${eventDetail.delegate_count} fő`;
     metaList.appendChild(countItem);
     card.appendChild(metaList);
+
+    const delegatesHeading = document.createElement("p");
+    delegatesHeading.classList.add("delegate-preview-heading");
+    delegatesHeading.textContent = "Kijelölt delegáltak";
+    card.appendChild(delegatesHeading);
+
+    const delegateList = document.createElement("ul");
+    delegateList.classList.add("delegate-preview");
+    const delegates = Array.isArray(eventDetail.delegates) ? eventDetail.delegates : [];
+    if (!delegates.length) {
+      const emptyDelegates = document.createElement("li");
+      emptyDelegates.classList.add("delegate-preview-empty");
+      emptyDelegates.textContent =
+        "Ehhez az eseményhez még nem jelöltek ki delegáltat.";
+      delegateList.appendChild(emptyDelegates);
+    } else {
+      delegates.forEach((delegate) => {
+        const item = document.createElement("li");
+        const name = document.createElement("strong");
+        name.textContent = formatDisplayName(
+          delegate.first_name,
+          delegate.last_name,
+          delegate.email,
+        );
+        if (delegate.user_id === sessionUser?.id) {
+          name.textContent = `${name.textContent} (Te)`;
+        }
+        const email = document.createElement("span");
+        email.classList.add("delegate-preview-email");
+        email.textContent = delegate.email;
+        item.appendChild(name);
+        item.appendChild(email);
+        delegateList.appendChild(item);
+      });
+    }
+
+    card.appendChild(delegateList);
+
+    if (!isContact) {
+      const lockNotice = document.createElement("p");
+      lockNotice.classList.add("muted");
+      lockNotice.textContent = eventDetail.delegate_lock_message
+        ? eventDetail.delegate_lock_message
+        : "A delegálást az adminisztrátor kezeli ehhez az eseményhez.";
+      card.appendChild(lockNotice);
+      contactEventsList.appendChild(card);
+      return;
+    }
 
     if (!eventDetail.can_manage_delegates) {
       const notice = document.createElement("p");

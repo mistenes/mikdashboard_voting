@@ -51,6 +51,23 @@
             <div class="invite-field">
               <label for="password">Jelszó</label>
               <input type="password" id="password" name="password" required minlength="8" />
+              <div class="password-requirements" aria-live="polite">
+                <p class="requirements-title">A jelszónak meg kell felelnie az alábbiaknak:</p>
+                <ul class="requirements-list">
+                  <li data-requirement="length">
+                    <span class="requirement-indicator" aria-hidden="true"></span>
+                    Legalább 8 karakter
+                  </li>
+                  <li data-requirement="uppercase">
+                    <span class="requirement-indicator" aria-hidden="true"></span>
+                    Tartalmaz legalább egy nagybetűt
+                  </li>
+                  <li data-requirement="special">
+                    <span class="requirement-indicator" aria-hidden="true"></span>
+                    Tartalmaz legalább egy speciális karaktert
+                  </li>
+                </ul>
+              </div>
             </div>
 
             <div class="invite-field">

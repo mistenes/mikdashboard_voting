@@ -1,21 +1,18 @@
-# MIK Dashboard Registration Prototype
+# MIK Dashboard (invite-only)
 
-This prototype implements a simple registration flow with organization lookup,
-email verification, and administrator approval gates. It provides a FastAPI
-backend and a lightweight vanilla JavaScript UI for demonstration. A minimal
-Hungarian-language interface covers bejelentkezés (login), regisztráció, and a
-separate adminisztrációs felület.
+This deployment now runs as an invite-only dashboard: accounts are seeded or
+created by admins, and the public self-registration page has been removed. It
+provides a FastAPI backend and a lightweight vanilla JavaScript UI for
+demonstration. A minimal Hungarian-language interface covers bejelentkezés
+(login) and a separate adminisztrációs felület.
 
 ## Features
 
-- Searchable organization directory surfaced on the registration form.
-- User registration API that stores a verification token and delivers the confirmation e-mail
-  through Brevo once the message sender is configured.
-- Email verification endpoint that flags the account as verified while waiting
-  on administrator approval.
-- Admin review API with dedicated `/admin`, `/admin/szervezetek`, and `/admin/jelentkezok`
-  felületek, amelyek külön oldalakon kezelik az áttekintést, a szervezeteket és a függő
-  regisztrációkat.
+- Invite-only access: accounts are seeded or created by admins, and public
+  self-registration is disabled.
+- Admin review API with dedicated `/admin`, `/admin/szervezetek`, and a combined
+  `/admin/felhasznalok` felület, ahol a függő regisztrációk jóváhagyása és az admin
+  felhasználók kezelése egy oldalon érhető el.
 - Admin áttekintő, amely listázza a szervezeteket, megmutatja a tagokat, engedi a tagsági
   díj státuszának módosítását, a banki adatok frissítését és lehetővé teszi a tagok törlését.
 - Admin felületről új szervezet hozható létre, a törlés pedig három egymást követő
@@ -28,8 +25,8 @@ separate adminisztrációs felület.
   rendezett tagsági díj mellett egy kattintással átirányíthatók a különálló szavazási
   webalkalmazásba egy aláírt o2auth tokennel.
 - Kötelező keresztnév és vezetéknév megadása, amely az admin felületen is látható.
-- Jelszó-erősségi ellenőrzés (legalább 8 karakter, nagybetű és speciális karakter) és Google
-  reCAPTCHA védelem a regisztrációs űrlapon.
+- Jelszó-erősségi ellenőrzés (legalább 8 karakter, nagybetű és speciális
+  karakter) minden jelszóbeállítási űrlapon.
 - A seedelt adminisztrátor első bejelentkezéskor kötelezően új jelszót állít be a webes
   jelszócsere felületen, mielőtt bármely funkciót használhatna.
 
@@ -42,10 +39,10 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
 
-Then open `http://localhost:8000` to reach the Hungarian login page. Registration lives at
-`http://localhost:8000/register`. Adminisztrátorok a jóváhagyott belépés után az
-`/admin` áttekintőre jutnak, ahonnan a szervezet-kezelés (`/admin/szervezetek`) és a függő
-kérelmek (`/admin/jelentkezok`) külön oldalon érhetők el. Minden más felhasználó a
+Then open `http://localhost:8000` to reach the Hungarian login page. Adminisztrátorok a
+jóváhagyott belépés után az `/admin` áttekintőre jutnak, ahonnan a szervezet-kezelés
+(`/admin/szervezetek`) és a függő kérelmeket is tartalmazó felhasználói oldal
+(`/admin/felhasznalok`) érhető el. Minden más felhasználó a
 tagsági díj státusza alapján kerül átirányításra a saját szervezetének oldalára:
 - rendezetlen díj esetén: `http://localhost:8000/szervezetek/<id>/dij`, ahol a banki adatok
   és az utalási instrukciók jelennek meg;
@@ -92,12 +89,11 @@ provided blueprint or the manual setup steps below.
    the managed database and surfaces placeholders for `ADMIN_EMAILS`, `ADMIN_EMAIL`,
    `ADMIN_PASSWORD`, `ADMIN_FIRST_NAME`, `ADMIN_LAST_NAME`, `PUBLIC_BASE_URL`,
    `BREVO_API_KEY`, `BREVO_SENDER_EMAIL` (alapértelmezés: `noreply@mikegyesulet.hu`),
-   `BREVO_SENDER_NAME` (alapértelmezés: `MIK Egyesület`), `RECAPTCHA_SITE_KEY`,
-   `RECAPTCHA_SECRET_KEY`, `VOTING_O2AUTH_SECRET`, `VOTING_APP_BASE_URL`,
-   `VOTING_O2AUTH_TTL_SECONDS`, and `VOTING_AUTH_TTL_SECONDS` so you can
-   pre-authorize administrator accounts,
-   label the seeded admin, configure outbound e-mail delivery, enable the Google
-   reCAPTCHA integration, és beállíthatod a szavazási webalkalmazás felé használt
+   `BREVO_SENDER_NAME` (alapértelmezés: `MIK Egyesület`), `VOTING_O2AUTH_SECRET`,
+   `VOTING_APP_BASE_URL`, `VOTING_O2AUTH_TTL_SECONDS`, and `VOTING_AUTH_TTL_SECONDS`
+   so you can pre-authorize administrator accounts,
+   label the seeded admin, configure outbound e-mail delivery, és beállíthatod a
+   szavazási webalkalmazás felé használt
    o2auth titkot és átirányítási URL-t.
    Alapértelmezetten a blueprint a `https://dashboard.mikegyesulet.hu/` és
    `https://voting.mikegyesulet.hu/` domainekre mutat, ezért más környezetben
@@ -132,10 +128,7 @@ provided blueprint or the manual setup steps below.
    cserélj le a saját környezetedre. A `render.yaml` fájl szándékosan hagyja
    szinkronizálatlanul a Brevo API kulcsát, így azt közvetlenül a Render
    felületén biztonságosan tárolhatod.
-8. (Optional) Configure Google reCAPTCHA by setting `RECAPTCHA_SITE_KEY` and
-   `RECAPTCHA_SECRET_KEY`. When omitted, the regisztrációs űrlap captcha
-   automatikusan letiltva marad.
-9. Állítsd be a `VOTING_O2AUTH_SECRET`, `VOTING_APP_BASE_URL`, `VOTING_O2AUTH_TTL_SECONDS`
+8. Állítsd be a `VOTING_O2AUTH_SECRET`, `VOTING_APP_BASE_URL`, `VOTING_O2AUTH_TTL_SECONDS`
    (és opcionálisan a `VOTING_AUTH_TTL_SECONDS`) változókat ugyanazzal az
    értékkel, amit a szavazási webszolgáltatásnál használsz. Ezek biztosítják,
    hogy a tagi felület által generált o2auth tokeneket a voting alkalmazás

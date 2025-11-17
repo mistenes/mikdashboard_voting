@@ -29,6 +29,7 @@ from .models import (
     InvitationRole,
     Organization,
     OrganizationInvitation,
+    SessionToken,
     SiteSettings,
     User,
     VotingAccessCode,
@@ -68,10 +69,9 @@ from .schemas import (
     PasswordResetVerifyResponse,
     PendingUser,
     PublicConfigResponse,
-    RegistrationRequest,
-    RegistrationResponse,
     SessionUser,
     SimpleMessageResponse,
+    IssueReportRequest,
     VerificationResponse,
     VotingAccessCodeBatch,
     VotingAccessCodeGenerateRequest,
@@ -104,10 +104,13 @@ from .services import (
     delegate_lock_state,
     delegates_for_event,
     delete_organization,
+    delete_member_invitation,
     delete_voting_event,
     delete_user_account,
+    delete_contact_invitation,
     get_active_password_reset_token,
     get_active_voting_event,
+    get_active_voting_event_for_organization,
     get_invitation_by_token,
     issue_password_reset_token,
     list_voting_events,
@@ -120,10 +123,10 @@ from .services import (
     queue_invitation_email,
     queue_admin_invitation_email,
     queue_verification_email,
-    register_user,
     build_access_code_pdf,
     reset_voting_events,
     remove_member_from_organization,
+    revoke_session_token,
     generate_voting_access_codes,
     resolve_session_user,
     search_organizations,
@@ -142,6 +145,8 @@ from .services import (
     voting_access_code_summary,
     reset_admin_temporary_password,
     delete_admin_account,
+    send_issue_report_email,
+    event_allows_organization,
     VotingAccessCodeError,
     VotingAccessCodeUnavailableError,
 )
@@ -289,7 +294,9 @@ def startup() -> None:
     ensure_nullable_organization_column()
     ensure_name_columns()
     ensure_event_metadata_columns()
+    ensure_event_audience_columns()
     ensure_delegate_uniqueness_constraints()
+    ensure_session_token_expiration_column()
     seed_admin_user()
     app.state.email_queue = []
 
@@ -444,6 +451,17 @@ def ensure_event_metadata_columns() -> None:
             )
 
 
+def ensure_event_audience_columns() -> None:
+    with engine.begin() as connection:
+        inspector = inspect(connection)
+        columns = {column["name"] for column in inspector.get_columns("voting_events")}
+        if "allow_all_organizations" not in columns:
+            connection.execute(
+                text(
+                    "ALTER TABLE voting_events ADD COLUMN allow_all_organizations BOOLEAN NOT NULL DEFAULT TRUE"
+                )
+            )
+
 def ensure_delegate_uniqueness_constraints() -> None:
     with engine.begin() as connection:
         inspector = inspect(connection)
@@ -458,6 +476,23 @@ def ensure_delegate_uniqueness_constraints() -> None:
             connection.execute(text("DROP INDEX IF EXISTS uq_event_org"))
         else:
             connection.execute(text("ALTER TABLE event_delegates DROP CONSTRAINT uq_event_org"))
+
+
+def ensure_session_token_expiration_column() -> None:
+    with engine.begin() as connection:
+        inspector = inspect(connection)
+        columns = {column["name"] for column in inspector.get_columns("session_tokens")}
+        if "expires_at" in columns:
+            return
+
+        connection.execute(
+            text("ALTER TABLE session_tokens ADD COLUMN expires_at TIMESTAMP")
+        )
+        expiration = SessionToken.default_expiration()
+        connection.execute(
+            text("UPDATE session_tokens SET expires_at = :expires_at WHERE expires_at IS NULL"),
+            {"expires_at": expiration},
+        )
 
 
 def _base64url_encode(data: bytes) -> str:
@@ -817,6 +852,7 @@ def build_organization_detail(
     active_event: VotingEvent | None,
     events: list[VotingEvent] | None = None,
     settings: Optional[SiteSettings] = None,
+    organization_scope: int | None = None,
 ) -> OrganizationDetail:
     members = [build_member_payload(member, organization) for member in organization.users]
     active_delegate_user_ids: list[int] = []
@@ -854,6 +890,10 @@ def build_organization_detail(
     if events is not None:
         now = datetime.utcnow()
         for event in events:
+            if organization_scope is not None and not event_allows_organization(
+                event, organization_scope
+            ):
+                continue
             assignment = build_organization_event_assignment(
                 organization, event, current_time=now
             )
@@ -887,6 +927,10 @@ def build_event_read(event: VotingEvent) -> VotingEventRead:
     delegate_count = event_delegate_count(event)
     lock_state = delegate_lock_state(event)
     total_codes, available_codes, used_codes = event_access_code_counts(event)
+    organization_ids = [
+        entry.organization_id
+        for entry in getattr(event, "allowed_organizations", []) or []
+    ]
     return VotingEventRead(
         id=event.id,
         title=event.title,
@@ -896,6 +940,8 @@ def build_event_read(event: VotingEvent) -> VotingEventRead:
         is_active=event.is_active,
         is_voting_enabled=event.is_voting_enabled,
         delegate_limit=event.delegate_limit,
+        allow_all_organizations=event.allow_all_organizations,
+        organization_ids=organization_ids,
         created_at=event.created_at,
         delegate_count=delegate_count,
         can_delete=not event.is_active,
@@ -1266,11 +1312,6 @@ def submit_password_reset_confirm_form(
     )
 
 
-@app.get("/register", response_class=FileResponse)
-def register_page() -> FileResponse:
-    return FileResponse("app/static/register.html")
-
-
 @app.get("/meghivas/{token}", response_class=FileResponse)
 def invitation_accept_page(token: str) -> FileResponse:  # pragma: no cover - file response
     return FileResponse("app/static/invitation-accept.html")
@@ -1279,6 +1320,16 @@ def invitation_accept_page(token: str) -> FileResponse:  # pragma: no cover - fi
 @app.get("/jelszo-frissites", response_class=FileResponse)
 def password_change_page() -> FileResponse:
     return FileResponse("app/static/password-change.html")
+
+
+@app.get("/profil", response_class=FileResponse)
+def profile_page() -> FileResponse:
+    return FileResponse("app/static/profile.html")
+
+
+@app.get("/szervezetek/{organization_id}/profil", response_class=FileResponse)
+def organization_profile_page(organization_id: int) -> FileResponse:  # pragma: no cover - file response
+    return FileResponse("app/static/profile.html")
 
 
 @app.get("/admin", response_class=FileResponse)
@@ -1293,7 +1344,7 @@ def admin_organizations_page() -> FileResponse:
 
 @app.get("/admin/jelentkezok", response_class=FileResponse)
 def admin_pending_page() -> FileResponse:
-    return FileResponse("app/static/admin-pending.html")
+    return FileResponse("app/static/admin-users.html")
 
 
 @app.get("/admin/esemenyek", response_class=FileResponse)
@@ -1402,6 +1453,11 @@ def create_voting_o2auth_session(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Jelenleg nincs aktív szavazási esemény.",
         )
+    if not event_allows_organization(active_event, organization.id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Ez a szervezet nem jelölhet delegáltat erre az eseményre.",
+        )
 
     requested_view = (launch.view if launch else "default") or "default"
     provided_code = (launch.code if launch else None) or ""
@@ -1487,9 +1543,14 @@ def authenticate_for_voting(
     active_event = get_active_voting_event(db)
     is_delegate = False
     if active_event and organization_id is not None:
-        delegate_map = delegates_for_event(db, event_id=active_event.id)
-        delegates = delegate_map.get(organization_id, [])
-        is_delegate = any(delegate.user_id == user.id for delegate in delegates)
+        if not user.is_admin and not event_allows_organization(
+            active_event, organization_id
+        ):
+            active_event = None
+        else:
+            delegate_map = delegates_for_event(db, event_id=active_event.id)
+            delegates = delegate_map.get(organization_id, [])
+            is_delegate = any(delegate.user_id == user.id for delegate in delegates)
 
     if active_event is None and not user.is_admin:
         raise HTTPException(
@@ -1576,60 +1637,6 @@ def lookup_organizations(db: DatabaseDependency, q: str | None = None) -> List[O
     return [OrganizationRead.from_orm(org) for org in search_organizations(db, q)]
 
 
-@app.post(
-    "/api/register",
-    response_model=RegistrationResponse,
-    responses={400: {"model": ErrorResponse}},
-)
-def register(
-    payload: RegistrationRequest,
-    request: Request,
-    db: DatabaseDependency,
-) -> RegistrationResponse:
-    if RECAPTCHA_ENABLED:
-        try:
-            verify_recaptcha(
-                payload.captcha_token or "",
-                secret=RECAPTCHA_SECRET_KEY,
-                remote_ip=request.client.host if request.client else None,
-            )
-        except RegistrationError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
-            ) from exc
-    try:
-        token = register_user(
-            db,
-            email=payload.email,
-            first_name=payload.first_name,
-            last_name=payload.last_name,
-            password=payload.password,
-            organization_id=payload.organization_id,
-            is_admin=payload.email.lower() in ADMIN_EMAILS,
-        )
-        link = queue_verification_email(
-            token,
-            base_url=PUBLIC_BASE_URL,
-            api_key=BREVO_API_KEY or None,
-            sender_email=BREVO_SENDER_EMAIL or None,
-            sender_name=BREVO_SENDER_NAME,
-        )
-        db.commit()
-    except RegistrationError as exc:
-        db.rollback()
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    request.app.state.email_queue.append(
-        {
-            "email": payload.email,
-            "token": token.token,
-            "verification_link": link,
-            "sent_via": "brevo" if BREVO_API_KEY and BREVO_SENDER_EMAIL else "noop",
-        }
-    )
-    message = "Sikeres regisztráció. Kérjük, erősítsd meg az e-mail címedet."
-    return RegistrationResponse(message=message)
-
-
 @app.get("/api/debug/email-queue")
 def email_queue(request: Request) -> list[dict[str, str]]:
     return list(getattr(request.app.state, "email_queue", []))
@@ -1701,6 +1708,61 @@ def login(request: LoginRequest, db: DatabaseDependency) -> LoginResponse:
         organization_fee_paid=organization_fee_paid,
         must_change_password=user.must_change_password,
         is_organization_contact=user.is_organization_contact,
+    )
+
+
+@app.post(
+    "/api/logout",
+    response_model=SimpleMessageResponse,
+    responses={401: {"model": ErrorResponse}},
+)
+def logout(
+    credentials: Annotated[
+        HTTPAuthorizationCredentials | None, Depends(bearer_scheme)
+    ],
+    db: DatabaseDependency,
+) -> SimpleMessageResponse:
+    if credentials is None or credentials.scheme.lower() != "bearer":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Hiányzó vagy érvénytelen Bearer jogosultsági fejléc",
+        )
+
+    revoked = revoke_session_token(db, credentials.credentials)
+    db.commit()
+    if not revoked:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Érvénytelen vagy lejárt munkamenet token",
+        )
+
+    return SimpleMessageResponse(message="Sikeres kijelentkezés")
+
+
+@app.post(
+    "/api/report-issue",
+    response_model=SimpleMessageResponse,
+    responses={400: {"model": ErrorResponse}},
+)
+def submit_issue_report(
+    payload: IssueReportRequest, request: Request
+) -> SimpleMessageResponse:
+    try:
+        send_issue_report_email(
+            name=payload.name,
+            message=payload.message,
+            api_key=BREVO_API_KEY,
+            sender_email=BREVO_SENDER_EMAIL,
+            sender_name=BREVO_SENDER_NAME,
+            page_url=payload.page_url or request.headers.get("referer") or str(request.url),
+            user_agent=request.headers.get("user-agent"),
+        )
+    except RegistrationError as exc:
+        detail = str(exc).strip() or "Nem sikerült elküldeni a hibajelentést."
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail) from exc
+
+    return SimpleMessageResponse(
+        message="Köszönjük! A hibajelentést továbbítottuk a fejlesztőnek."
     )
 
 
@@ -1868,6 +1930,9 @@ def current_user(
     user: Annotated[User, Depends(get_session_user)], db: DatabaseDependency
 ) -> SessionUser:
     active_event = get_active_voting_event(db)
+    if active_event and user.organization_id:
+        if not event_allows_organization(active_event, user.organization_id):
+            active_event = None
     site_settings = get_site_settings(db)
     return SessionUser(
         id=user.id,
@@ -1947,10 +2012,15 @@ def create_organization_endpoint(
             name=payload.name,
         )
         db.flush()
-        active_event = get_active_voting_event(db)
+        active_event = get_active_voting_event_for_organization(db, organization.id)
+        events = upcoming_voting_events(db, organization_id=organization.id)
         site_settings = get_site_settings(db)
         detail = build_organization_detail(
-            organization, active_event=active_event, settings=site_settings
+            organization,
+            active_event=active_event,
+            events=events,
+            settings=site_settings,
+            organization_scope=organization.id,
         )
     except RegistrationError as exc:
         db.rollback()
@@ -1975,10 +2045,18 @@ def admin_organizations(
 ) -> List[OrganizationDetail]:
     organizations = organizations_with_members(db)
     active_event = get_active_voting_event(db)
+    events = upcoming_voting_events(db)
     site_settings = get_site_settings(db)
     return [
         build_organization_detail(
-            org, active_event=active_event, settings=site_settings
+            org,
+            active_event=
+            active_event
+            if active_event and event_allows_organization(active_event, org.id)
+            else None,
+            events=events,
+            settings=site_settings,
+            organization_scope=org.id,
         )
         for org in organizations
     ]
@@ -2000,10 +2078,15 @@ def update_organization_fee(
             db, organization_id=organization_id, fee_paid=payload.fee_paid
         )
         db.flush()
-        active_event = get_active_voting_event(db)
+        active_event = get_active_voting_event_for_organization(db, organization.id)
+        events = upcoming_voting_events(db, organization_id=organization.id)
         site_settings = get_site_settings(db)
         detail = build_organization_detail(
-            organization, active_event=active_event, settings=site_settings
+            organization,
+            active_event=active_event,
+            events=events,
+            settings=site_settings,
+            organization_scope=organization.id,
         )
     except RegistrationError as exc:
         db.rollback()
@@ -2065,10 +2148,15 @@ def create_contact_invitation_endpoint(
         )
         db.flush()
         organization = organization_with_members(db, organization_id)
-        active_event = get_active_voting_event(db)
+        active_event = get_active_voting_event_for_organization(db, organization_id)
+        events = upcoming_voting_events(db, organization_id=organization_id)
         site_settings = get_site_settings(db)
         detail = build_organization_detail(
-            organization, active_event=active_event, settings=site_settings
+            organization,
+            active_event=active_event,
+            events=events,
+            settings=site_settings,
+            organization_scope=organization_id,
         )
         link: str | None = None
         if invitation is not None:
@@ -2114,6 +2202,55 @@ def create_contact_invitation_endpoint(
                 "sent_via": "existing-user",
             }
         )
+    return detail
+
+
+@app.delete(
+    "/api/admin/organizations/{organization_id}/contact-invitations/{invitation_id}",
+    response_model=OrganizationDetail,
+    responses={
+        401: {"model": ErrorResponse},
+        403: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+        400: {"model": ErrorResponse},
+    },
+)
+def delete_contact_invitation_endpoint(
+    organization_id: int,
+    invitation_id: int,
+    db: DatabaseDependency,
+    admin: Annotated[User, Depends(require_admin)],
+) -> OrganizationDetail:
+    del admin  # explicit auth dependency
+    try:
+        delete_contact_invitation(
+            db,
+            organization_id=organization_id,
+            invitation_id=invitation_id,
+        )
+        db.flush()
+        organization = organization_with_members(db, organization_id)
+        active_event = get_active_voting_event_for_organization(db, organization_id)
+        events = upcoming_voting_events(db, organization_id=organization_id)
+        site_settings = get_site_settings(db)
+        detail = build_organization_detail(
+            organization,
+            active_event=active_event,
+            events=events,
+            settings=site_settings,
+            organization_scope=organization_id,
+        )
+    except RegistrationError as exc:
+        db.rollback()
+        detail = str(exc)
+        lowered = detail.lower()
+        if "nem található" in lowered:
+            status_code = status.HTTP_404_NOT_FOUND
+        else:
+            status_code = status.HTTP_400_BAD_REQUEST
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+
+    db.commit()
     return detail
 
 
@@ -2214,6 +2351,8 @@ def create_voting_event_endpoint(
             event_date=payload.event_date,
             delegate_deadline=payload.delegate_deadline,
             delegate_limit=payload.delegate_limit,
+            allow_all_organizations=payload.allow_all_organizations,
+            organization_ids=payload.organization_ids,
             activate=payload.activate,
         )
         db.flush()
@@ -2251,6 +2390,8 @@ def update_voting_event_endpoint(
             event_date=payload.event_date,
             delegate_deadline=payload.delegate_deadline,
             delegate_limit=payload.delegate_limit,
+            allow_all_organizations=payload.allow_all_organizations,
+            organization_ids=payload.organization_ids,
         )
         db.flush()
         db.refresh(event, attribute_names=["delegates"])
@@ -2782,11 +2923,15 @@ def organization_detail_endpoint(
         organization = organization_with_members(db, organization_id)
     except RegistrationError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    active_event = get_active_voting_event(db)
-    events = upcoming_voting_events(db)
+    active_event = get_active_voting_event_for_organization(db, organization_id)
+    events = upcoming_voting_events(db, organization_id=organization_id)
     site_settings = get_site_settings(db)
     return build_organization_detail(
-        organization, active_event=active_event, events=events, settings=site_settings
+        organization,
+        active_event=active_event,
+        events=events,
+        settings=site_settings,
+        organization_scope=organization_id,
     )
 
 
@@ -2843,14 +2988,15 @@ def create_member_invitation_endpoint(
             )
         db.flush()
         organization = organization_with_members(db, organization_id)
-        active_event = get_active_voting_event(db)
-        events = upcoming_voting_events(db)
+        active_event = get_active_voting_event_for_organization(db, organization_id)
+        events = upcoming_voting_events(db, organization_id=organization_id)
         site_settings = get_site_settings(db)
         detail = build_organization_detail(
             organization,
             active_event=active_event,
             events=events,
             settings=site_settings,
+            organization_scope=organization_id,
         )
         link: str | None = None
         if invitation is not None:
@@ -2930,14 +3076,15 @@ def remove_organization_member_endpoint(
         )
         db.flush()
         organization = organization_with_members(db, organization_id)
-        active_event = get_active_voting_event(db)
-        events = upcoming_voting_events(db)
+        active_event = get_active_voting_event_for_organization(db, organization_id)
+        events = upcoming_voting_events(db, organization_id=organization_id)
         site_settings = get_site_settings(db)
         detail = build_organization_detail(
             organization,
             active_event=active_event,
             events=events,
             settings=site_settings,
+            organization_scope=organization_id,
         )
     except RegistrationError as exc:
         db.rollback()
@@ -2947,6 +3094,58 @@ def remove_organization_member_endpoint(
             status_code = status.HTTP_404_NOT_FOUND
         else:
             status_code = status.HTTP_400_BAD_REQUEST
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+
+    db.commit()
+    return detail
+
+
+@app.delete(
+    "/api/organizations/{organization_id}/invitations/{invitation_id}",
+    response_model=OrganizationDetail,
+    responses={
+        401: {"model": ErrorResponse},
+        403: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+        400: {"model": ErrorResponse},
+    },
+)
+def delete_member_invitation_endpoint(
+    organization_id: int,
+    invitation_id: int,
+    db: DatabaseDependency,
+    user: Annotated[User, Depends(get_session_user)],
+) -> OrganizationDetail:
+    ensure_organization_membership(user, organization_id)
+    if not (user.is_admin or user.is_organization_contact):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Csak a szervezet kapcsolattartója vonhat vissza tagmeghívókat.",
+        )
+
+    try:
+        delete_member_invitation(
+            db, organization_id=organization_id, invitation_id=invitation_id
+        )
+        db.flush()
+        organization = organization_with_members(db, organization_id)
+        active_event = get_active_voting_event_for_organization(db, organization_id)
+        events = upcoming_voting_events(db, organization_id=organization_id)
+        site_settings = get_site_settings(db)
+        detail = build_organization_detail(
+            organization,
+            active_event=active_event,
+            events=events,
+            settings=site_settings,
+            organization_scope=organization_id,
+        )
+    except RegistrationError as exc:
+        db.rollback()
+        detail = str(exc)
+        lowered = detail.lower()
+        status_code = (
+            status.HTTP_404_NOT_FOUND if "nem található" in lowered else status.HTTP_400_BAD_REQUEST
+        )
         raise HTTPException(status_code=status_code, detail=detail) from exc
 
     db.commit()
@@ -2986,14 +3185,15 @@ def set_organization_event_delegates(
         )
         db.flush()
         organization = organization_with_members(db, organization_id)
-        active_event = get_active_voting_event(db)
-        events = upcoming_voting_events(db)
+        active_event = get_active_voting_event_for_organization(db, organization_id)
+        events = upcoming_voting_events(db, organization_id=organization_id)
         site_settings = get_site_settings(db)
         detail = build_organization_detail(
             organization,
             active_event=active_event,
             events=events,
             settings=site_settings,
+            organization_scope=organization_id,
         )
     except RegistrationError as exc:
         db.rollback()

@@ -1,3 +1,5 @@
+import "./cookie-consent.js";
+
 const form = document.querySelector('#password-reset-request-form');
 const statusEl = document.querySelector('#password-reset-request-status');
 const emailInput = document.querySelector('#password-reset-email');

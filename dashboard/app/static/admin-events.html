@@ -16,10 +16,10 @@
         <nav class="sidebar-nav" aria-label="Admin menü">
           <a href="/admin" class="sidebar-link">Áttekintés</a>
           <a href="/admin/szervezetek" class="sidebar-link">Szervezetek</a>
-          <a href="/admin/jelentkezok" class="sidebar-link">Függő regisztrációk</a>
           <a href="/admin/esemenyek" class="sidebar-link active">Szavazási események</a>
-          <a href="/admin/felhasznalok" class="sidebar-link">Felhasználókezelés</a>
+          <a href="/admin/felhasznalok" class="sidebar-link">Felhasználók és regisztrációk</a>
           <span class="sidebar-divider" aria-hidden="true"></span>
+          <a href="/profil" class="sidebar-link">Profil</a>
           <span class="sidebar-link placeholder" aria-disabled="true">Riportok (hamarosan)</span>
           <a href="/admin/beallitasok" class="sidebar-link">Beállítások</a>
         </nav>
@@ -115,6 +115,19 @@
                 <option value="10">10 delegált / szervezet</option>
               </select>
               <small class="field-hint">Minden szervezet legfeljebb ennyi delegáltat jelölhet ki az eseményre.</small>
+            </div>
+            <div class="form-block">
+              <p class="eyebrow">Hozzáférő szervezetek</p>
+              <p class="muted">
+                Szűrd, hogy mely szervezetek láthassák és delegálhassanak az eseményhez. Legalább egy szervezetet ki kell választani.
+              </p>
+              <div class="organization-access">
+                <label class="checkbox">
+                  <input type="checkbox" id="event-org-all" checked />
+                  <span>Minden szervezet</span>
+                </label>
+                <div id="event-org-list" class="organization-checkbox-grid" aria-live="polite"></div>
+              </div>
             </div>
               <div class="form-row event-form-actions">
                 <label class="checkbox" data-activate-wrapper>
