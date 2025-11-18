@@ -919,7 +919,7 @@ def build_event_read(event: VotingEvent) -> VotingEventRead:
         delegate_limit=event.delegate_limit,
         created_at=event.created_at,
         delegate_count=delegate_count,
-        can_delete=not event.is_active,
+        can_delete=not event.is_voting_enabled,
         delegates_locked=lock_state.locked,
         delegate_lock_mode=lock_state.mode,
         delegate_lock_reason=lock_state.reason,
