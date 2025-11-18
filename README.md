@@ -1,4 +1,4 @@
-# MIK Dashboard Voting Monorepo
+# MIK Tagszervezeti Platform Voting Monorepo
 
 This repository contains two deployable apps:
 
