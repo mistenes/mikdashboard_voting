@@ -1,12 +1,12 @@
 
 :root {
-  --primary-bg: #f8f9fa;
+  --primary-bg: #f7edea;
   --secondary-bg: #ffffff;
   --text-primary: #212529;
   --text-secondary: #6c757d;
-  --accent-color: #0d6efd;
-  --accent-color-hover: #0b5ed7;
-  --border-color: #dee2e6;
+  --accent-color: #d16253;
+  --accent-color-hover: #b4493a;
+  --border-color: #e6cbc6;
   --error-color: #dc3545;
   --igen-color: #198754;
   --igen-color-hover: #157347;
@@ -46,7 +46,7 @@ body {
     display: flex;
     justify-content: center;
     padding: 2.5rem 1.5rem;
-    background: linear-gradient(145deg, rgba(241, 245, 249, 0.6), rgba(226, 232, 240, 0.4));
+    background: linear-gradient(145deg, rgba(245, 218, 212, 0.6), rgba(237, 195, 186, 0.4));
 }
 
 .app-main {
@@ -137,9 +137,9 @@ p {
 .login-illustration {
     flex: 1;
     padding: 2.5rem 2.5rem 2rem;
-    background: radial-gradient(circle at top right, rgba(13, 110, 253, 0.35), transparent 50%),
-        linear-gradient(160deg, #0d6efd, #6610f2);
-    color: #f8f9ff;
+    background: radial-gradient(circle at top right, rgba(209, 98, 83, 0.35), transparent 50%),
+        linear-gradient(160deg, #d16253, #b4493a);
+    color: #fbf1ef;
     display: flex;
     flex-direction: column;
     gap: 1.5rem;
@@ -256,7 +256,7 @@ p {
 }
 
 .input-field input {
-    background-color: #f8f9fb;
+    background-color: #fbf1ef;
     border-radius: 10px;
     border: 1px solid var(--border-color);
     padding: 0.85rem 1rem;
@@ -727,7 +727,7 @@ input[type="text"]:focus, input[type="password"]:focus, input[type="number"]:foc
 
 .sync-status {
     background: rgba(59, 130, 246, 0.12);
-    color: #1d4ed8;
+    color: #d16253;
     padding: 0.6rem 1rem;
     border-radius: 999px;
     font-size: 0.85rem;
