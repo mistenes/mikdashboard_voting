@@ -275,7 +275,7 @@ def _sync_active_event(db: Session) -> None:
     active_event = get_active_voting_event(db)
     _sync_voting_service(active_event)
 
-app = FastAPI(title="MIK Dashboard Registration Service")
+app = FastAPI(title="MIK Tagszervezeti Platform Registration Service")
 
 
 @app.on_event("startup")

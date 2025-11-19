@@ -66,7 +66,7 @@ export function initCookieConsent() {
   const message = document.createElement("p");
   message.className = "cookie-banner__message";
   message.textContent =
-    "A MIK Dashboard a biztonságos bejelentkezéshez és a munkamenetek fenntartásához szükséges sütiket használ. A folytatáshoz fogadd el a sütiket.";
+    "A MIK Tagszervezeti Platform a biztonságos bejelentkezéshez és a munkamenetek fenntartásához szükséges sütiket használ. A folytatáshoz fogadd el a sütiket.";
 
   content.appendChild(title);
   content.appendChild(message);
@@ -117,7 +117,7 @@ function initBetaBanner() {
   const text = document.createElement("span");
   text.className = "beta-banner__text";
   text.textContent =
-    "A MIK Dashboard jelenleg béta verzióban működik. Hibát vagy problémát tapasztalsz? Használd a jobb alsó sarokban lévő Hibajelentőt, hogy üzenj a fejlesztőnek.";
+    "A MIK Tagszervezeti Platform jelenleg béta verzióban működik. Hibát vagy problémát tapasztalsz? Használd a jobb alsó sarokban lévő Hibajelentőt, hogy üzenj a fejlesztőnek.";
 
   const content = document.createElement("div");
   content.className = "beta-banner__content";

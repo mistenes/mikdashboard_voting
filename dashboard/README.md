@@ -1,4 +1,4 @@
-# MIK Dashboard (invite-only)
+# MIK Tagszervezeti Platform (invite-only)
 
 This deployment now runs as an invite-only dashboard: accounts are seeded or
 created by admins, and the public self-registration page has been removed. It
