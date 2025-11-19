@@ -1,4 +1,4 @@
-# MIK Dashboard Voting UI
+# MIK Tagszervezeti Platform Voting UI
 
 ## Run Locally
 
