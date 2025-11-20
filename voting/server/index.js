@@ -803,7 +803,7 @@ function renderO2AuthSuccessPage(payload, targetPath = '/') {
       h1 { font-size: 1.75rem; margin-bottom: 0.75rem; }
       p { margin: 0.35rem 0; line-height: 1.45; }
       .detail { color: #94a3b8; font-size: 0.95rem; }
-      a { color: #38bdf8; text-decoration: none; }
+      a { color: #d16253; text-decoration: none; }
     </style>
   </head>
   <body>
@@ -833,7 +833,7 @@ function renderO2AuthErrorPage(message) {
       main { text-align: center; padding: 32px; max-width: 520px; }
       h1 { font-size: 1.75rem; margin-bottom: 0.75rem; }
       p { margin: 0.35rem 0; line-height: 1.45; }
-      a { color: #38bdf8; text-decoration: none; }
+      a { color: #d16253; text-decoration: none; }
     </style>
   </head>
   <body>

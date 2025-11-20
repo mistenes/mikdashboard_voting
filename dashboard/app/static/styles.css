@@ -3,6 +3,14 @@
   font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   background-color: #f4f5f7;
   color: #1f2933;
+  --brand-50: #f8e2db;
+  --brand-100: #f1c9c1;
+  --brand-200: #e6a397;
+  --brand-300: #dc7f71;
+  --brand-400: #d16253;
+  --brand-500: #b54f44;
+  --brand-600: #9a4037;
+  --brand-700: #7f342d;
 }
 
 * {
@@ -15,9 +23,9 @@ body {
 }
 
 body[data-auth-page="password-change"] {
-  background: radial-gradient(circle at top left, rgba(99, 102, 241, 0.2), transparent 55%),
-    radial-gradient(circle at bottom right, rgba(14, 165, 233, 0.18), transparent 60%),
-    #eef2ff;
+  background: radial-gradient(circle at top left, rgba(209, 98, 83, 0.2), transparent 55%),
+    radial-gradient(circle at bottom right, rgba(230, 152, 137, 0.18), transparent 60%),
+    var(--brand-50);
 }
 
 .auth-container {
@@ -35,7 +43,7 @@ body[data-auth-page="password-change"] {
   letter-spacing: 0.08em;
   font-weight: 600;
   font-size: 0.85rem;
-  color: #4c1d95;
+  color: var(--brand-600);
 }
 
 .auth-hero .eyebrow {
@@ -45,8 +53,8 @@ body[data-auth-page="password-change"] {
 .auth-summary {
   border-radius: 16px;
   padding: 20px;
-  border: 1px solid rgba(99, 102, 241, 0.25);
-  background: #f8f9ff;
+  border: 1px solid rgba(209, 98, 83, 0.25);
+  background: var(--brand-50);
   transition: background 0.2s ease, border-color 0.2s ease;
 }
 
@@ -86,7 +94,7 @@ body[data-auth-page="password-change"] {
   font-size: 1rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: #4c1d95;
+  color: var(--brand-600);
 }
 
 .auth-guidance ul {
@@ -179,8 +187,8 @@ body[data-auth-page="password-change"] {
 }
 
 .auth-form input:focus {
-  outline: 2px solid rgba(59, 130, 246, 0.45);
-  border-color: rgba(59, 130, 246, 0.45);
+  outline: 2px solid rgba(209, 98, 83, 0.45);
+  border-color: rgba(209, 98, 83, 0.45);
 }
 
 .form-status {
@@ -197,7 +205,7 @@ body[data-auth-page="password-change"] {
 }
 
 .simple-bg {
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.12), rgba(14, 165, 233, 0.12));
+  background: linear-gradient(135deg, rgba(209, 98, 83, 0.12), rgba(230, 152, 137, 0.12));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -223,9 +231,9 @@ body[data-auth-page="password-change"] {
   align-items: center;
   justify-content: center;
   padding: clamp(24px, 5vw, 48px);
-  background: radial-gradient(circle at top left, rgba(99, 102, 241, 0.2), transparent 55%),
-    radial-gradient(circle at bottom right, rgba(14, 165, 233, 0.18), transparent 60%),
-    #eef2ff;
+  background: radial-gradient(circle at top left, rgba(209, 98, 83, 0.2), transparent 55%),
+    radial-gradient(circle at bottom right, rgba(230, 152, 137, 0.18), transparent 60%),
+    var(--brand-50);
 }
 
 .auth-layout {
@@ -240,7 +248,7 @@ body[data-auth-page="password-change"] {
 
 .auth-hero {
   padding: clamp(32px, 6vw, 64px);
-  background: linear-gradient(160deg, rgba(79, 70, 229, 0.9), rgba(14, 165, 233, 0.85));
+  background: linear-gradient(160deg, rgba(181, 79, 68, 0.9), rgba(230, 152, 137, 0.85));
   color: #f8fafc;
   display: flex;
   flex-direction: column;
@@ -365,7 +373,7 @@ body[data-auth-page="password-change"] {
 }
 
 .auth-panel__link {
-  color: #4f46e5;
+  color: var(--brand-400);
   text-decoration: none;
   font-weight: 600;
 }
@@ -396,8 +404,8 @@ body[data-auth-page="password-change"] {
 }
 
 .auth-input__field:focus-within {
-  border-color: rgba(99, 102, 241, 0.65);
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+  border-color: rgba(209, 98, 83, 0.65);
+  box-shadow: 0 0 0 3px rgba(209, 98, 83, 0.15);
 }
 
 .auth-input input {
@@ -422,7 +430,7 @@ body[data-auth-page="password-change"] {
   border: none;
   background: none;
   font: inherit;
-  color: #4c1d95;
+  color: var(--brand-600);
   cursor: pointer;
   font-weight: 600;
 }
@@ -446,8 +454,8 @@ body[data-auth-page="password-change"] {
   margin-top: -2px;
   padding: 10px 12px 8px;
   border-radius: 12px;
-  background: rgba(99, 102, 241, 0.08);
-  border: 1px solid rgba(99, 102, 241, 0.18);
+  background: rgba(209, 98, 83, 0.08);
+  border: 1px solid rgba(209, 98, 83, 0.18);
 }
 
 .password-requirements .requirements-title {
@@ -477,13 +485,13 @@ body[data-auth-page="password-change"] {
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  border: 2px solid rgba(99, 102, 241, 0.6);
+  border: 2px solid rgba(209, 98, 83, 0.6);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   font-size: 0.85rem;
   line-height: 1;
-  color: #4f46e5;
+  color: var(--brand-400);
   background: #fff;
   flex-shrink: 0;
 }
@@ -569,7 +577,7 @@ body[data-auth-page="password-change"] {
 }
 
 .auth-panel__status.pending {
-  color: #2563eb;
+  color: var(--brand-500);
 }
 
 .auth-panel__status.success {
@@ -583,7 +591,7 @@ body[data-auth-page="password-change"] {
 }
 
 .auth-panel__footer a {
-  color: #4c1d95;
+  color: var(--brand-600);
   font-weight: 600;
   text-decoration: none;
 }
@@ -675,12 +683,12 @@ body[data-auth-page="password-change"] {
 }
 
 .sidebar-link:hover {
-  background: rgba(99, 102, 241, 0.12);
+  background: rgba(209, 98, 83, 0.12);
 }
 
 .sidebar-link.active {
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.18), rgba(14, 165, 233, 0.18));
-  color: #312e81;
+  background: linear-gradient(135deg, rgba(209, 98, 83, 0.18), rgba(230, 152, 137, 0.18));
+  color: var(--brand-700);
 }
 
 button.sidebar-link {
@@ -793,14 +801,14 @@ button.sidebar-link {
 
 .organization-form input:focus {
   outline: none;
-  border-color: rgba(59, 130, 246, 0.8);
-  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.15);
+  border-color: rgba(209, 98, 83, 0.8);
+  box-shadow: 0 0 0 4px rgba(209, 98, 83, 0.15);
 }
 
 .organization-form textarea:focus {
   outline: none;
-  border-color: rgba(59, 130, 246, 0.8);
-  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.15);
+  border-color: rgba(209, 98, 83, 0.8);
+  box-shadow: 0 0 0 4px rgba(209, 98, 83, 0.15);
 }
 
 .organization-form .small-print {
@@ -841,13 +849,13 @@ button.sidebar-link {
 
 .collapse-toggle:hover,
 .collapse-toggle:focus-visible {
-  border-color: rgba(59, 130, 246, 0.6);
-  background: rgba(59, 130, 246, 0.1);
-  color: #1d4ed8;
+  border-color: rgba(209, 98, 83, 0.6);
+  background: rgba(209, 98, 83, 0.1);
+  color: var(--brand-500);
 }
 
 .collapse-toggle:focus-visible {
-  outline: 2px solid rgba(59, 130, 246, 0.3);
+  outline: 2px solid rgba(209, 98, 83, 0.3);
   outline-offset: 2px;
 }
 
@@ -950,12 +958,12 @@ button.sidebar-link {
 
 .event-card-selected,
 .event-card-selected:hover {
-  border-color: rgba(59, 130, 246, 0.55);
+  border-color: rgba(209, 98, 83, 0.55);
   box-shadow: 0 16px 36px rgba(37, 99, 235, 0.22);
 }
 
 .event-card-active {
-  border-color: rgba(59, 130, 246, 0.45);
+  border-color: rgba(209, 98, 83, 0.45);
   box-shadow: 0 14px 36px rgba(37, 99, 235, 0.18);
 }
 
@@ -1252,7 +1260,7 @@ button.sidebar-link {
 }
 
 .delegate-table tbody tr:hover {
-  background: rgba(59, 130, 246, 0.05);
+  background: rgba(209, 98, 83, 0.05);
 }
 
 .admin-user-table {
@@ -1332,8 +1340,8 @@ button.sidebar-link {
 }
 
 .delegate-checkbox:hover {
-  border-color: rgba(59, 130, 246, 0.6);
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+  border-color: rgba(209, 98, 83, 0.6);
+  box-shadow: 0 0 0 3px rgba(209, 98, 83, 0.12);
 }
 
 .delegate-checkbox input {
@@ -1366,7 +1374,7 @@ button.sidebar-link {
 
 .members-table tbody tr:hover,
 #pending-table tbody tr:hover {
-  background: rgba(59, 130, 246, 0.05);
+  background: rgba(209, 98, 83, 0.05);
 }
 
 .member-name {
@@ -1426,8 +1434,8 @@ button.sidebar-link {
 .event-form textarea:focus,
 .event-form select:focus {
   outline: none;
-  border-color: rgba(59, 130, 246, 0.8);
-  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.12);
+  border-color: rgba(209, 98, 83, 0.8);
+  box-shadow: 0 0 0 4px rgba(209, 98, 83, 0.12);
 }
 
 .event-form select {
@@ -1479,8 +1487,8 @@ button.sidebar-link {
 .form-field input:focus,
 .form-field select:focus {
   outline: none;
-  border-color: rgba(59, 130, 246, 0.8);
-  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.15);
+  border-color: rgba(209, 98, 83, 0.8);
+  box-shadow: 0 0 0 4px rgba(209, 98, 83, 0.15);
 }
 
 .org-select {
@@ -1503,10 +1511,10 @@ button.ghost-btn {
 
 .primary-btn,
 button.primary-btn {
-  background: linear-gradient(135deg, #6366f1, #0ea5e9);
+  background: linear-gradient(135deg, var(--brand-400), var(--brand-200));
   color: white;
   font-weight: 600;
-  box-shadow: 0 10px 25px rgba(59, 130, 246, 0.35);
+  box-shadow: 0 10px 25px rgba(209, 98, 83, 0.35);
 }
 
 .primary-btn:hover,
@@ -1584,7 +1592,7 @@ button:disabled {
 }
 
 .muted a {
-  color: #0ea5e9;
+  color: var(--brand-200);
   text-decoration: none;
   font-weight: 600;
 }
@@ -1745,8 +1753,8 @@ button:disabled {
 .organization-bank-form input:focus,
 .organization-bank-form textarea:focus {
   outline: none;
-  border-color: rgba(59, 130, 246, 0.8);
-  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.15);
+  border-color: rgba(209, 98, 83, 0.8);
+  box-shadow: 0 0 0 4px rgba(209, 98, 83, 0.15);
 }
 
 .organization-bank-actions {
@@ -1797,8 +1805,8 @@ button:disabled {
 }
 
 .organization-contact-form input:focus {
-  outline: 2px solid rgba(59, 130, 246, 0.35);
-  border-color: rgba(59, 130, 246, 0.35);
+  outline: 2px solid rgba(209, 98, 83, 0.35);
+  border-color: rgba(209, 98, 83, 0.35);
 }
 
 .organization-contact-actions {
@@ -1900,9 +1908,9 @@ button:disabled {
 }
 
 .member-nav-link.active {
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.9), rgba(14, 165, 233, 0.85));
+  background: linear-gradient(135deg, rgba(209, 98, 83, 0.9), rgba(230, 152, 137, 0.85));
   color: #f8fafc;
-  box-shadow: 0 10px 24px rgba(59, 130, 246, 0.35);
+  box-shadow: 0 10px 24px rgba(209, 98, 83, 0.35);
 }
 
 .sidebar-footer {
@@ -1977,12 +1985,12 @@ button:disabled {
 .member-card:hover {
   transform: translateY(-4px);
   box-shadow: 0 22px 44px rgba(30, 41, 59, 0.14);
-  border-color: rgba(59, 130, 246, 0.35);
+  border-color: rgba(209, 98, 83, 0.35);
 }
 
 .member-card.is-contact {
   border-color: rgba(37, 99, 235, 0.35);
-  background: linear-gradient(135deg, rgba(59, 130, 246, 0.08), rgba(14, 165, 233, 0.08));
+  background: linear-gradient(135deg, rgba(209, 98, 83, 0.08), rgba(230, 152, 137, 0.08));
 }
 
 .member-card.is-admin {
@@ -2048,7 +2056,7 @@ button:disabled {
 }
 
 .member-status-badge.is-contact {
-  background: linear-gradient(135deg, rgba(59, 130, 246, 0.22), rgba(14, 165, 233, 0.22));
+  background: linear-gradient(135deg, rgba(209, 98, 83, 0.22), rgba(230, 152, 137, 0.22));
   color: #0f172a;
 }
 
@@ -2207,8 +2215,8 @@ button:disabled {
   font-size: 0.78rem;
   font-weight: 600;
   letter-spacing: 0.02em;
-  background: rgba(59, 130, 246, 0.12);
-  color: #1d4ed8;
+  background: rgba(209, 98, 83, 0.12);
+  color: var(--brand-500);
   white-space: nowrap;
 }
 
@@ -2291,7 +2299,7 @@ button:disabled {
 
 .event-meta li::before {
   content: "•";
-  color: rgba(99, 102, 241, 0.7);
+  color: rgba(209, 98, 83, 0.7);
   font-weight: bold;
 }
 
@@ -2386,8 +2394,8 @@ button:disabled {
 }
 
 .delegate-option.is-selected {
-  border-color: rgba(59, 130, 246, 0.55);
-  box-shadow: 0 14px 28px rgba(59, 130, 246, 0.15);
+  border-color: rgba(209, 98, 83, 0.55);
+  box-shadow: 0 14px 28px rgba(209, 98, 83, 0.15);
   background: rgba(191, 219, 254, 0.4);
 }
 
@@ -2431,12 +2439,12 @@ button:disabled {
 }
 
 #member-invitations-card input:focus {
-  outline: 2px solid rgba(59, 130, 246, 0.35);
-  border-color: rgba(59, 130, 246, 0.35);
+  outline: 2px solid rgba(209, 98, 83, 0.35);
+  border-color: rgba(209, 98, 83, 0.35);
 }
 
 .contact-member {
-  background: rgba(99, 102, 241, 0.08);
+  background: rgba(209, 98, 83, 0.08);
 }
 
 .invite-summary {
@@ -2555,8 +2563,8 @@ body[data-invite-page] .invite-field input {
 
 body[data-invite-page] .invite-field input:focus {
   outline: none;
-  border-color: rgba(59, 130, 246, 0.65);
-  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.18);
+  border-color: rgba(209, 98, 83, 0.65);
+  box-shadow: 0 0 0 4px rgba(209, 98, 83, 0.18);
 }
 
 body[data-invite-page] .invite-submit {
@@ -2565,15 +2573,15 @@ body[data-invite-page] .invite-submit {
   padding: 16px 20px;
   font-size: 1.05rem;
   border-radius: 16px;
-  box-shadow: 0 16px 40px rgba(59, 130, 246, 0.22);
+  box-shadow: 0 16px 40px rgba(209, 98, 83, 0.22);
 }
 
 body[data-invite-page] .password-requirements {
   margin-top: -2px;
   padding: 10px 12px 8px;
   border-radius: 12px;
-  background: rgba(59, 130, 246, 0.08);
-  border: 1px solid rgba(59, 130, 246, 0.18);
+  background: rgba(209, 98, 83, 0.08);
+  border: 1px solid rgba(209, 98, 83, 0.18);
 }
 
 body[data-invite-page] .password-requirements .requirements-title {
@@ -2603,13 +2611,13 @@ body[data-invite-page] .password-requirements .requirements-list li .requirement
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  border: 2px solid rgba(59, 130, 246, 0.6);
+  border: 2px solid rgba(209, 98, 83, 0.6);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   font-size: 0.85rem;
   line-height: 1;
-  color: #2563eb;
+  color: var(--brand-500);
   background: #fff;
   flex-shrink: 0;
 }
@@ -2670,7 +2678,7 @@ body[data-invite-page] .invite-form-card .status {
 }
 
 .action-link {
-  color: #0ea5e9;
+  color: var(--brand-200);
   font-weight: 600;
   text-decoration: none;
 }
@@ -2959,7 +2967,7 @@ body[data-invite-page] .invite-form-card .status {
 }
 
 .cookie-banner__btn {
-  box-shadow: 0 12px 30px rgba(59, 130, 246, 0.35);
+  box-shadow: 0 12px 30px rgba(209, 98, 83, 0.35);
 }
 
 @media (min-width: 720px) {

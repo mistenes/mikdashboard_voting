@@ -566,13 +566,13 @@ def queue_verification_email(
         "to": [{"email": token.user.email, "name": recipient_name}],
         "subject": "Erősítsd meg az e-mail címedet",
         "htmlContent": (
-            "<p>Köszönjük a regisztrációt a MIK Dashboard rendszerben.</p>"
+            "<p>Köszönjük a regisztrációt a MIK Tagszervezeti Platform rendszerben.</p>"
             "<p>A regisztráció befejezéséhez kattints az alábbi gombra:</p>"
             f"<p><a href=\"{verification_link}\">E-mail cím megerősítése</a></p>"
             "<p>Ha nem te kezdeményezted a regisztrációt, kérjük, hagyd figyelmen kívül ezt az üzenetet.</p>"
         ),
         "textContent": (
-            "Köszönjük a regisztrációt a MIK Dashboard rendszerben.\n"
+            "Köszönjük a regisztrációt a MIK Tagszervezeti Platform rendszerben.\n"
             "A regisztráció befejezéséhez másold a böngésződbe az alábbi linket:\n"
             f"{verification_link}\n"
             "Ha nem te kezdeményezted a regisztrációt, kérjük, hagyd figyelmen kívül ezt az üzenetet."
@@ -628,17 +628,17 @@ def queue_invitation_email(
         f"<strong>{html.escape(invitation.email)}</strong></p>"
     )
 
-    subject = "MIK Dashboard meghívó"
+    subject = "MIK Tagszervezeti Platform meghívó"
     html_body = (
-        f"<p>Meghívást kaptál a MIK Dashboard rendszerbe a(z) {invitation.organization.name} "
+        f"<p>Meghívást kaptál a MIK Tagszervezeti Platform rendszerbe a(z) {invitation.organization.name} "
         f"szervezet {role_text}.</p>"
         "<p>A csatlakozáshoz kattints az alábbi gombra, és állítsd be a jelszavad:</p>"
-        f"<p><a href=\"{accept_link}\">Csatlakozás a MIK Dashboardhoz</a></p>"
+        f"<p><a href=\"{accept_link}\">Csatlakozás a MIK Tagszervezeti Platformhoz</a></p>"
         f"{login_hint}"
         "<p>Ha nem vártad ezt a meghívót, hagyd figyelmen kívül ezt az üzenetet.</p>"
     )
     text_body = (
-        f"Meghívást kaptál a MIK Dashboard rendszerbe a(z) {invitation.organization.name} "
+        f"Meghívást kaptál a MIK Tagszervezeti Platform rendszerbe a(z) {invitation.organization.name} "
         f"szervezet {role_text}.\n"
         "A csatlakozáshoz másold a böngésződbe az alábbi linket és állítsd be a jelszavad:\n"
         f"{accept_link}\n"
@@ -761,7 +761,7 @@ def queue_admin_invitation_email(
 
     html_content = (
         f"<p>Kedves {recipient_name}!</p>"
-        "<p>Adminisztrátori hozzáférést kaptál a MIK Dashboard rendszerhez.</p>"
+        "<p>Adminisztrátori hozzáférést kaptál a MIK Tagszervezeti Platform rendszerhez.</p>"
         f"<p>A belépéshez használd az alábbi ideiglenes jelszót: <strong>{temporary_password}</strong></p>"
         f"<p>A belépéshez ezt az e-mail címet használd: <strong>{html.escape(recipient_email)}</strong></p>"
         f"<p>Belépés: <a href=\"{login_link}\">{login_link}</a></p>"
@@ -770,7 +770,7 @@ def queue_admin_invitation_email(
 
     text_content = (
         "Kedves {name}!\n"
-        "Adminisztrátori hozzáférést kaptál a MIK Dashboard rendszerhez.\n"
+        "Adminisztrátori hozzáférést kaptál a MIK Tagszervezeti Platform rendszerhez.\n"
         "A belépéshez használd az alábbi ideiglenes jelszót: {password}\n"
         "A belépéshez ezt az e-mail címet használd: {email}\n"
         "Belépés: {link}\n"
@@ -785,7 +785,7 @@ def queue_admin_invitation_email(
     payload = {
         "sender": {"email": sender_email, "name": sender_name or sender_email},
         "to": [{"email": recipient_email, "name": recipient_name}],
-        "subject": "Adminisztrátori meghívó a MIK Dashboard rendszerbe",
+        "subject": "Adminisztrátori meghívó a MIK Tagszervezeti Platform rendszerbe",
         "htmlContent": html_content,
         "textContent": text_content,
     }
@@ -875,7 +875,7 @@ def send_issue_report_email(
     payload = {
         "sender": {"email": sender_email, "name": sender_name or sender_email},
         "to": [{"email": recipient_email, "name": "Fejlesztő"}],
-        "subject": f"MIK Dashboard hibajelentés – {preview or reporter_name}",
+        "subject": f"MIK Tagszervezeti Platform hibajelentés – {preview or reporter_name}",
         "htmlContent": "".join(html_lines),
         "textContent": "\n".join(text_lines),
     }
@@ -952,15 +952,15 @@ def queue_password_reset_email(
     if not recipient_name:
         recipient_name = user.email
 
-    subject = "MIK Dashboard jelszó visszaállítás"
+    subject = "MIK Tagszervezeti Platform jelszó visszaállítás"
     html_body = (
-        "<p>Jelszó-visszaállítást kezdeményeztél a MIK Dashboard felületén.</p>"
+        "<p>Jelszó-visszaállítást kezdeményeztél a MIK Tagszervezeti Platform felületén.</p>"
         "<p>A folyamat befejezéséhez kattints az alábbi gombra, és állíts be új jelszót:</p>"
         f"<p><a href=\"{reset_link}\">Új jelszó beállítása</a></p>"
         "<p>Ha nem te kérted a jelszó módosítását, hagyd figyelmen kívül ezt az üzenetet.</p>"
     )
     text_body = (
-        "Jelszó-visszaállítást kezdeményeztél a MIK Dashboard felületén.\n"
+        "Jelszó-visszaállítást kezdeményeztél a MIK Tagszervezeti Platform felületén.\n"
         "A folyamat befejezéséhez másold a böngésződbe az alábbi linket és állíts be új jelszót:\n"
         f"{reset_link}\n"
         "Ha nem te kérted a jelszó módosítását, hagyd figyelmen kívül ezt az üzenetet."

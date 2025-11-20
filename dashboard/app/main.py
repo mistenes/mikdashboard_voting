@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Annotated, List, Optional
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response, status
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from markupsafe import Markup, escape
@@ -275,7 +275,7 @@ def _sync_active_event(db: Session) -> None:
     active_event = get_active_voting_event(db)
     _sync_voting_service(active_event)
 
-app = FastAPI(title="MIK Dashboard Registration Service")
+app = FastAPI(title="MIK Tagszervezeti Platform Registration Service")
 
 
 @app.on_event("startup")
@@ -1310,6 +1310,13 @@ def organization_profile_page(organization_id: int) -> FileResponse:  # pragma: 
 @app.get("/admin", response_class=FileResponse)
 def admin_overview_page() -> FileResponse:
     return FileResponse("app/static/admin-overview.html")
+
+
+@app.get("/admin/pages", response_class=RedirectResponse)
+def admin_pages_redirect() -> RedirectResponse:
+    """Redirect legacy /admin/pages visits to the áttekintés shell instead of blanking."""
+
+    return RedirectResponse(url="/admin", status_code=status.HTTP_308_PERMANENT_REDIRECT)
 
 
 @app.get("/admin/szervezetek", response_class=FileResponse)
