@@ -34,6 +34,7 @@ from .models import (
     VotingAccessCode,
     VotingEvent,
 )
+from .time_utils import add_local_timezone, naive_local_now
 from .schemas import (
     ActiveEventInfo,
     BankSettingsResponse,
@@ -200,7 +201,8 @@ def _serialize_datetime(value):
     if value is None:
         return None
     try:
-        return value.isoformat()
+        localized = add_local_timezone(value)
+        return localized.isoformat()
     except AttributeError:
         return None
 
@@ -510,10 +512,8 @@ def generate_voting_o2auth_token(
         "last_name": user.last_name,
         "event": event.id,
         "event_title": event.title,
-        "event_date": event.event_date.isoformat() if event.event_date else None,
-        "delegate_deadline": (
-            event.delegate_deadline.isoformat() if event.delegate_deadline else None
-        ),
+        "event_date": _serialize_datetime(event.event_date),
+        "delegate_deadline": _serialize_datetime(event.delegate_deadline),
         "is_voting_enabled": event.is_voting_enabled,
         "delegate_count": event_delegate_count(event),
     }
@@ -852,7 +852,7 @@ def build_organization_detail(
     ]
     upcoming_assignments: list[OrganizationEventAssignment] = []
     if events is not None:
-        now = datetime.utcnow()
+        now = naive_local_now()
         for event in events:
             assignment = build_organization_event_assignment(
                 organization, event, current_time=now
