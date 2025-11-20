@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from functools import lru_cache
 from io import BytesIO
 from typing import Iterable, List, Literal, Optional
@@ -24,8 +24,6 @@ from sqlalchemy import case, delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
-from zoneinfo import ZoneInfo
-
 from .models import (
     ApprovalDecision,
     EventDelegate,
@@ -42,6 +40,12 @@ from .models import (
     VotingEvent,
 )
 from .security import hash_password, verify_password
+from .time_utils import (
+    LOCAL_TIMEZONE,
+    naive_local_now,
+    normalize_to_local_naive,
+    now_in_local_timezone,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -62,7 +66,7 @@ ELMS_SANS_REGULAR_FONT_NAME = "ElmsSans-Regular"
 ELMS_SANS_BOLD_FONT_NAME = "ElmsSans-Bold"
 
 
-DELEGATE_TIMEZONE = ZoneInfo("Europe/Budapest")
+DELEGATE_TIMEZONE = LOCAL_TIMEZONE
 
 ACCESS_CODE_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
 ACCESS_CODE_LENGTH = 8
@@ -178,7 +182,7 @@ def _sanitize_optional_text(value: Optional[str]) -> Optional[str]:
 
 def _mark_admin_password_initialized(user: User) -> None:
     if user.is_admin and user.seed_password_changed_at is None:
-        user.seed_password_changed_at = datetime.utcnow()
+        user.seed_password_changed_at = naive_local_now()
 
 
 def ensure_site_settings(session: Session) -> SiteSettings:
@@ -326,7 +330,7 @@ def issue_password_reset_token(
     if user.admin_decision == ApprovalDecision.denied:
         return None
 
-    now = datetime.utcnow()
+    now = naive_local_now()
     existing_tokens = session.scalars(
         select(PasswordResetToken)
         .where(
@@ -363,7 +367,7 @@ def get_active_password_reset_token(
     if not reset_token or not reset_token.user:
         raise PasswordResetError("A jelszó-visszaállító link érvénytelen.")
 
-    now = datetime.utcnow()
+    now = naive_local_now()
     if reset_token.used_at is not None or reset_token.expires_at < now:
         raise PasswordResetError("A jelszó-visszaállító link lejárt vagy már felhasználták.")
 
@@ -391,13 +395,13 @@ def complete_password_reset(
 
     if not user.is_email_verified:
         user.is_email_verified = True
-        now = datetime.utcnow()
+        now = naive_local_now()
         for token in getattr(user, "verification_tokens", []) or []:
             token.status = VerificationStatus.confirmed
             if token.confirmed_at is None:
                 token.confirmed_at = now
 
-    reset_token.used_at = datetime.utcnow()
+    reset_token.used_at = naive_local_now()
     session.flush()
     return user
 
@@ -471,7 +475,7 @@ def reset_admin_temporary_password(
     user.must_change_password = True
     user.seed_password_changed_at = None
     user.is_email_verified = True
-    user.updated_at = datetime.utcnow()
+    user.updated_at = naive_local_now()
     session.flush()
     return user, password
 
@@ -537,13 +541,13 @@ def queue_verification_email(
         "to": [{"email": token.user.email, "name": recipient_name}],
         "subject": "Erősítsd meg az e-mail címedet",
         "htmlContent": (
-            "<p>Köszönjük a regisztrációt a MIK Dashboard rendszerben.</p>"
+            "<p>Köszönjük a regisztrációt a MIK Tagszervezeti Platform rendszerben.</p>"
             "<p>A regisztráció befejezéséhez kattints az alábbi gombra:</p>"
             f"<p><a href=\"{verification_link}\">E-mail cím megerősítése</a></p>"
             "<p>Ha nem te kezdeményezted a regisztrációt, kérjük, hagyd figyelmen kívül ezt az üzenetet.</p>"
         ),
         "textContent": (
-            "Köszönjük a regisztrációt a MIK Dashboard rendszerben.\n"
+            "Köszönjük a regisztrációt a MIK Tagszervezeti Platform rendszerben.\n"
             "A regisztráció befejezéséhez másold a böngésződbe az alábbi linket:\n"
             f"{verification_link}\n"
             "Ha nem te kezdeményezted a regisztrációt, kérjük, hagyd figyelmen kívül ezt az üzenetet."
@@ -594,16 +598,16 @@ def queue_invitation_email(
         "kapcsolattartójaként" if invitation.role == InvitationRole.contact else "tagjaként"
     )
 
-    subject = "MIK Dashboard meghívó"
+    subject = "MIK Tagszervezeti Platform meghívó"
     html_body = (
-        f"<p>Meghívást kaptál a MIK Dashboard rendszerbe a(z) {invitation.organization.name} "
+        f"<p>Meghívást kaptál a MIK Tagszervezeti Platform rendszerbe a(z) {invitation.organization.name} "
         f"szervezet {role_text}.</p>"
         "<p>A csatlakozáshoz kattints az alábbi gombra, és állítsd be a jelszavad:</p>"
-        f"<p><a href=\"{accept_link}\">Csatlakozás a MIK Dashboardhoz</a></p>"
+        f"<p><a href=\"{accept_link}\">Csatlakozás a MIK Tagszervezeti Platformhoz</a></p>"
         "<p>Ha nem vártad ezt a meghívót, hagyd figyelmen kívül ezt az üzenetet.</p>"
     )
     text_body = (
-        f"Meghívást kaptál a MIK Dashboard rendszerbe a(z) {invitation.organization.name} "
+        f"Meghívást kaptál a MIK Tagszervezeti Platform rendszerbe a(z) {invitation.organization.name} "
         f"szervezet {role_text}.\n"
         "A csatlakozáshoz másold a böngésződbe az alábbi linket és állítsd be a jelszavad:\n"
         f"{accept_link}\n"
@@ -725,7 +729,7 @@ def queue_admin_invitation_email(
 
     html_content = (
         f"<p>Kedves {recipient_name}!</p>"
-        "<p>Adminisztrátori hozzáférést kaptál a MIK Dashboard rendszerhez.</p>"
+        "<p>Adminisztrátori hozzáférést kaptál a MIK Tagszervezeti Platform rendszerhez.</p>"
         f"<p>A belépéshez használd az alábbi ideiglenes jelszót: <strong>{temporary_password}</strong></p>"
         f"<p>Belépés: <a href=\"{login_link}\">{login_link}</a></p>"
         "<p>A jelszót az első bejelentkezés után kötelező megváltoztatni.</p>"
@@ -733,7 +737,7 @@ def queue_admin_invitation_email(
 
     text_content = (
         "Kedves {name}!\n"
-        "Adminisztrátori hozzáférést kaptál a MIK Dashboard rendszerhez.\n"
+        "Adminisztrátori hozzáférést kaptál a MIK Tagszervezeti Platform rendszerhez.\n"
         "A belépéshez használd az alábbi ideiglenes jelszót: {password}\n"
         "Belépés: {link}\n"
         "A jelszót az első bejelentkezés után kötelező megváltoztatni."
@@ -742,7 +746,7 @@ def queue_admin_invitation_email(
     payload = {
         "sender": {"email": sender_email, "name": sender_name or sender_email},
         "to": [{"email": recipient_email, "name": recipient_name}],
-        "subject": "Adminisztrátori meghívó a MIK Dashboard rendszerbe",
+        "subject": "Adminisztrátori meghívó a MIK Tagszervezeti Platform rendszerbe",
         "htmlContent": html_content,
         "textContent": text_content,
     }
@@ -817,15 +821,15 @@ def queue_password_reset_email(
     if not recipient_name:
         recipient_name = user.email
 
-    subject = "MIK Dashboard jelszó visszaállítás"
+    subject = "MIK Tagszervezeti Platform jelszó visszaállítás"
     html_body = (
-        "<p>Jelszó-visszaállítást kezdeményeztél a MIK Dashboard felületén.</p>"
+        "<p>Jelszó-visszaállítást kezdeményeztél a MIK Tagszervezeti Platform felületén.</p>"
         "<p>A folyamat befejezéséhez kattints az alábbi gombra, és állíts be új jelszót:</p>"
         f"<p><a href=\"{reset_link}\">Új jelszó beállítása</a></p>"
         "<p>Ha nem te kérted a jelszó módosítását, hagyd figyelmen kívül ezt az üzenetet.</p>"
     )
     text_body = (
-        "Jelszó-visszaállítást kezdeményeztél a MIK Dashboard felületén.\n"
+        "Jelszó-visszaállítást kezdeményeztél a MIK Tagszervezeti Platform felületén.\n"
         "A folyamat befejezéséhez másold a böngésződbe az alábbi linket és állíts be új jelszót:\n"
         f"{reset_link}\n"
         "Ha nem te kérted a jelszó módosítását, hagyd figyelmen kívül ezt az üzenetet."
@@ -896,7 +900,7 @@ def verify_email(session: Session, token_value: str) -> User:
         return token.user
 
     token.status = VerificationStatus.confirmed
-    token.confirmed_at = datetime.utcnow()
+        token.confirmed_at = naive_local_now()
 
     user = token.user
     user.is_email_verified = True
@@ -922,7 +926,10 @@ def resolve_session_user(session: Session, token_value: str) -> Optional[User]:
 
 
 def authenticate_user(session: Session, *, email: str, password: str) -> User:
-    stmt = select(User).where(User.email == email.lower())
+    normalized_email = _normalize_email(email)
+    if not normalized_email:
+        raise AuthenticationError("Hibás bejelentkezési adatok")
+    stmt = select(User).where(User.email == normalized_email)
     user = session.scalar(stmt)
     if not user:
         raise AuthenticationError("Hibás bejelentkezési adatok")
@@ -978,7 +985,7 @@ def decide_registration(session: Session, *, user_id: int, approve: bool) -> Use
     if approve:
         user.admin_decision = ApprovalDecision.approved
         user.is_email_verified = True
-        now = datetime.utcnow()
+        now = naive_local_now()
         for token in user.verification_tokens:
             token.status = VerificationStatus.confirmed
             if token.confirmed_at is None:
@@ -1096,9 +1103,7 @@ def _ensure_user_can_delegate(user: User) -> None:
 
 
 def _normalize_datetime(value: datetime) -> datetime:
-    if value.tzinfo is None:
-        return value
-    return value.astimezone(timezone.utc).replace(tzinfo=None)
+    return normalize_to_local_naive(value)
 
 
 DelegateLockMode = Literal["auto", "locked", "unlocked"]
@@ -1124,12 +1129,11 @@ def delegate_lock_state(
     event: VotingEvent, *, current_time: datetime | None = None
 ) -> DelegateLockState:
     if current_time is None:
-        current_time = datetime.utcnow()
-
-    if current_time.tzinfo is None:
-        current_reference = current_time.replace(tzinfo=timezone.utc)
+        current_reference = now_in_local_timezone()
+    elif current_time.tzinfo is None:
+        current_reference = current_time.replace(tzinfo=LOCAL_TIMEZONE)
     else:
-        current_reference = current_time.astimezone(timezone.utc)
+        current_reference = current_time.astimezone(LOCAL_TIMEZONE)
 
     override = (event.delegate_lock_override or "").strip().lower() or None
 
@@ -1146,9 +1150,9 @@ def delegate_lock_state(
     if deadline is not None:
         if deadline.tzinfo is None:
             localized_deadline = deadline.replace(tzinfo=DELEGATE_TIMEZONE)
-            comparison_time = current_reference.astimezone(DELEGATE_TIMEZONE)
+            comparison_time = current_reference
         else:
-            localized_deadline = deadline.astimezone(timezone.utc)
+            localized_deadline = deadline.astimezone(DELEGATE_TIMEZONE)
             comparison_time = current_reference
         deadline_passed = localized_deadline < comparison_time
 
@@ -1311,7 +1315,7 @@ def redeem_voting_access_code(
     if record.used_at:
         raise VotingAccessCodeError("Ezt a belépőkódot már felhasználták.")
 
-    record.used_at = datetime.utcnow()
+    record.used_at = naive_local_now()
     record.used_by_user_id = user.id if user and user.id else None
     session.flush()
     return record
@@ -1767,7 +1771,7 @@ def _create_invitation(
 
     invitation.token = token
     invitation.invited_by_user = invited_by
-    invitation.created_at = datetime.utcnow()
+    invitation.created_at = naive_local_now()
     invitation.accepted_at = None
     invitation.accepted_by_user = None
     invitation.first_name = first_name.strip() if first_name else None
@@ -1942,7 +1946,7 @@ def accept_invitation(
     session.add(user)
     session.flush()
 
-    invitation.accepted_at = datetime.utcnow()
+    invitation.accepted_at = naive_local_now()
     invitation.accepted_by_user = user
 
     return user

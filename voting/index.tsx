@@ -147,11 +147,13 @@ async function fetchAuthSession(): Promise<AuthUser | null> {
 
 // --- Helper Components ---
 
+const TIME_ZONE = 'Europe/Budapest';
+
 const SyncStatus = ({ lastUpdate }: { lastUpdate: Date | null }) => {
     if (!lastUpdate) return null;
     return (
         <div className="sync-status" aria-live="polite">
-            Connected | Last sync: {lastUpdate.toLocaleTimeString()}
+            Connected | Last sync: {lastUpdate.toLocaleTimeString('hu-HU', { timeZone: TIME_ZONE })}
         </div>
     );
 };
@@ -170,6 +172,7 @@ const formatDateTime = (value: string | null | undefined) => {
         day: 'numeric',
         hour: '2-digit',
         minute: '2-digit',
+        timeZone: TIME_ZONE,
     });
 };
 
@@ -270,7 +273,7 @@ const PublicView = ({ sessionData, lastUpdate }: { sessionData: SessionData, las
             </section>
             <p className="public-note">
                 {lastUpdate
-                    ? `Utolsó frissítés: ${lastUpdate.toLocaleTimeString()}`
+                    ? `Utolsó frissítés: ${lastUpdate.toLocaleTimeString('hu-HU', { timeZone: TIME_ZONE })}`
                     : 'A kijelző automatikusan frissül.'}
             </p>
         </div>
@@ -685,7 +688,7 @@ const LoginScreen = ({
                 <div className="login-illustration">
                     <div className="login-brand" aria-hidden="true">
                         <span className="brand-mark">MIK</span>
-                        <span className="brand-text">Dashboard</span>
+                        <span className="brand-text">Tagszervezeti Platform</span>
                     </div>
                     <h1>Üdvözöljük a MIK szavazáson</h1>
                     <p>A belépést követően valós időben követheti a közgyűlés szavazásait, delegált státuszát és részvételi adatait.</p>
@@ -699,7 +702,7 @@ const LoginScreen = ({
                     <div className="login-header">
                         <span className="login-badge">Szavazórendszer</span>
                         <h2>Jelentkezzen be a részvételhez</h2>
-                        <p>Használja a MIK Dashboardon regisztrált fiókját, vagy térjen vissza a MIK Dashboard felületére az egyszeri bejelentkezési hivatkozásért.</p>
+                        <p>Használja a MIK Tagszervezeti Platformon regisztrált fiókját, vagy térjen vissza a MIK Tagszervezeti Platform felületére az egyszeri bejelentkezési hivatkozásért.</p>
                     </div>
                     <form onSubmit={handleSubmit} className="login-form" noValidate>
                         <div className={`input-field ${email ? 'has-value' : ''}`}>
@@ -761,13 +764,13 @@ const LoginScreen = ({
                                 {isSubmitting ? 'Bejelentkezés folyamatban…' : 'Bejelentkezés'}
                             </button>
                             <a className="btn btn-link" href="https://dashboard.mikegyesulet.hu" target="_blank" rel="noreferrer">
-                                Megnyitom a MIK Dashboardot
+                                Megnyitom a MIK Tagszervezeti Platformot
                             </a>
                         </div>
                         <p className="login-meta">
                             {requiresCode
-                                ? 'Tipp: ha a MIK Dashboard felületéről érkezett, ellenőrizze a böngészőjében az egyszeri belépőkódot tartalmazó lapot is.'
-                                : 'Tipp: ha gondja akad a belépéssel, ellenőrizze a MIK Dashboard admin felületét vagy vegye fel a kapcsolatot az adminisztrátorral.'}
+                                ? 'Tipp: ha a MIK Tagszervezeti Platform felületéről érkezett, ellenőrizze a böngészőjében az egyszeri belépőkódot tartalmazó lapot is.'
+                                : 'Tipp: ha gondja akad a belépéssel, ellenőrizze a MIK Tagszervezeti Platform admin felületét vagy vegye fel a kapcsolatot az adminisztrátorral.'}
                         </p>
                         <p id="login-error" className={`error-message ${feedback ? 'is-visible' : ''}`} role="alert" aria-live="polite">
                             {feedback}

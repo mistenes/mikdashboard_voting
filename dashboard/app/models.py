@@ -18,6 +18,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship
 
 from .database import Base
+from .time_utils import naive_local_now
 
 
 class VerificationStatus(str, enum.Enum):
@@ -71,8 +72,8 @@ class User(Base):
     is_email_verified = Column(Boolean, default=False, nullable=False)
     is_admin = Column(Boolean, default=False, nullable=False)
     admin_decision = Column(Enum(ApprovalDecision), default=ApprovalDecision.pending, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=naive_local_now, nullable=False)
+    updated_at = Column(DateTime, default=naive_local_now, onupdate=naive_local_now, nullable=False)
     is_voting_delegate = Column(Boolean, default=False, nullable=False)
     must_change_password = Column(Boolean, default=False, nullable=False)
     seed_password_changed_at = Column(DateTime, nullable=True)
@@ -110,7 +111,7 @@ class EmailVerificationToken(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     token = Column(String, unique=True, nullable=False, default=lambda: str(uuid.uuid4()))
     status = Column(Enum(VerificationStatus), default=VerificationStatus.pending, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=naive_local_now, nullable=False)
     confirmed_at = Column(DateTime, nullable=True)
 
     user = relationship("User", back_populates="verification_tokens")
@@ -126,7 +127,7 @@ class PasswordResetToken(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     token = Column(String, unique=True, nullable=False, default=lambda: uuid.uuid4().hex)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=naive_local_now, nullable=False)
     expires_at = Column(DateTime, nullable=False)
     used_at = Column(DateTime, nullable=True)
 
@@ -134,7 +135,7 @@ class PasswordResetToken(Base):
 
     @staticmethod
     def default_expiration(minutes: int = 60) -> datetime:
-        return datetime.utcnow() + timedelta(minutes=minutes)
+        return naive_local_now() + timedelta(minutes=minutes)
 
 
 class SessionToken(Base):
@@ -143,7 +144,7 @@ class SessionToken(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     token = Column(String, unique=True, nullable=False, default=lambda: uuid.uuid4().hex)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=naive_local_now, nullable=False)
 
     user = relationship("User")
 
@@ -160,9 +161,9 @@ class VotingEvent(Base):
     is_voting_enabled = Column(Boolean, default=False, nullable=False)
     delegate_limit = Column(Integer, nullable=True)
     delegate_lock_override = Column(String, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=naive_local_now, nullable=False)
     updated_at = Column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+        DateTime, default=naive_local_now, onupdate=naive_local_now, nullable=False
     )
 
     delegates = relationship(
@@ -185,7 +186,7 @@ class EventDelegate(Base):
         Integer, ForeignKey("organizations.id"), nullable=False, index=True
     )
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=naive_local_now, nullable=False)
 
     event = relationship("VotingEvent", back_populates="delegates")
     organization = relationship("Organization", back_populates="event_delegates")
@@ -198,7 +199,7 @@ class VotingAccessCode(Base):
     id = Column(Integer, primary_key=True, index=True)
     event_id = Column(Integer, ForeignKey("voting_events.id"), nullable=False, index=True)
     code = Column(String, unique=True, nullable=False, index=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=naive_local_now, nullable=False)
     used_at = Column(DateTime, nullable=True)
     used_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
 
@@ -224,7 +225,7 @@ class OrganizationInvitation(Base):
     role = Column(Enum(InvitationRole), nullable=False)
     invited_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     accepted_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=naive_local_now, nullable=False)
     accepted_at = Column(DateTime, nullable=True)
     first_name = Column(String, nullable=True)
     last_name = Column(String, nullable=True)
