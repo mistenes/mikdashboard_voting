@@ -922,7 +922,10 @@ def resolve_session_user(session: Session, token_value: str) -> Optional[User]:
 
 
 def authenticate_user(session: Session, *, email: str, password: str) -> User:
-    stmt = select(User).where(User.email == email.lower())
+    normalized_email = _normalize_email(email)
+    if not normalized_email:
+        raise AuthenticationError("Hibás bejelentkezési adatok")
+    stmt = select(User).where(User.email == normalized_email)
     user = session.scalar(stmt)
     if not user:
         raise AuthenticationError("Hibás bejelentkezési adatok")
