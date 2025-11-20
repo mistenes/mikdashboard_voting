@@ -147,11 +147,13 @@ async function fetchAuthSession(): Promise<AuthUser | null> {
 
 // --- Helper Components ---
 
+const TIME_ZONE = 'Europe/Budapest';
+
 const SyncStatus = ({ lastUpdate }: { lastUpdate: Date | null }) => {
     if (!lastUpdate) return null;
     return (
         <div className="sync-status" aria-live="polite">
-            Connected | Last sync: {lastUpdate.toLocaleTimeString()}
+            Connected | Last sync: {lastUpdate.toLocaleTimeString('hu-HU', { timeZone: TIME_ZONE })}
         </div>
     );
 };
@@ -170,6 +172,7 @@ const formatDateTime = (value: string | null | undefined) => {
         day: 'numeric',
         hour: '2-digit',
         minute: '2-digit',
+        timeZone: TIME_ZONE,
     });
 };
 
@@ -270,7 +273,7 @@ const PublicView = ({ sessionData, lastUpdate }: { sessionData: SessionData, las
             </section>
             <p className="public-note">
                 {lastUpdate
-                    ? `Utolsó frissítés: ${lastUpdate.toLocaleTimeString()}`
+                    ? `Utolsó frissítés: ${lastUpdate.toLocaleTimeString('hu-HU', { timeZone: TIME_ZONE })}`
                     : 'A kijelző automatikusan frissül.'}
             </p>
         </div>
