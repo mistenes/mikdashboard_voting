@@ -31,13 +31,17 @@ let adminVotingHandlerBound = false;
 let publicVotingHandlerBound = false;
 let votingLaunchInFlight = false;
 
+const TIME_ZONE = "Europe/Budapest";
+
 const inviteDateFormatter = new Intl.DateTimeFormat("hu-HU", {
   dateStyle: "medium",
   timeStyle: "short",
+  timeZone: TIME_ZONE,
 });
 const eventDateFormatter = new Intl.DateTimeFormat("hu-HU", {
   dateStyle: "long",
   timeStyle: "short",
+  timeZone: TIME_ZONE,
 });
 
 if (votingCodeStatus) {

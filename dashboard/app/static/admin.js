@@ -55,9 +55,12 @@ const eventState = {
 let currentDelegateHost = null;
 let delegatePanelDismissed = false;
 
+const TIME_ZONE = "Europe/Budapest";
+
 const eventDateFormatter = new Intl.DateTimeFormat("hu-HU", {
   dateStyle: "medium",
   timeStyle: "short",
+  timeZone: TIME_ZONE,
 });
 
 const actionStatusAnchors = new WeakMap();
@@ -312,11 +315,34 @@ function toDateTimeLocalValue(value) {
   if (Number.isNaN(date.getTime())) {
     return "";
   }
-  const pad = (number) => String(number).padStart(2, "0");
-  return (
-    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` +
-    `T${pad(date.getHours())}:${pad(date.getMinutes())}`
-  );
+  const parts = new Intl.DateTimeFormat("hu-HU", {
+    timeZone: TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  })
+    .formatToParts(date)
+    .reduce((result, part) => {
+      if (part.type !== "literal") {
+        result[part.type] = part.value;
+      }
+      return result;
+    }, {});
+
+  const year = parts.year || "";
+  const month = parts.month || "";
+  const day = parts.day || "";
+  const hour = parts.hour || "";
+  const minute = parts.minute || "";
+
+  if (!(year && month && day && hour && minute)) {
+    return "";
+  }
+
+  return `${year}-${month}-${day}T${hour}:${minute}`;
 }
 
 function ensureDelegateLimitOption(limit) {
